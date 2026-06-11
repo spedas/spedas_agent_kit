@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    {
+      "source": {
+        "path": "./spedas-codex"
+      },
+      "interface": {
+        "displayName": "SPEDAS Codex"
+      }
+    }
+  ]
+}

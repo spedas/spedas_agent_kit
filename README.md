@@ -84,6 +84,20 @@ spedas-mcp \
 3. Use compact summaries: paths, stats, units, coordinate frames, cache size, warnings.
 4. Treat CDAWeb/PDS downloads and SPICE kernel downloads as integration actions; make time ranges small by default.
 
+
+## Agent plugin wrappers
+
+This repo also packages the shared MCP server for coding agents:
+
+- `plugins/spedas-claude/` — Claude Code plugin named `spedas-claude`, with a Claude plugin manifest, MCP server config, SPEDAS workflow skill, and slash-command prompts.
+- `.agents/plugins/spedas-codex/` — Codex plugin named `spedas-codex`, with a Codex plugin manifest, MCP server config, and SPEDAS workflow skill. `.agents/plugins/marketplace.json` exposes it as a repo-scoped local marketplace entry.
+
+Both wrappers launch the same `spedas-mcp` MCP server and share the CDAWeb/PDS/SPICE workflow contract. Validate them with:
+
+```bash
+python scripts/validate_plugin_packages.py
+```
+
 ## Claude Code plugin path
 
 A future Claude Code plugin can package this MCP server plus:

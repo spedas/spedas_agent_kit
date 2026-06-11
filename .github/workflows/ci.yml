@@ -24,5 +24,7 @@ jobs:
           pip install -e ".[dev,mcp]"
       - name: Run tests
         run: pytest -q
+      - name: Validate plugin packages
+        run: python scripts/validate_plugin_packages.py
       - name: Run MCP list-tools smoke
         run: python scripts/smoke_mcp_list_tools.py --json
