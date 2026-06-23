@@ -1,7 +1,10 @@
 """Unified SPEDAS-oriented MCP server.
 
-This is intentionally a thin facade. It composes focused XHelio MCP/library
-packages instead of duplicating their science logic:
+The server follows Jason's A+B direction:
+
+A. Keep a stable thin facade over focused XHelio MCP/library packages.
+B. Add a minimal SPEDAS science-workflow layer so agents can plan a study before
+   dropping into CDAWeb, PDS, or SPICE-specific tools.
 
 - xhelio-cdaweb: observatory/dataset discovery, parameter metadata, CDAWeb fetch
 - xhelio-spice: spacecraft/body ephemeris, distances, coordinate transforms
@@ -33,11 +36,13 @@ def create_server() -> FastMCP:
     mcp = FastMCP(
         "spedas-mcp",
         instructions=(
-            "SPEDAS MCP facade for heliophysics workflows. Use CDAWeb tools to "
-            "discover/fetch heliophysics timeseries data, PDS tools to inspect/fetch "
-            "Planetary Plasma Interactions mission datasets, and SPICE tools to compute "
-            "spacecraft/body ephemeris and coordinate transforms. Plan/discover before "
-            "fetching; write bulk data to files; return compact metadata and paths."
+            "SPEDAS MCP facade for heliophysics workflows. Start with the SPEDAS "
+            "science-workflow tools to choose sources and plan a study, then use CDAWeb "
+            "tools to discover/fetch heliophysics timeseries data, PDS tools to "
+            "inspect/fetch Planetary Plasma Interactions mission datasets, and SPICE "
+            "tools to compute spacecraft/body ephemeris and coordinate transforms. "
+            "Plan/discover before fetching; write bulk data to files; return compact "
+            "metadata and paths."
         ),
     )
 
@@ -48,6 +53,12 @@ def create_server() -> FastMCP:
             "status": "success",
             "server": "spedas-mcp",
             "capability_groups": {
+                "science_workflows": [
+                    "search_spedas_data_sources",
+                    "plan_spedas_observation",
+                    "compare_cdaweb_pds_spice",
+                    "create_spedas_analysis_bundle",
+                ],
                 "cdaweb": [
                     "browse_observatories",
                     "load_observatory",
@@ -70,13 +81,77 @@ def create_server() -> FastMCP:
                 "cache": ["manage_cdaweb_cache", "manage_pds_cache", "manage_spice_kernels"],
             },
             "workflow": [
-                "Call browse_observatories, browse_pds_missions, or list_spice_missions first.",
+                "Start with search_spedas_data_sources or plan_spedas_observation for open-ended science requests.",
+                "Call browse_observatories, browse_pds_missions, or list_spice_missions for source-specific discovery.",
                 "Load observatory/PDS mission context before choosing datasets or frames.",
                 "Use browse_parameters before fetch_data for CDAWeb datasets.",
                 "Use browse_pds_parameters before fetch_pds_data for PDS datasets.",
+                "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
             ],
         })
+
+    @mcp.tool()
+    def search_spedas_data_sources(
+        question: str = "",
+        target: str | None = None,
+        observables: list[str] | None = None,
+    ) -> str:
+        """Recommend whether a SPEDAS request should start with CDAWeb, PDS, SPICE, or a mix."""
+        from spedas_mcp.workflows import search_data_sources
+
+        return _json(search_data_sources(question=question, target=target, observables=observables))
+
+    @mcp.tool()
+    def plan_spedas_observation(
+        science_goal: str,
+        start: str | None = None,
+        stop: str | None = None,
+        target: str | None = None,
+        observables: list[str] | None = None,
+        data_sources: list[str] | None = None,
+    ) -> str:
+        """Plan a SPEDAS science workflow before using low-level CDAWeb/PDS/SPICE tools."""
+        from spedas_mcp.workflows import plan_observation
+
+        return _json(plan_observation(
+            science_goal=science_goal,
+            start=start,
+            stop=stop,
+            target=target,
+            observables=observables,
+            data_sources=data_sources,
+        ))
+
+    @mcp.tool()
+    def compare_cdaweb_pds_spice(science_goal: str = "") -> str:
+        """Compare CDAWeb, PDS, and SPICE roles for a SPEDAS MCP science request."""
+        from spedas_mcp.workflows import compare_sources
+
+        return _json(compare_sources(science_goal=science_goal))
+
+    @mcp.tool()
+    def create_spedas_analysis_bundle(
+        study_name: str,
+        output_dir: str,
+        science_goal: str = "",
+        target: str | None = None,
+        start: str | None = None,
+        stop: str | None = None,
+        data_sources: list[str] | None = None,
+    ) -> str:
+        """Create a lightweight request/provenance bundle for a planned SPEDAS analysis."""
+        from spedas_mcp.workflows import create_analysis_bundle
+
+        return _json(create_analysis_bundle(
+            study_name=study_name,
+            output_dir=output_dir,
+            science_goal=science_goal,
+            target=target,
+            start=start,
+            stop=stop,
+            data_sources=data_sources,
+        ))
 
     @mcp.tool()
     def browse_observatories() -> str:

@@ -1,6 +1,7 @@
 """Tests for the unified SPEDAS MCP facade."""
 import asyncio
 import json
+from pathlib import Path
 
 from spedas_mcp import __version__
 from spedas_mcp.server import create_server
@@ -23,6 +24,10 @@ def test_server_has_expected_tools():
     names = {tool.name for tool in tools}
     assert {
         "spedas_overview",
+        "search_spedas_data_sources",
+        "plan_spedas_observation",
+        "compare_cdaweb_pds_spice",
+        "create_spedas_analysis_bundle",
         "browse_observatories",
         "load_observatory",
         "browse_parameters",
@@ -46,9 +51,51 @@ def test_overview_is_compact_json():
     server = create_server()
     data = json.loads(_call_tool(server, "spedas_overview"))
     assert data["status"] == "success"
+    assert "science_workflows" in data["capability_groups"]
     assert "cdaweb" in data["capability_groups"]
     assert "pds" in data["capability_groups"]
     assert "spice" in data["capability_groups"]
+
+
+def test_search_spedas_data_sources_recommends_mixed_planetary_sources():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Study Juno magnetic field measurements near Jupiter and add spacecraft geometry context",
+        "target": "Jupiter",
+        "observables": ["magnetic field", "spacecraft position"],
+    }))
+    assert data["status"] == "success"
+    assert "pds" in data["recommended_sources"]
+    assert "spice" in data["recommended_sources"]
+
+
+def test_plan_spedas_observation_returns_source_specific_steps():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Compare solar wind plasma and spacecraft geometry during an Earth bow shock interval",
+        "target": "Earth bow shock",
+        "start": "2020-01-01T00:00:00Z",
+        "stop": "2020-01-01T01:00:00Z",
+        "observables": ["plasma", "magnetic field", "position"],
+    }))
+    assert data["status"] == "success"
+    assert "cdaweb" in data["recommended_sources"]
+    assert any(step["phase"] == "preserve_provenance" for step in data["plan"])
+
+
+def test_create_spedas_analysis_bundle_writes_plan_files(tmp_path: Path):
+    server = create_server()
+    data = json.loads(_call_tool(server, "create_spedas_analysis_bundle", {
+        "study_name": "Juno Jupiter geometry test",
+        "output_dir": str(tmp_path),
+        "science_goal": "Plan a Juno magnetic field and geometry study",
+        "target": "Jupiter",
+        "data_sources": ["pds", "spice"],
+    }))
+    assert data["status"] == "success"
+    assert Path(data["paths"]["readme"]).exists()
+    assert Path(data["paths"]["request_plan"]).exists()
+    assert data["recommended_sources"] == ["pds", "spice"]
 
 
 def test_browse_observatories_uses_cdaweb_catalog():

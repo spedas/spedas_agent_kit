@@ -1,109 +1,121 @@
-# spedas-mcp
+# SPEDAS MCP
 
-Unified SPEDAS-oriented MCP server that composes focused XHelio building blocks:
+`spedas_mcp` is the SPEDAS organization MCP server for agentic heliophysics workflows. It turns the three XHelio capability layers Jason provided — CDAWeb, PDS, and SPICE — into one SPEDAS-facing MCP endpoint.
 
-- [`xhelio-cdaweb`](https://github.com/huangzesen/xhelio-cdaweb): CDAWeb observatory/dataset discovery, parameter metadata, and CDF data fetch.
-- [`xhelio-pds`](https://github.com/huangzesen/xhelio-pds): NASA PDS Planetary Plasma Interactions mission/dataset discovery, parameter metadata, and PDS data fetch.
-- [`xhelio-spice`](https://github.com/huangzesen/xhelio-spice): SPICE kernel management, spacecraft/body ephemeris, distances, and coordinate transforms.
+The design follows two layers:
 
-The goal is not to replace SPEDAS/PySPEDAS in one step. The first repo boundary is a reliable MCP layer for Claude Code, Codex, and future SPEDAS plugins.
+- **A. Stable unified facade** — preserve clear low-level tool groups for `xhelio-cdaweb`, `xhelio-pds`, and `xhelio-spice` so each package can keep evolving independently.
+- **B. SPEDAS science workflow layer** — add high-level planning tools so Claude Code, Codex, OpenCode, LingTai, or another agent can start from a science question and then choose CDAWeb/PDS/SPICE tools deliberately.
 
-## Install
+This is not a replacement for SPEDAS/PySPEDAS. It is an agent interface layer that lets MCP-capable runtimes discover, plan, fetch, compute, and preserve provenance around SPEDAS-related data workflows.
 
-```bash
-pip install spedas-mcp[mcp]
-```
+## Repository
 
-For development from source:
+- Official repo: <https://github.com/spedas/spedas_mcp>
+- Python package name: `spedas-mcp`
+- Python module / CLI module: `spedas_mcp`
 
-```bash
-pip install -e '.[dev,mcp]'
-pytest -q
-```
+## Capability map
 
-For a CI-safe MCP check that does not fetch CDAWeb data or download SPICE kernels:
+### SPEDAS workflow tools
 
-```bash
-uv run --extra mcp python scripts/smoke_mcp_list_tools.py --json
-```
+Start here for open-ended science requests.
 
-The smoke starts the stdio server with isolated temporary caches, runs MCP
-`initialize` + `list_tools`, and verifies the advertised tool names.
-
-## Run
-
-```bash
-spedas-mcp
-python -m spedas_mcp
-```
-
-Optional cache overrides:
-
-```bash
-spedas-mcp \
-  --cdaweb-cache-dir /tmp/spedas-cdaweb-cache \
-  --pds-cache-dir /tmp/spedas-pds-cache \
-  --spice-kernel-dir /tmp/spedas-spice-kernels
-```
-
-## MCP tools
-
-### Overview
-
-- `spedas_overview()` — summarize available capability groups and workflow.
+- `spedas_overview()` — compact map of available capability groups and recommended workflow.
+- `search_spedas_data_sources(question, target=None, observables=None)` — recommend whether the request should start with CDAWeb, PDS, SPICE, or a mix.
+- `plan_spedas_observation(science_goal, start=None, stop=None, target=None, observables=None, data_sources=None)` — build a source-specific plan before fetching data.
+- `compare_cdaweb_pds_spice(science_goal="")` — explain what each source family is good for and where it should not be used.
+- `create_spedas_analysis_bundle(study_name, output_dir, ...)` — create a lightweight request/provenance bundle with `requests/`, `data/`, `plots/`, `provenance/`, and `notes/` folders.
 
 ### CDAWeb tools
 
+Use for heliophysics observatory time series, CDF-style datasets, plasma/field/particle measurements, and solar-wind context.
+
 - `browse_observatories()`
 - `load_observatory(observatory_id)`
-- `browse_parameters(dataset_id, dataset_ids?)`
+- `browse_parameters(dataset_id, dataset_ids=None)`
 - `fetch_data(dataset_id, parameters, start, stop, output_dir, format="csv")`
-- `manage_cdaweb_cache(action, ...)`
+- `manage_cdaweb_cache(action, cache_dir=None)`
 
 ### PDS PPI tools
 
-- `browse_pds_missions(query?)`
+Use for Planetary Plasma Interactions mission/dataset discovery, PDS parameter metadata, and archive-backed planetary plasma products.
+
+- `browse_pds_missions(query=None)`
 - `load_pds_mission(mission_id)`
-- `browse_pds_parameters(dataset_id?, dataset_ids?)`
-- `fetch_pds_data(dataset_id, parameters, start, stop, output_dir, format="csv")`
-- `manage_pds_cache(action, ...)`
+- `browse_pds_parameters(dataset_id, dataset_ids=None)`
+- `fetch_pds_data(dataset_id, parameters, start=None, stop=None, output_dir=None, format="csv", limit=None)`
+- `manage_pds_cache(action, cache_dir=None)`
 
 ### SPICE tools
 
+Use for spacecraft/body geometry, ephemerides, distances, coordinate transforms, frames, and kernel cache management.
+
 - `list_spice_missions()`
-- `get_ephemeris(target, time, frame="ECLIPJ2000", observer="SUN", output_file="", time_end="", step="1h")`
-- `compute_distance(target1, target2, time_start, time_end, step="1h")`
-- `transform_coordinates(vector, time, from_frame, to_frame, spacecraft?)`
-- `list_coordinate_frames()`
-- `manage_spice_kernels(action, ...)`
+- `get_ephemeris(mission, target, start, stop, step="1h", frame="J2000", observer=None)`
+- `compute_distance(mission, target, observer, start, stop, step="1h")`
+- `transform_coordinates(mission, coordinates, from_frame, to_frame, epoch=None)`
+- `list_coordinate_frames(mission=None)`
+- `manage_spice_kernels(action, mission=None, cache_dir=None)`
 
-## Agent workflow contract
+## Recommended agent workflow
 
-1. Discover before fetching: `browse_observatories`, `load_observatory`, `browse_parameters`, `browse_pds_missions`, `load_pds_mission`, `browse_pds_parameters`, or `list_spice_missions` first.
-2. Bulk data must go to files (`output_dir` / `output_file`), not inline chat.
-3. Use compact summaries: paths, stats, units, coordinate frames, cache size, warnings.
-4. Treat CDAWeb/PDS downloads and SPICE kernel downloads as integration actions; make time ranges small by default.
+1. Call `spedas_overview()` to learn the available groups.
+2. For a natural-language or science-goal request, call `search_spedas_data_sources(...)` or `plan_spedas_observation(...)`.
+3. Use source-specific discovery before data movement:
+   - CDAWeb: `browse_observatories` → `load_observatory` → `browse_parameters` → `fetch_data`
+   - PDS: `browse_pds_missions` → `load_pds_mission` → `browse_pds_parameters` → `fetch_pds_data`
+   - SPICE: `list_spice_missions` / `list_coordinate_frames` → `get_ephemeris` / `compute_distance` / `transform_coordinates`
+4. For any real analysis, call `create_spedas_analysis_bundle(...)` and write fetched files under the generated `data/` directory.
+5. Return compact summaries and file paths. Do not return bulk science arrays directly in chat.
 
-
-## Agent plugin wrappers
-
-This repo also packages the shared MCP server for coding agents:
-
-- `plugins/spedas-claude/` — Claude Code plugin named `spedas-claude`, with a Claude plugin manifest, MCP server config, SPEDAS workflow skill, and slash-command prompts.
-- `.agents/plugins/spedas-codex/` — Codex plugin named `spedas-codex`, with a Codex plugin manifest, MCP server config, and SPEDAS workflow skill. `.agents/plugins/marketplace.json` exposes it as a repo-scoped local marketplace entry.
-
-Both wrappers launch the same `spedas-mcp` MCP server and share the CDAWeb/PDS/SPICE workflow contract. Validate them with:
+## Quick start for local development
 
 ```bash
-python scripts/validate_plugin_packages.py
+git clone https://github.com/spedas/spedas_mcp.git
+cd spedas_mcp
+uv sync --extra dev --extra mcp
+uv run --extra mcp python -m spedas_mcp
 ```
 
-## Claude Code plugin path
+Run tests and smoke checks:
 
-A future Claude Code plugin can package this MCP server plus:
+```bash
+uv run --extra dev --extra mcp python -m pytest -q
+uv run --extra mcp python scripts/smoke_mcp_list_tools.py --json
+uv run --extra dev --extra mcp python scripts/validate_plugin_packages.py
+```
 
-- skills: heliophysics workflow guidance;
-- commands: `/spedas:cdaweb`, `/spedas:pds`, `/spedas:spice`, `/spedas:overview`;
-- hooks: guardrails around huge downloads, missing output paths, and array-in-chat behavior.
+The list-tools smoke starts the stdio MCP server with isolated temporary cache directories, performs MCP `initialize` + `list_tools`, and verifies the expected advertised tool names. It does not fetch CDAWeb/PDS data or download SPICE kernels.
 
-The MCP layer should stay useful without Claude Code: any MCP-compatible harness can connect to `spedas-mcp`.
+## MCP client configuration
+
+Example stdio configuration:
+
+```json
+{
+  "mcpServers": {
+    "spedas": {
+      "command": "uv",
+      "args": ["run", "--extra", "mcp", "python", "-m", "spedas_mcp"],
+      "cwd": "/path/to/spedas_mcp"
+    }
+  }
+}
+```
+
+For plugin-style distribution, see:
+
+- `plugins/spedas-claude/` — Claude Code wrapper.
+- `.agents/plugins/spedas-codex/` — Codex plugin wrapper.
+- `plugins/README.md` — plugin packaging notes.
+
+## Maintainer-facing positioning
+
+`spedas_mcp` should stay thin where the underlying science packages already have strong ownership, and become thick only at the SPEDAS workflow level:
+
+- Keep CDAWeb, PDS, and SPICE domain details in their focused XHelio packages.
+- Keep this repo responsible for unified naming, agent-facing workflow, packaging, plugin wrappers, examples, and provenance conventions.
+- Add higher-level tools only when they encode reusable SPEDAS scientific method rather than one-off prompt text.
+
+See `docs/maintainer_note.md` and `docs/examples/agent_workflow.md` for the current framing.
