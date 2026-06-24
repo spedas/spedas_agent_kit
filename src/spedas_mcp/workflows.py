@@ -66,6 +66,7 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             "spice", "spicey", "spiceypy", "ephemeris", "trajectory", "geometry",
             "position", "velocity", "distance", "coordinate", "coordinates", "frame",
             "transform", "kernel", "kernels", "furnsh", "body", "spacecraft", "orbit",
+            "perihelion", "heliocentric", "closest solar approach",
         ],
     },
 }

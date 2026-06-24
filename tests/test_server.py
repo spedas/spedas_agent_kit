@@ -210,3 +210,32 @@ def test_plan_spedas_observation_reports_invalid_sources_and_missing_time():
     }))
     assert missing_time["status"] == "needs_input"
     assert set(missing_time["needs_user_input"]) == {"start", "stop"}
+
+
+def test_psp_perihelion_workflow_routes_to_cdaweb_and_spice():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Plan a Parker Solar Probe perihelion solar-wind workflow with FIELDS magnetic field, SWEAP plasma, and heliocentric geometry",
+        "target": "Parker Solar Probe",
+        "observables": ["solar wind", "magnetic field", "proton plasma", "perihelion geometry"],
+    }))
+    assert data["status"] == "success"
+    assert "cdaweb" in data["recommended_sources"]
+    assert "spice" in data["recommended_sources"]
+
+
+def test_psp_perihelion_observation_plan_has_discovery_and_geometry_steps():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Parker Solar Probe perihelion solar-wind context: combine CDAWeb PSP FIELDS/SWEAP measurements with SPICE heliocentric distance and trajectory planning",
+        "start": "2021-04-29T00:00:00Z",
+        "stop": "2021-04-29T06:00:00Z",
+        "target": "Parker Solar Probe",
+        "observables": ["solar wind", "magnetic field", "proton plasma", "heliocentric distance"],
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"][:2] == ["cdaweb", "spice"]
+    phases = {step["phase"] for step in data["plan"]}
+    assert {"discover_cdaweb", "fetch_or_compute_cdaweb", "discover_spice", "fetch_or_compute_spice"} <= phases
+    spice_step = next(step for step in data["plan"] if step["phase"] == "fetch_or_compute_spice")
+    assert "get_ephemeris" in spice_step["tools"]
