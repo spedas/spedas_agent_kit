@@ -11,7 +11,7 @@ Jason's latest direction is that the public interface should not preserve names 
 - one `data` layer;
 - data source categories under that layer;
 - science workflow tools above the data layer;
-- plugin/runtime packaging around the MCP.
+- plugin/runtime packaging around the MCP, now owned by standalone wrapper repos (`spedas_claude`, `spedas_codex`) rather than by the MCP server repo itself.
 
 ## Data source categories
 
@@ -58,7 +58,7 @@ Good fits for `spedas_mcp`:
 - data-source taxonomy;
 - cross-source planning logic;
 - provenance bundle conventions;
-- plugin wrappers and examples;
+- plugin wrapper references/examples, with canonical runtime-specific code in `spedas/spedas_claude` and `spedas/spedas_codex`;
 - compatibility smoke tests.
 
 ## Near-term next steps

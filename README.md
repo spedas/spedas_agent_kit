@@ -25,8 +25,8 @@ Start here when the user asks for data, datasets, parameters, products, archives
 - `browse_data_sources(source_type="all", query=None)` — browse SPEDAS data source categories, or drill into one category.
 - `load_data_source(source_type, source_id)` — load source context, e.g. a CDAWeb observatory, PDS mission, or SPICE mission/frame context.
 - `browse_data_parameters(source_type, dataset_id, dataset_ids=None)` — browse parameters/metadata for CDAWeb or PDS datasets; for SPICE, returns geometry/frame context.
-- `fetch_data_product(source_type, dataset_id, parameters, start=None, stop=None, output_dir=None, format="csv", limit=None)` — unified measurement/archive data fetch for CDAWeb/PDS. SPICE requests are routed to geometry tools instead.
-- `manage_data_cache(source_type="all", action="status", cache_dir=None, mission=None)` — unified cache status/maintenance for the source categories.
+- `fetch_data_product(source_type, dataset_id, parameters, start=None, stop=None, output_dir=None, format="csv", limit=None)` — unified measurement/archive data fetch for CDAWeb/PDS. SPICE requests are routed to geometry tools instead. `limit` is currently a CDAWeb-oriented safety control; PDS fetches should be narrowed by time/parameters.
+- `manage_data_cache(source_type="all", action="status", cache_dir=None, mission=None)` — unified cache status/maintenance for the source categories. Per-call `cache_dir` is reported as guidance only; backend cache roots are configured by the MCP server environment.
 
 Supported `source_type` values:
 
@@ -116,11 +116,12 @@ Example stdio configuration:
 }
 ```
 
-For plugin-style distribution, see:
+For plugin-style distribution, the canonical standalone wrappers now live in separate SPEDAS org repos:
 
-- `plugins/spedas-claude/` — Claude Code wrapper.
-- `.agents/plugins/spedas-codex/` — Codex plugin wrapper.
-- `plugins/README.md` — plugin packaging notes.
+- <https://github.com/spedas/spedas_claude> — Claude Code plugin wrapper.
+- <https://github.com/spedas/spedas_codex> — Codex plugin wrapper.
+
+The in-repo `plugins/spedas-claude/` and `.agents/plugins/spedas-codex/` directories remain lightweight development examples and compatibility fixtures; runtime-specific packaging should evolve in the standalone repos while this repository owns the MCP server itself.
 
 ## Maintainer-facing positioning
 

@@ -1,30 +1,36 @@
 ---
 name: spedas-workflow
-description: Use spedas-mcp from Codex for safe CDAWeb, PDS PPI, and SPICE heliophysics workflows.
+description: Use the spedas-mcp MCP server through the unified SPEDAS data layer and science workflow layer.
 ---
 
-# SPEDAS MCP workflow for Codex
+# SPEDAS MCP workflow
 
-Use this skill when a task involves SPEDAS/PySPEDAS modernization, heliophysics time series, CDAWeb, NASA PDS Planetary Plasma Interactions datasets, or SPICE ephemeris/coordinate work.
+The plugin exposes one MCP server named `spedas`. Start with `spedas_overview()` when uncertain.
 
-## Tool map
+Prefer the public SPEDAS mental model:
 
-Use the bundled `spedas` MCP server.
+1. science workflow layer;
+2. unified data layer;
+3. data source categories: `cdaweb`, `pds`, `spice`;
+4. internal backend packages only when maintaining/debugging the MCP.
 
-- Overview: `spedas_overview`
-- CDAWeb: `browse_observatories`, `load_observatory`, `browse_parameters`, `fetch_data`, `manage_cdaweb_cache`
-- PDS PPI: `browse_pds_missions`, `load_pds_mission`, `browse_pds_parameters`, `fetch_pds_data`, `manage_pds_cache`
-- SPICE: `list_spice_missions`, `get_ephemeris`, `compute_distance`, `transform_coordinates`, `list_coordinate_frames`, `manage_spice_kernels`
+## Preferred tools
 
-## Operating procedure
+- `search_spedas_data_sources`
+- `plan_spedas_observation`
+- `compare_cdaweb_pds_spice`
+- `create_spedas_analysis_bundle`
+- `browse_data_sources(source_type="all"|"cdaweb"|"pds"|"spice")`
+- `load_data_source(source_type, source_id)`
+- `browse_data_parameters(source_type, dataset_id, ...)`
+- `fetch_data_product(source_type, ...)`
+- `manage_data_cache(source_type, ...)`
 
-1. Discover first. Call `spedas_overview`, then the relevant browse/load tool.
-2. Inspect metadata before fetching (`browse_parameters` for CDAWeb, `browse_pds_parameters` for PDS).
-3. Use small time windows by default.
-4. Write any fetched data or trajectory products to explicit files, not chat.
-5. Summarize with paths, row counts, units, time range, cache side effects, and known caveats.
-6. Separate MCP/server failures from source-archive metadata gaps.
+Compatibility low-level tools remain available for maintenance/debugging, but new agent workflows should start with the unified data-layer tools.
 
-## Known PDS caveat
+## Guardrails
 
-A full `xhelio-pds` MCP metadata audit found that the MCP transport and mission catalog surfaces work, but many PDS datasets still have metadata/label resolution gaps. If `browse_pds_parameters` fails with “Could not fetch metadata,” report it as a dataset metadata coverage issue and suggest a targeted fix or fallback inspection.
+- Do not fetch large intervals until source_type, dataset_id, parameters, time range, output_dir, and provenance plan are clear.
+- Prefer artifact paths, hashes, compact summaries, and provenance over pasted raw arrays/CDF contents.
+- For PDS fetches, narrow by time and parameters; `limit` is not a PDS backend control.
+- For SPICE geometry, use geometry tools after discovery; do not expect measurement parameters.

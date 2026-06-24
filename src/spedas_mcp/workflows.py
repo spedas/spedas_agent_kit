@@ -23,9 +23,9 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             "Fast browse-then-fetch workflows for CDF-like time intervals",
         ],
         "not_for": ["spacecraft/body geometry by itself", "PDS-only planetary archive products"],
-        "discovery_tools": ["browse_observatories", "load_observatory", "browse_parameters"],
-        "fetch_tools": ["fetch_data"],
-        "cache_tools": ["manage_cdaweb_cache"],
+        "discovery_tools": ["browse_data_sources(source_type=\"cdaweb\")", "load_data_source(source_type=\"cdaweb\", source_id=...)", "browse_data_parameters(source_type=\"cdaweb\", dataset_id=...)"],
+        "fetch_tools": ["fetch_data_product(source_type=\"cdaweb\", ...)"],
+        "cache_tools": ["manage_data_cache(source_type=\"cdaweb\")"],
         "keywords": [
             "cdaweb", "omni", "mms", "themis", "cluster", "wind", "ace", "dscovr",
             "geotail", "psp", "solo", "heliophysics", "magnetosphere", "ionosphere",
@@ -41,9 +41,9 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             "Parameter metadata and file-backed fetches for archived products",
         ],
         "not_for": ["generic near-Earth CDAWeb observatories", "pure geometry without archived data"],
-        "discovery_tools": ["browse_pds_missions", "load_pds_mission", "browse_pds_parameters"],
-        "fetch_tools": ["fetch_pds_data"],
-        "cache_tools": ["manage_pds_cache"],
+        "discovery_tools": ["browse_data_sources(source_type=\"pds\")", "load_data_source(source_type=\"pds\", source_id=...)", "browse_data_parameters(source_type=\"pds\", dataset_id=...)"],
+        "fetch_tools": ["fetch_data_product(source_type=\"pds\", ...)"],
+        "cache_tools": ["manage_data_cache(source_type=\"pds\")"],
         "keywords": [
             "pds", "ppi", "planetary", "jupiter", "saturn", "mars", "venus", "mercury",
             "uranus", "neptune", "juno", "cassini", "voyager", "galileo", "maven",
@@ -59,9 +59,9 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             "Coordinate-frame-aware observation planning",
         ],
         "not_for": ["fetching plasma data values by itself", "dataset/parameter metadata"],
-        "discovery_tools": ["list_spice_missions", "list_coordinate_frames"],
+        "discovery_tools": ["browse_data_sources(source_type=\"spice\")", "load_data_source(source_type=\"spice\", source_id=...)", "browse_data_parameters(source_type=\"spice\", dataset_id=...)"],
         "fetch_tools": ["get_ephemeris", "compute_distance", "transform_coordinates"],
-        "cache_tools": ["manage_spice_kernels"],
+        "cache_tools": ["manage_data_cache(source_type=\"spice\")"],
         "keywords": [
             "spice", "spicey", "spiceypy", "ephemeris", "trajectory", "geometry",
             "position", "velocity", "distance", "coordinate", "coordinates", "frame",
@@ -153,7 +153,7 @@ def search_data_sources(
         "agent_guidance": [
             "Use this as a planning step; do not fetch bulk data until dataset/parameter choices are explicit.",
             "For mixed science questions, combine source families: CDAWeb/PDS for measurements, SPICE for geometry.",
-            "When uncertain, call plan_spedas_observation with the science goal and time range before using low-level tools.",
+            "When uncertain, call plan_spedas_observation with the science goal and time range before fetching or computing products.",
         ],
     }
 
@@ -190,7 +190,8 @@ def plan_observation(
 ) -> dict[str, Any]:
     """Plan a SPEDAS observation workflow without fetching data."""
     ranked = _ranked_sources(question=science_goal, target=target, observables=observables)
-    requested_sources = [s.lower() for s in _as_list(data_sources)]
+    requested_sources = [s.lower().replace("-", "_") for s in _as_list(data_sources)]
+    invalid_sources = [s for s in requested_sources if s not in SOURCE_PROFILES]
     if requested_sources:
         selected = [s for s in requested_sources if s in SOURCE_PROFILES]
     else:
@@ -198,6 +199,9 @@ def plan_observation(
         if not selected:
             selected = [entry["source"] for entry in ranked]
 
+    needs_user_input = [
+        field for field, value in {"start": start, "stop": stop, "science_goal": science_goal}.items() if not value
+    ]
     steps: list[dict[str, Any]] = [
         {
             "phase": "scope",
@@ -205,9 +209,8 @@ def plan_observation(
             "target": target,
             "time_range": {"start": start, "stop": stop},
             "observables": _as_list(observables),
-            "needs_user_input": [
-                field for field, value in {"start": start, "stop": stop, "science_goal": science_goal}.items() if not value
-            ],
+            "needs_user_input": needs_user_input,
+            "invalid_sources": invalid_sources,
         }
     ]
     for source in selected:
@@ -217,6 +220,11 @@ def plan_observation(
             "source": source,
             "rationale": profile["best_for"],
             "tools": profile["discovery_tools"],
+            "next_unified_calls": [
+                {"tool": "browse_data_sources", "args": {"source_type": source}},
+                {"tool": "load_data_source", "args": {"source_type": source, "source_id": "<choose from browse_data_sources>"}},
+                {"tool": "browse_data_parameters", "args": {"source_type": source, "dataset_id": "<choose from load_data_source>"}},
+            ],
             "output": "candidate missions/datasets/parameters/frames; no bulk data yet",
         })
         steps.append({
@@ -239,11 +247,20 @@ def plan_observation(
             "record package versions and MCP tool names in the analysis note",
         ],
     })
+    if invalid_sources and not selected:
+        status = "error"
+    elif invalid_sources or needs_user_input:
+        status = "needs_input"
+    else:
+        status = "success"
+
     return {
-        "status": "success",
+        "status": status,
         "recommended_sources": selected,
         "ranked_sources": ranked,
         "plan": steps,
+        "needs_user_input": needs_user_input,
+        "invalid_sources": invalid_sources,
         "low_level_tools_remain_available": True,
     }
 
@@ -299,7 +316,7 @@ def create_analysis_bundle(
             "## Next actions",
             "",
             "1. Review `requests/spedas_plan.json`.",
-            "2. Use discovery tools before any data fetch.",
+            "2. Use unified data-layer discovery tools before any data fetch.",
             "3. Write fetched files under `data/` and provenance under `provenance/`.",
             "4. Keep plots and derived artifacts separate from raw/archive data.",
             "",
@@ -323,5 +340,5 @@ def create_analysis_bundle(
             **{name: str(path) for name, path in subdirs.items()},
         },
         "recommended_sources": plan["recommended_sources"],
-        "next_tools": ["search_spedas_data_sources", "plan_spedas_observation", "browse_observatories", "browse_pds_missions", "list_spice_missions"],
+        "next_tools": ["search_spedas_data_sources", "plan_spedas_observation", "browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
     }

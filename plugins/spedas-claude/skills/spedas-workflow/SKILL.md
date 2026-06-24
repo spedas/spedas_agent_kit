@@ -1,41 +1,36 @@
 ---
 name: spedas-workflow
-description: Use the spedas-mcp MCP server for safe SPEDAS/CDAWeb/PDS/SPICE heliophysics workflows in Claude Code.
+description: Use the spedas-mcp MCP server through the unified SPEDAS data layer and science workflow layer.
 ---
 
-# SPEDAS MCP workflow for Claude Code
-
-Use this skill when a task involves SPEDAS, PySPEDAS, heliophysics time series, CDAWeb datasets, NASA PDS Planetary Plasma Interactions datasets, or SPICE ephemeris/coordinate work.
-
-## Capability map
+# SPEDAS MCP workflow
 
 The plugin exposes one MCP server named `spedas`. Start with `spedas_overview()` when uncertain.
 
-- CDAWeb: `browse_observatories`, `load_observatory`, `browse_parameters`, `fetch_data`, `manage_cdaweb_cache`.
-- PDS PPI: `browse_pds_missions`, `load_pds_mission`, `browse_pds_parameters`, `fetch_pds_data`, `manage_pds_cache`.
-- SPICE: `list_spice_missions`, `get_ephemeris`, `compute_distance`, `transform_coordinates`, `list_coordinate_frames`, `manage_spice_kernels`.
+Prefer the public SPEDAS mental model:
 
-## Default workflow
+1. science workflow layer;
+2. unified data layer;
+3. data source categories: `cdaweb`, `pds`, `spice`;
+4. internal backend packages only when maintaining/debugging the MCP.
 
-1. Discover first: call `spedas_overview()`, then the relevant browse/load tool.
-2. Inspect parameters before fetching data:
-   - CDAWeb: `browse_parameters(dataset_id=...)`
-   - PDS: `browse_pds_parameters(dataset_id=...)`
-3. Keep data ranges small by default. Prefer minutes/hours/days for examples, not mission-scale downloads.
-4. Always write bulk data to files with `output_dir` or `output_file`. Do not ask the MCP server to return arrays inline.
-5. Return compact summaries to the user: file paths, row counts, parameter names, units, time ranges, cache notes, and caveats.
-6. Treat downloads, cache refreshes, and SPICE kernel loads as integration actions. Explain expected side effects before broad operations.
+## Preferred tools
+
+- `search_spedas_data_sources`
+- `plan_spedas_observation`
+- `compare_cdaweb_pds_spice`
+- `create_spedas_analysis_bundle`
+- `browse_data_sources(source_type="all"|"cdaweb"|"pds"|"spice")`
+- `load_data_source(source_type, source_id)`
+- `browse_data_parameters(source_type, dataset_id, ...)`
+- `fetch_data_product(source_type, ...)`
+- `manage_data_cache(source_type, ...)`
+
+Compatibility low-level tools remain available for maintenance/debugging, but new agent workflows should start with the unified data-layer tools.
 
 ## Guardrails
 
-- Do not bulk-fetch every dataset or every mission unless the human explicitly asks and understands the archive size.
-- For PDS, remember the audit result: many datasets currently fail metadata resolution; report metadata/label gaps separately from MCP transport failures.
-- For SPICE, `get_ephemeris` may download kernels; use `list_spice_missions` and cache status first when possible.
-- For CDAWeb/PDS data fetches, make output locations explicit and stable.
-
-## Useful first prompts
-
-- “Use `spedas_overview` and summarize which CDAWeb, PDS, and SPICE tools are available.”
-- “Find a Juno PDS FGM dataset, inspect its parameters, and propose a small fetch window.”
-- “List PSP/SPICE support and compute a short ephemeris CSV for a tiny interval.”
-- “Compare whether a question should use CDAWeb, PDS PPI, or SPICE.”
+- Do not fetch large intervals until source_type, dataset_id, parameters, time range, output_dir, and provenance plan are clear.
+- Prefer artifact paths, hashes, compact summaries, and provenance over pasted raw arrays/CDF contents.
+- For PDS fetches, narrow by time and parameters; `limit` is not a PDS backend control.
+- For SPICE geometry, use geometry tools after discovery; do not expect measurement parameters.

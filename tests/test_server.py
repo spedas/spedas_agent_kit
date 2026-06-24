@@ -150,3 +150,63 @@ def test_browse_pds_parameters_uses_bundled_metadata():
     assert data["status"] == "success"
     assert data.get("dataset_id") == "pds3:JNO-J-3-FGM-CAL-V1.0:DATA"
     assert data.get("parameters")
+
+def test_unified_pds_source_ids_round_trip_from_browse_to_load():
+    server = create_server()
+    browsed = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": "cassini"}))
+    mission_id = browsed["payload"][0]["id"]
+    assert mission_id.endswith("_PPI")
+
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "pds", "source_id": mission_id}))
+    assert loaded["status"] == "success"
+    assert loaded["normalized_source_id"] == mission_id.removesuffix("_PPI").lower()
+
+
+def test_unified_spice_load_and_parameter_browse_do_not_pass_mission_kwarg():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "PSP"}))
+    assert loaded["status"] == "success"
+    assert loaded["payload"]
+
+    params = json.loads(_call_tool(server, "browse_data_parameters", {"source_type": "spice", "dataset_id": "PSP"}))
+    assert params["status"] == "success"
+    assert params["payload"]
+
+
+def test_unified_pds_fetch_rejects_unsupported_limit_cleanly(tmp_path: Path):
+    server = create_server()
+    data = json.loads(_call_tool(server, "fetch_data_product", {
+        "source_type": "pds",
+        "dataset_id": "pds3:JNO-J-3-FGM-CAL-V1.0:DATA",
+        "parameters": ["BX"],
+        "start": "2016-07-01T00:00:00Z",
+        "stop": "2016-07-01T00:01:00Z",
+        "output_dir": str(tmp_path),
+        "limit": 1,
+    }))
+    assert data["status"] == "error"
+    assert data["unsupported_argument"] == "limit"
+
+
+def test_unified_cache_manager_does_not_forward_cache_dir_kwarg():
+    server = create_server()
+    data = json.loads(_call_tool(server, "manage_data_cache", {"source_type": "spice", "action": "status", "cache_dir": "/tmp/ignored"}))
+    assert data["status"] == "success"
+    assert data["note"]
+
+
+def test_plan_spedas_observation_reports_invalid_sources_and_missing_time():
+    server = create_server()
+    invalid = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "test",
+        "data_sources": ["madeup"],
+    }))
+    assert invalid["status"] == "error"
+    assert invalid["invalid_sources"] == ["madeup"]
+
+    missing_time = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "test",
+        "data_sources": ["cdaweb"],
+    }))
+    assert missing_time["status"] == "needs_input"
+    assert set(missing_time["needs_user_input"]) == {"start", "stop"}

@@ -1,13 +1,15 @@
-# Codex plugin: spedas-codex
+# Codex plugin fixture: spedas-codex
 
-This is the repo-scoped `spedas-codex` Codex plugin for the shared `spedas-mcp` MCP server.
+This in-repo fixture mirrors the standalone <https://github.com/spedas/spedas_codex>
+plugin wrapper for the shared `spedas_mcp` MCP server.
 
-It contributes:
+It contains:
 
 - `.codex-plugin/plugin.json` — Codex plugin manifest.
 - `.mcp.json` — plugin-scoped MCP server entry named `spedas`.
-- `skills/spedas-workflow/SKILL.md` — reusable Codex guidance for CDAWeb, PDS PPI, and SPICE workflows.
+- `skills/spedas-workflow/SKILL.md` — reusable Codex guidance for the unified
+  SPEDAS data layer and science workflow layer.
 
-The repo also includes `.agents/plugins/marketplace.json`, pointing at `./spedas-codex`, so Codex can treat this repository as a local marketplace source while developing the plugin.
-
-The MCP server command uses `uvx` against the GitHub repo. For local development, install the package locally or edit `.mcp.json` to point at your checkout.
+The repo also includes `.agents/plugins/marketplace.json`, pointing at
+`./spedas-codex`, so Codex can treat this repository as a local marketplace
+source while developing the plugin fixture.

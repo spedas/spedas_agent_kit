@@ -537,12 +537,31 @@ def create_server() -> FastMCP:
         }
         return aliases.get(value, value)
 
+    def _payload_has_error(payload: Any) -> bool:
+        if isinstance(payload, dict):
+            status = str(payload.get("status", "")).lower()
+            if status in {"error", "failed", "failure"}:
+                return True
+            if payload.get("error"):
+                return True
+            return any(_payload_has_error(value) for value in payload.values())
+        if isinstance(payload, list):
+            return any(_payload_has_error(value) for value in payload)
+        return False
+
     def _wrap_data_payload(source_type: str, raw: str, **extra: Any) -> str:
         try:
             payload = json.loads(raw)
         except Exception:
             payload = raw
-        return _json({"status": "success", "source_type": source_type, "payload": payload, **extra})
+        status = "error" if _payload_has_error(payload) else "success"
+        return _json({"status": status, "source_type": source_type, "payload": payload, **extra})
+
+    def _normalize_pds_source_id(source_id: str) -> str:
+        value = (source_id or "").strip().lower().replace("-", "_")
+        if value.endswith("_ppi"):
+            value = value[:-4]
+        return value
 
     @mcp.tool()
     def browse_data_sources(source_type: str = "all", query: str | None = None) -> str:
@@ -590,9 +609,20 @@ def create_server() -> FastMCP:
         if source == "cdaweb":
             return _wrap_data_payload(source, load_observatory(source_id), source_id=source_id)
         if source == "pds":
-            return _wrap_data_payload(source, load_pds_mission(source_id), source_id=source_id)
+            normalized_source_id = _normalize_pds_source_id(source_id)
+            return _wrap_data_payload(
+                source,
+                load_pds_mission(normalized_source_id),
+                source_id=source_id,
+                normalized_source_id=normalized_source_id,
+            )
         if source == "spice":
-            return _wrap_data_payload(source, list_coordinate_frames(mission=source_id), source_id=source_id, note="For SPICE, loading a data source returns known coordinate frames for the mission when available.")
+            return _wrap_data_payload(
+                source,
+                list_coordinate_frames(),
+                source_id=source_id,
+                note="SPICE source loading returns the global coordinate-frame catalog; use geometry tools with mission/target arguments for mission-specific context.",
+            )
         return _json({"status": "error", "error": f"unknown source_type: {source_type}", "allowed": ["cdaweb", "pds", "spice"]})
 
     @mcp.tool()
@@ -608,7 +638,12 @@ def create_server() -> FastMCP:
         if source == "pds":
             return _wrap_data_payload(source, browse_pds_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids), dataset_id=dataset_id)
         if source == "spice":
-            return _wrap_data_payload(source, list_coordinate_frames(mission=dataset_id), dataset_id=dataset_id, note="SPICE does not expose measurement parameters; use frames/targets/observer geometry instead.")
+            return _wrap_data_payload(
+                source,
+                list_coordinate_frames(),
+                dataset_id=dataset_id,
+                note="SPICE does not expose measurement parameters; use frames/targets/observer geometry instead.",
+            )
         return _json({"status": "error", "error": f"unknown source_type: {source_type}", "allowed": ["cdaweb", "pds", "spice"]})
 
     @mcp.tool()
@@ -629,7 +664,16 @@ def create_server() -> FastMCP:
                 return _json({"status": "error", "error": "cdaweb fetch requires start, stop, and output_dir"})
             return _wrap_data_payload(source, fetch_data(dataset_id=dataset_id, parameters=parameters, start=start, stop=stop, output_dir=output_dir, format=format), dataset_id=dataset_id)
         if source == "pds":
-            return _wrap_data_payload(source, fetch_pds_data(dataset_id=dataset_id, parameters=parameters, start=start, stop=stop, output_dir=output_dir, format=format, limit=limit), dataset_id=dataset_id)
+            if start is None or stop is None or output_dir is None:
+                return _json({"status": "error", "source_type": "pds", "error": "pds fetch requires start, stop, and output_dir"})
+            if limit is not None:
+                return _json({
+                    "status": "error",
+                    "source_type": "pds",
+                    "error": "PDS fetch_data_product does not support a limit argument yet; narrow start/stop/parameters or omit limit.",
+                    "unsupported_argument": "limit",
+                })
+            return _wrap_data_payload(source, fetch_pds_data(dataset_id=dataset_id, parameters=parameters, start=start, stop=stop, output_dir=output_dir, format=format), dataset_id=dataset_id)
         if source == "spice":
             return _json({
                 "status": "error",
@@ -648,22 +692,26 @@ def create_server() -> FastMCP:
     ) -> str:
         """Manage data-layer caches by source type."""
         source = _normalize_source_type(source_type)
+        cache_note = None
+        if cache_dir:
+            cache_note = "cache_dir is configured by the MCP server/environment; unified manage_data_cache does not override backend cache roots per call."
         if source == "all":
             return _json({
                 "status": "success",
                 "source_type": "all",
                 "caches": {
-                    "cdaweb": json.loads(manage_cdaweb_cache(action=action, cache_dir=cache_dir)),
-                    "pds": json.loads(manage_pds_cache(action=action, cache_dir=cache_dir)),
-                    "spice": json.loads(manage_spice_kernels(action=action, mission=mission, cache_dir=cache_dir)),
+                    "cdaweb": json.loads(manage_cdaweb_cache(action=action)),
+                    "pds": json.loads(manage_pds_cache(action=action, mission=mission)),
+                    "spice": json.loads(manage_spice_kernels(action=action, mission=mission)),
                 },
+                "note": cache_note,
             })
         if source == "cdaweb":
-            return _wrap_data_payload(source, manage_cdaweb_cache(action=action, cache_dir=cache_dir))
+            return _wrap_data_payload(source, manage_cdaweb_cache(action=action), note=cache_note)
         if source == "pds":
-            return _wrap_data_payload(source, manage_pds_cache(action=action, cache_dir=cache_dir))
+            return _wrap_data_payload(source, manage_pds_cache(action=action, mission=mission), note=cache_note)
         if source == "spice":
-            return _wrap_data_payload(source, manage_spice_kernels(action=action, mission=mission, cache_dir=cache_dir))
+            return _wrap_data_payload(source, manage_spice_kernels(action=action, mission=mission), note=cache_note)
         return _json({"status": "error", "error": f"unknown source_type: {source_type}", "allowed": ["all", "cdaweb", "pds", "spice"]})
 
     return mcp
