@@ -73,24 +73,35 @@ def create_server() -> FastMCP:
                     "transform_coordinates",
                     "list_coordinate_frames",
                 ],
-                "compatibility_low_level": [
-                    "browse_observatories",
-                    "load_observatory",
-                    "browse_parameters",
-                    "fetch_data",
-                    "browse_pds_missions",
-                    "load_pds_mission",
-                    "browse_pds_parameters",
-                    "fetch_pds_data",
-                    "manage_cdaweb_cache",
-                    "manage_pds_cache",
-                    "manage_spice_kernels",
-                ],
+                "compatibility_low_level": {
+                    "status": "supported compatibility surface; not the preferred starting point",
+                    "prefer": [
+                        "browse_data_sources",
+                        "load_data_source",
+                        "browse_data_parameters",
+                        "fetch_data_product",
+                        "manage_data_cache",
+                    ],
+                    "available_for_existing_clients": [
+                        "browse_observatories",
+                        "load_observatory",
+                        "browse_parameters",
+                        "fetch_data",
+                        "browse_pds_missions",
+                        "load_pds_mission",
+                        "browse_pds_parameters",
+                        "fetch_pds_data",
+                        "manage_cdaweb_cache",
+                        "manage_pds_cache",
+                        "manage_spice_kernels",
+                    ],
+                },
             },
             "workflow": [
                 "Start with search_spedas_data_sources or plan_spedas_observation for open-ended science requests.",
                 "Use browse_data_sources(source_type='all') to inspect SPEDAS data-source categories.",
                 "Use load_data_source, browse_data_parameters, fetch_data_product, and manage_data_cache for the unified data layer.",
+                "Treat source-specific CDAWeb/PDS cache/fetch/browse tools as compatibility tools for existing clients; do not choose them first for new agent workflows.",
                 "Use geometry tools directly when the request is SPICE-specific ephemeris, frame, distance, or transform work.",
                 "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
@@ -117,7 +128,7 @@ def create_server() -> FastMCP:
         observables: list[str] | None = None,
         data_sources: list[str] | None = None,
     ) -> str:
-        """Plan a SPEDAS science workflow before using low-level CDAWeb/PDS/SPICE tools."""
+        """Plan a SPEDAS science workflow before choosing data-layer or geometry calls."""
         from spedas_mcp.workflows import plan_observation
 
         return _json(plan_observation(
@@ -161,21 +172,21 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def browse_observatories() -> str:
-        """List CDAWeb observatories with descriptions, dataset counts, and instruments."""
+        """Compatibility: list CDAWeb observatories. Prefer browse_data_sources(source_type="cdaweb") for new workflows."""
         from cdawebmcp.catalog import browse_observatories as _browse_observatories
 
         return _json(_browse_observatories())
 
     @mcp.tool()
     def load_observatory(observatory_id: str) -> str:
-        """Load CDAWeb observatory prompt/catalog for a lowercase observatory stem."""
+        """Compatibility: load CDAWeb observatory context. Prefer load_data_source(source_type="cdaweb", source_id=...)."""
         from cdawebmcp.prompts import build_observatory_prompt
 
         return build_observatory_prompt(observatory_id)
 
     @mcp.tool()
     def browse_parameters(dataset_id: str, dataset_ids: list[str] | None = None) -> str:
-        """Browse variables/metadata for one or more CDAWeb dataset IDs."""
+        """Compatibility: browse CDAWeb variables. Prefer browse_data_parameters(source_type="cdaweb", ...)."""
         from cdawebmcp.metadata import browse_parameters as _browse_parameters
 
         return _json(_browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids))
@@ -189,7 +200,7 @@ def create_server() -> FastMCP:
         output_dir: str,
         format: Literal["csv", "json"] = "csv",
     ) -> str:
-        """Fetch CDAWeb timeseries data, write a file, and return metadata/stats only."""
+        """Compatibility: fetch CDAWeb time-series data. Prefer fetch_data_product(source_type="cdaweb", ...)."""
         import pandas as pd
         from cdawebmcp.fetch import fetch_data as _fetch_data
 
@@ -245,21 +256,21 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def browse_pds_missions(query: str | None = None) -> str:
-        """List PDS PPI missions/spacecraft with descriptions, dataset counts, and instruments."""
+        """Compatibility: list PDS PPI missions. Prefer browse_data_sources(source_type="pds") for new workflows."""
         from pdsmcp.catalog import browse_missions as _browse_missions
 
         return _json(_browse_missions(query=query))
 
     @mcp.tool()
     def load_pds_mission(mission_id: str) -> str:
-        """Load PDS PPI mission prompt/catalog for a lowercase mission stem."""
+        """Compatibility: load PDS mission context. Prefer load_data_source(source_type="pds", source_id=...)."""
         from pdsmcp.prompts import build_mission_prompt
 
         return build_mission_prompt(mission_id)
 
     @mcp.tool()
     def browse_pds_parameters(dataset_id: str | None = None, dataset_ids: list[str] | None = None) -> str:
-        """Browse variables/metadata for one or more PDS PPI dataset IDs."""
+        """Compatibility: browse PDS variables. Prefer browse_data_parameters(source_type="pds", ...)."""
         from pdsmcp.metadata import browse_parameters as _browse_parameters
 
         return _json(_browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids))
@@ -273,7 +284,7 @@ def create_server() -> FastMCP:
         output_dir: str,
         format: Literal["csv", "json"] = "csv",
     ) -> str:
-        """Fetch PDS PPI timeseries data, write a file, and return metadata/stats only."""
+        """Compatibility: fetch PDS archive data. Prefer fetch_data_product(source_type="pds", ...)."""
         import re
 
         import pandas as pd
@@ -447,7 +458,7 @@ def create_server() -> FastMCP:
         dry_run: bool = True,
         detail: bool = False,
     ) -> str:
-        """Manage CDAWeb cache and metadata/catalog refresh operations."""
+        """Compatibility: manage CDAWeb cache. Prefer manage_data_cache(source_type="cdaweb", ...)."""
         from cdawebmcp.cache import cache_clean, cache_status, rebuild_catalog, refresh_metadata, refresh_time_ranges
 
         if action == "status":
@@ -473,7 +484,7 @@ def create_server() -> FastMCP:
         detail: bool = False,
         force: bool = False,
     ) -> str:
-        """Manage PDS cache and metadata/catalog refresh operations."""
+        """Compatibility: manage PDS cache. Prefer manage_data_cache(source_type="pds", ...)."""
         from pdsmcp.cache import build_metadata, cache_clean, cache_status, refresh_metadata, refresh_time_ranges, rebuild_catalog
 
         if action == "status":
@@ -497,7 +508,7 @@ def create_server() -> FastMCP:
         mission: str | None = None,
         filenames: list[str] | None = None,
     ) -> str:
-        """Manage SPICE kernels and cache state."""
+        """Manage SPICE kernels/cache; use manage_data_cache(source_type="spice") for data-layer cache status."""
         from xhelio_spice.kernel_manager import check_remote_kernels, get_kernel_manager
 
         km = get_kernel_manager()
@@ -565,7 +576,7 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def browse_data_sources(source_type: str = "all", query: str | None = None) -> str:
-        """Browse SPEDAS data-source categories through one data-layer entry point."""
+        """Primary data layer: browse SPEDAS source categories (CDAWeb, PDS, SPICE)."""
         source = _normalize_source_type(source_type)
         if source == "all":
             return _json({
@@ -604,7 +615,7 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def load_data_source(source_type: str, source_id: str) -> str:
-        """Load metadata/context for one SPEDAS data source category item."""
+        """Primary data layer: load source context for a CDAWeb observatory, PDS mission, or SPICE mission/frame."""
         source = _normalize_source_type(source_type)
         if source == "cdaweb":
             return _wrap_data_payload(source, load_observatory(source_id), source_id=source_id)
@@ -631,7 +642,7 @@ def create_server() -> FastMCP:
         dataset_id: str,
         dataset_ids: list[str] | None = None,
     ) -> str:
-        """Browse dataset parameters through the unified SPEDAS data layer."""
+        """Primary data layer: browse parameters/metadata using source_type rather than source-specific tool names."""
         source = _normalize_source_type(source_type)
         if source == "cdaweb":
             return _wrap_data_payload(source, browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids), dataset_id=dataset_id)
@@ -657,7 +668,7 @@ def create_server() -> FastMCP:
         format: Literal["csv", "json"] = "csv",
         limit: int | None = None,
     ) -> str:
-        """Fetch a measurement/archive product through the unified SPEDAS data layer."""
+        """Primary data layer: fetch CDAWeb/PDS measurement or archive products; route SPICE geometry to geometry tools."""
         source = _normalize_source_type(source_type)
         if source == "cdaweb":
             if start is None or stop is None or output_dir is None:
@@ -690,7 +701,7 @@ def create_server() -> FastMCP:
         cache_dir: str | None = None,
         mission: str | None = None,
     ) -> str:
-        """Manage data-layer caches by source type."""
+        """Primary data layer: manage cache status/maintenance by source_type."""
         source = _normalize_source_type(source_type)
         cache_note = None
         if cache_dir:

@@ -65,7 +65,7 @@ These remain available for clients that already know the source-specific operati
 - PDS: `browse_pds_missions`, `load_pds_mission`, `browse_pds_parameters`, `fetch_pds_data`, `manage_pds_cache`
 - SPICE: the geometry tools above plus `manage_spice_kernels`
 
-Future cleanup can hide or rename some compatibility tools if we decide to make a breaking API pass. For now the primary docs and `spedas_overview` route users to the unified data layer.
+Compatibility tools are supported for existing clients, but their MCP descriptions now mark them as compatibility entries and point to the unified alternatives. Hiding, renaming, or moving them would be a breaking API pass and should not happen without maintainer review. See `docs/public_api_strategy.md` for the compatibility map and deprecation guidance.
 
 ## Recommended agent workflow
 

@@ -62,6 +62,18 @@ def test_overview_is_compact_json():
     assert "compatibility_low_level" in data["capability_groups"]
 
 
+
+def test_tool_descriptions_mark_primary_and_compatibility_surfaces():
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
+    descriptions = {tool.name: tool.description for tool in tools}
+    assert descriptions["browse_data_sources"].startswith("Primary data layer")
+    assert descriptions["fetch_data_product"].startswith("Primary data layer")
+    assert descriptions["browse_observatories"].startswith("Compatibility:")
+    assert "Prefer browse_data_sources" in descriptions["browse_observatories"]
+    assert descriptions["fetch_data"].startswith("Compatibility:")
+    assert "Prefer fetch_data_product" in descriptions["fetch_data"]
+
 def test_browse_data_sources_lists_spedas_source_categories():
     server = create_server()
     data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "all"}))
