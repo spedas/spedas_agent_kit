@@ -287,3 +287,108 @@ def test_psp_perihelion_observation_plan_has_discovery_and_geometry_steps():
     assert {"discover_cdaweb", "fetch_or_compute_cdaweb", "discover_spice", "fetch_or_compute_spice"} <= phases
     spice_step = next(step for step in data["plan"] if step["phase"] == "fetch_or_compute_spice")
     assert "get_ephemeris" in spice_step["tools"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #24: parameter-name consistency between discovery tools.
+# search_spedas_data_sources historically takes `question`; browse_data_sources
+# takes `query`. Accept `query` as a backward-compatible alias so agents that
+# learned `browse_data_sources(query=...)` do not silently get empty results.
+# ---------------------------------------------------------------------------
+
+def test_search_spedas_data_sources_accepts_query_alias():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "query": "MMS magnetopause ions",
+    }))
+    assert data["status"] == "success"
+    # The science-goal text must actually be processed, not dropped.
+    assert data["question"] == "MMS magnetopause ions"
+    assert data["observables"] != [] or data["recommended_sources"]
+
+
+def test_search_spedas_data_sources_question_still_works():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "MMS magnetopause ions",
+    }))
+    assert data["status"] == "success"
+    assert data["question"] == "MMS magnetopause ions"
+
+
+def test_search_spedas_data_sources_question_wins_over_query_alias():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Parker Solar Probe FIELDS magnetic field",
+        "query": "ignored alias value",
+    }))
+    assert data["status"] == "success"
+    # Explicit canonical `question` takes precedence over the alias.
+    assert data["question"] == "Parker Solar Probe FIELDS magnetic field"
+
+
+# ---------------------------------------------------------------------------
+# Issue #31: dataset enumeration in load_data_source(cdaweb) so agents can move
+# from discovery -> load -> browse_data_parameters without guessing IDs.
+# ---------------------------------------------------------------------------
+
+def test_load_data_source_cdaweb_enumerates_datasets():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "mms",
+    }))
+    assert loaded["status"] == "success"
+    assert loaded["source_id"] == "mms"
+    datasets = loaded["datasets"]
+    assert isinstance(datasets, list)
+    assert datasets, "expected a non-empty dataset list for the mms observatory"
+    assert loaded["dataset_count"] == len(datasets) or loaded["dataset_count"] >= len(datasets)
+    first = datasets[0]
+    assert "dataset_id" in first
+    # Dataset IDs surfaced here must be consumable by browse_data_parameters.
+    dataset_ids = {entry["dataset_id"] for entry in datasets}
+    assert any(ds_id.upper().startswith("MMS") for ds_id in dataset_ids)
+
+
+def test_load_data_source_cdaweb_dataset_response_is_size_safe():
+    server = create_server()
+    raw = _call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "mms",
+    })
+    # Keep comfortably within the MCP stdio response-size safety expectation
+    # (<64KB) even for a large observatory such as MMS (~268 datasets).
+    assert len(raw.encode("utf-8")) < 64 * 1024
+    loaded = json.loads(raw)
+    # A large observatory truncates the structured list but still reports the
+    # true total so discovery is not silently incomplete.
+    if loaded["datasets_truncated"]:
+        assert loaded["dataset_count"] > len(loaded["datasets"])
+        assert "datasets_note" in loaded
+
+
+def test_load_data_source_cdaweb_small_observatory_not_truncated():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "genesis",
+    }))
+    assert loaded["status"] == "success"
+    assert loaded["datasets_truncated"] is False
+    assert loaded["dataset_count"] == len(loaded["datasets"])
+
+
+def test_load_data_source_cdaweb_datasets_round_trip_to_browse_parameters():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "mms",
+    }))
+    dataset_id = loaded["datasets"][0]["dataset_id"]
+    # Should not raise and should echo the dataset_id back through the unified layer.
+    params = json.loads(_call_tool(server, "browse_data_parameters", {
+        "source_type": "cdaweb",
+        "dataset_id": dataset_id,
+    }))
+    assert params["dataset_id"] == dataset_id

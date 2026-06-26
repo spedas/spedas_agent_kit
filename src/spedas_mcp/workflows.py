@@ -139,8 +139,16 @@ def search_data_sources(
     question: str = "",
     target: str | None = None,
     observables: list[str] | None = None,
+    query: str | None = None,
 ) -> dict[str, Any]:
-    """Recommend which SPEDAS source family/families should lead a request."""
+    """Recommend which SPEDAS source family/families should lead a request.
+
+    ``query`` is a backward-compatible alias for ``question`` (matching the
+    parameter name used by ``browse_data_sources``). An explicit ``question``
+    takes precedence; the alias is only used when ``question`` is empty.
+    """
+    if not question and query:
+        question = query
     ranked = _ranked_sources(question=question, target=target, observables=observables)
     top_score = ranked[0]["score"] if ranked else 0
     recommended = [entry for entry in ranked if entry["score"] == top_score or entry["score"] > 1]

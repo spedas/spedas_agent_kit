@@ -109,6 +109,7 @@ def create_server() -> FastMCP:
                 "Start with search_spedas_data_sources or plan_spedas_observation for open-ended science requests.",
                 "Use browse_data_sources(source_type='all') to inspect SPEDAS data-source categories.",
                 "Use load_data_source, browse_data_parameters, fetch_data_product, and manage_data_cache for the unified data layer.",
+                "load_data_source(source_type='cdaweb', ...) enumerates dataset_ids so you can call browse_data_parameters without guessing; pass the science goal to search_spedas_data_sources via question= (query= is accepted as an alias).",
                 "Treat source-specific CDAWeb/PDS cache/fetch/browse tools as compatibility tools for existing clients; do not choose them first for new agent workflows.",
                 "Use geometry tools directly when the request is SPICE-specific ephemeris, frame, distance, or transform work.",
                 "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
@@ -121,11 +122,25 @@ def create_server() -> FastMCP:
         question: str = "",
         target: str | None = None,
         observables: list[str] | None = None,
+        query: str | None = None,
     ) -> str:
-        """Recommend whether a SPEDAS request should start with CDAWeb, PDS, SPICE, or a mix."""
+        """Recommend whether a SPEDAS request should start with CDAWeb, PDS, SPICE, or a mix.
+
+        Pass the natural-language science goal as ``question``. ``query`` is accepted
+        as a backward-compatible alias so callers familiar with
+        ``browse_data_sources(query=...)`` are not silently given empty results;
+        ``question`` takes precedence when both are provided.
+        """
         from spedas_mcp.workflows import search_data_sources
 
-        return _json(search_data_sources(question=question, target=target, observables=observables))
+        return _json(
+            search_data_sources(
+                question=question,
+                target=target,
+                observables=observables,
+                query=query,
+            )
+        )
 
     @mcp.tool()
     def plan_spedas_observation(
@@ -599,6 +614,79 @@ def create_server() -> FastMCP:
             value = value[:-4]
         return value
 
+    # Byte budget for the structured dataset catalog added to a load_data_source
+    # response. The observatory prompt payload itself is ~38KB for large
+    # observatories (e.g. MMS); capping the structured list keeps the total
+    # response within the MCP stdio response-size safety expectation (<64KB).
+    _DATASET_ENUM_BYTE_BUDGET = 16000
+
+    def _enumerate_cdaweb_datasets(source_id: str) -> dict[str, Any] | None:
+        """Return a compact, JSON-serializable dataset catalog for a CDAWeb observatory.
+
+        Reads the observatory JSON directly so agents can move from
+        ``load_data_source`` to ``browse_data_parameters`` without guessing
+        dataset IDs (issue #31). Entries carry the dataset id, instrument key,
+        and coverage dates — enough to plan a fetch — while human-readable
+        descriptions remain in the prompt payload. The list is bounded by a byte
+        budget and reports ``datasets_truncated``/``dataset_count`` so very large
+        observatories stay size-safe without hiding the true total.
+
+        Returns ``None`` if enumeration is unavailable so the existing
+        observatory prompt payload is preserved unchanged.
+        """
+        try:
+            from cdawebmcp.catalog import load_observatory_json
+        except Exception:  # pragma: no cover - backend not installed
+            return None
+        stem = (source_id or "").strip().lower().replace("-", "_")
+        try:
+            observatory = load_observatory_json(stem)
+        except Exception:
+            # Unknown/invalid observatory stem: leave discovery to the prompt payload.
+            return None
+
+        instruments = observatory.get("instruments", {})
+        if not isinstance(instruments, dict):
+            return None
+
+        all_entries: list[dict[str, Any]] = []
+        for inst_key, inst_data in sorted(instruments.items()):
+            if not isinstance(inst_data, dict):
+                continue
+            for ds_id, ds_info in sorted(inst_data.get("datasets", {}).items()):
+                ds_info = ds_info if isinstance(ds_info, dict) else {}
+                all_entries.append({
+                    "dataset_id": ds_id,
+                    "instrument": inst_key,
+                    "start_date": ds_info.get("start_date"),
+                    "stop_date": ds_info.get("stop_date"),
+                })
+
+        total = len(all_entries)
+        datasets: list[dict[str, Any]] = []
+        used = 0
+        for entry in all_entries:
+            used += len(json.dumps(entry, default=str)) + 8  # +8 for indent/commas
+            if used > _DATASET_ENUM_BYTE_BUDGET and datasets:
+                break
+            datasets.append(entry)
+
+        truncated = len(datasets) < total
+        result: dict[str, Any] = {
+            "dataset_count": total,
+            "datasets": datasets,
+            "datasets_truncated": truncated,
+            "instruments": sorted(instruments.keys()),
+        }
+        if truncated:
+            result["datasets_note"] = (
+                f"Showing {len(datasets)} of {total} datasets to stay within the "
+                "response-size limit. Use browse_data_sources(source_type='cdaweb', "
+                "query=...) to filter, or the compatibility load_observatory tool for "
+                "the full per-instrument catalog."
+            )
+        return result
+
     @mcp.tool()
     def browse_data_sources(source_type: str = "all", query: str | None = None) -> str:
         """Primary data layer: browse SPEDAS source categories (CDAWeb, PDS, SPICE)."""
@@ -640,10 +728,22 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def load_data_source(source_type: str, source_id: str) -> str:
-        """Primary data layer: load source context for a CDAWeb observatory, PDS mission, or SPICE mission/frame."""
+        """Primary data layer: load source context for a CDAWeb observatory, PDS mission, or SPICE mission/frame.
+
+        For CDAWeb observatories the response also includes an enumerated
+        ``datasets`` list (``dataset_id``, ``instrument``, coverage dates) plus
+        ``dataset_count``/``datasets_truncated``, so agents can pass a concrete
+        ``dataset_id`` straight to ``browse_data_parameters`` without guessing.
+        """
         source = _normalize_source_type(source_type)
         if source == "cdaweb":
-            return _wrap_data_payload(source, load_observatory(source_id), source_id=source_id)
+            enumeration = _enumerate_cdaweb_datasets(source_id)
+            extra: dict[str, Any] = {"source_id": source_id}
+            if enumeration is not None:
+                # Additive discovery fields (issue #31): agents can read dataset_ids
+                # here and pass them straight to browse_data_parameters.
+                extra.update(enumeration)
+            return _wrap_data_payload(source, load_observatory(source_id), **extra)
         if source == "pds":
             normalized_source_id = _normalize_pds_source_id(source_id)
             return _wrap_data_payload(
