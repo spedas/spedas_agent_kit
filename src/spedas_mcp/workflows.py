@@ -32,6 +32,25 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             "geotail", "psp", "solo", "heliophysics", "magnetosphere", "ionosphere",
             "solar wind", "timeseries", "time-series", "plasma", "magnetic", "electric",
             "particle", "cdf", "observatory", "near earth", "near-earth",
+            # Magnetospheric/substorm science vocabulary. THEMIS (and Cluster/MMS/
+            # Geotail) magnetotail substorm studies live entirely in CDAWeb, but a
+            # goal phrased purely in physics terms ("THEMIS magnetotail substorm")
+            # used to score only 1 on the bare "themis"/"magnetosphere" tokens.
+            # With no source above the score>1 selection threshold, plan_observation
+            # fell back to "all sources equally" and recommended the PDS planetary
+            # archive — which is explicitly not_for near-Earth CDAWeb observatories.
+            # Naming the magnetospheric terms here lifts the in-domain query above
+            # the threshold so it routes to CDAWeb alone (T006). The cross-source
+            # near-Earth nudge below adds the multi-word phrases.
+            "magnetotail", "substorm", "injection", "reconnection", "aurora",
+            "auroral", "electrojet", "ring current", "geomagnetic",
+            # Van Allen Probes (RBSP) is a CDAWeb-only inner-magnetosphere mission
+            # — its EMFISIS/MagEIS/REPT/HOPE/EFW/RBSPICE products live in CDAWeb,
+            # and (like MMS/Cluster) it has no SPICE kernels and no PDS bundles.
+            # ``_extract_target`` already canonicalises these phrases to "Van Allen
+            # Probes" (issue #30); the source router must agree so a radiation-belt
+            # goal routes to CDAWeb instead of falling back to "all sources equally".
+            "rbsp", "van allen", "van allen probes",
         ],
     },
     "pds": {
@@ -67,6 +86,9 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             # get_ephemeris. THEMIS A-E are the magnetospheric missions that do
             # have SPICE kernels (issue #26).
             "MMS/Cluster geometry (no SPICE kernels; use CDAWeb orbit products)",
+            # Van Allen Probes (RBSP) likewise has no SPICE kernels; its orbit
+            # comes from CDAWeb magnephem products, not get_ephemeris.
+            "Van Allen Probes/RBSP geometry (no SPICE kernels; use CDAWeb magnephem)",
         ],
         "discovery_tools": ["browse_data_sources(source_type=\"spice\")", "load_data_source(source_type=\"spice\", source_id=...)", "browse_data_parameters(source_type=\"spice\", dataset_id=...)"],
         "fetch_tools": ["get_ephemeris", "compute_distance", "transform_coordinates"],
@@ -99,6 +121,13 @@ def _blob(*parts: object) -> str:
     return " ".join(tokens).lower()
 
 
+_PLANETARY_CONTEXT_TERMS = (
+    "jupiter", "saturn", "mars", "venus", "mercury", "uranus", "neptune",
+    "juno", "cassini", "galileo", "voyager", "maven", "messenger",
+    "new horizons", "pioneer",
+)
+
+
 def _score_sources(text: str) -> dict[str, int]:
     scores: dict[str, int] = {}
     for key, profile in SOURCE_PROFILES.items():
@@ -114,10 +143,23 @@ def _score_sources(text: str) -> dict[str, int]:
         scores["pds"] += 1
     if any(term in text for term in ["where", "location", "near", "encounter", "closest approach"]):
         scores["spice"] += 1
-    if any(term in text for term in ["jupiter", "saturn", "cassini", "juno", "galileo", "voyager"]):
+    planetary_context = any(term in text for term in _PLANETARY_CONTEXT_TERMS)
+    if planetary_context:
         scores["pds"] += 2
         scores["spice"] += 1
-    if any(term in text for term in ["earth", "magnetopause", "bow shock", "solar wind", "omni"]):
+    near_earth_context = any(term in text for term in [
+        "earth", "magnetopause", "bow shock", "solar wind", "omni",
+        # Magnetotail/substorm phrasing is unambiguously near-Earth CDAWeb science
+        # (T006). These reinforce CDAWeb the same way "magnetopause"/"bow shock"
+        # already do, so a geometry/archive nudge can never overtake it.
+        "magnetotail", "magnetosheath", "plasma sheet", "substorm",
+    ])
+    # A bare "radiation belt" phrase is a good CDAWeb nudge for Earth/RBSP-style
+    # heliophysics goals, but not for explicitly planetary/Juno/Cassini contexts:
+    # Jupiter radiation belts are PDS planetary-archive science, not CDAWeb.
+    if "radiation belt" in text and not planetary_context:
+        near_earth_context = True
+    if near_earth_context:
         scores["cdaweb"] += 2
 
     if max(scores.values()) == 0:
@@ -162,15 +204,75 @@ _MISSION_KEYWORDS: list[tuple[str, str]] = [
     ("omni", "OMNI"),
 ]
 
+# Mission keywords that fly numbered/lettered probes, so a single-spacecraft goal
+# is naturally phrased with a per-probe suffix ("MMS1", "rbspa", "themisa"). For
+# these, an optional trailing probe token is allowed immediately after the
+# keyword (a per-mission probe digit/letter, e.g. MMS1-4 or RBSP a/b), still
+# anchored by a trailing word boundary so "acexyz"/"soloist" do NOT match.
+# The CDAWeb discovery
+# layer already fuzzy-resolves "MMS1" -> "mms"; this keeps target inference in the
+# planner consistent with it (Batch V T007). Keys are the lowercase keyword.
+_NUMBERED_SPACECRAFT_KEYWORDS: dict[str, str] = {
+    "mms": r"[1-4]",
+    "rbsp": r"[ab]",
+    "themis": r"[a-e]",
+    "stereo": r"[ab]",
+}
+
+
+def _mission_keyword_pattern(keyword: str) -> str:
+    """Word-boundary regex for ``keyword`` allowing an optional probe suffix.
+
+    For numbered/lettered missions (see ``_NUMBERED_SPACECRAFT_KEYWORDS``) an
+    optional trailing probe token is permitted between the keyword and the
+    closing boundary, so "MMS1"/"rbspa" match while generic-word lookalikes
+    ("acexyz", "soloist") still do not.
+    """
+    suffix = _NUMBERED_SPACECRAFT_KEYWORDS.get(keyword)
+    body = re.escape(keyword) + (f"(?:{suffix})?" if suffix else "")
+    return rf"(?<![a-z0-9]){body}(?![a-z0-9])"
+
+
 # Missions whose short names collide with ordinary English ("solo", "cluster")
 # are only inferred from explicit spacecraft/mission phrasing. Each pattern is a
 # case-insensitive regex matched against the goal text. This preserves real
 # references ("SolO spacecraft", "Cluster mission") while ignoring generic uses
 # ("fly solo", "a cluster of events"). ``solar orbiter`` is already covered by
 # the main keyword list above.
+#
+# Cluster is a four-spacecraft (C1-C4) constellation, so multi-spacecraft goals
+# are its most natural phrasing. The bare ``\bcluster\s+<qualifier>`` form missed
+# the canonical multi-point wording — "Cluster multi-spacecraft magnetopause",
+# "multi-point Cluster timing", "Cluster C1 C2 C3 C4", "Cluster FGM" — silently
+# dropping the target so the planner could not route to CDAWeb Cluster products.
+# The patterns below also recognise the multi-point qualifier on either side of
+# "Cluster", the C1-C4 spacecraft designators, and the core Cluster instrument
+# acronyms. They stay conservative: a bare "cluster" or generic uses ("a cluster
+# of substorms", "clustering algorithm") still do not match.
 _QUALIFIED_MISSION_KEYWORDS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bsolo\s+(?:spacecraft|orbiter|mission|probe)\b", re.IGNORECASE), "Solar Orbiter"),
-    (re.compile(r"\bcluster\s+(?:spacecraft|mission|constellation|satellites?)\b", re.IGNORECASE), "Cluster"),
+    (
+        re.compile(
+            r"\bcluster\s+(?:spacecraft|mission|constellation|satellites?"
+            r"|multi[- ]?spacecraft|multi[- ]?point|four[- ]?spacecraft)\b",
+            re.IGNORECASE,
+        ),
+        "Cluster",
+    ),
+    (
+        re.compile(
+            r"\b(?:multi[- ]?spacecraft|multi[- ]?point|four[- ]?spacecraft)\s+cluster\b",
+            re.IGNORECASE,
+        ),
+        "Cluster",
+    ),
+    (
+        re.compile(
+            r"\bcluster\s+(?:c[1-4]\b|fgm|cis|peace|staff|whisper|edi|aspoc)",
+            re.IGNORECASE,
+        ),
+        "Cluster",
+    ),
 ]
 
 # ISO date with an optional trailing time. The date is required; the time
@@ -194,8 +296,75 @@ _LOOSE_TIME_RE = re.compile(
 _APPROX_WORDS = ("around", "near", "circa", "about", "approximately", "~")
 
 
+def _wind_is_mission(lowered: str) -> bool:
+    """Return ``True`` when bare ``wind`` refers to the Wind spacecraft.
+
+    Guards against the plasma phrase ``"solar wind"`` / ``"solar-wind"`` and
+    generic phrases like ``"wind speed"`` so a goal about the solar wind is not
+    misread as the Wind spacecraft.
+    """
+    return bool(
+        re.search(
+            r"(?<![a-z0-9])(?<!solar )(?<!solar-)wind(?![a-z0-9])"
+            r"(?!\s+(?:speed|velocity|direction|stream|streams|profile|data))",
+            lowered,
+        )
+    )
+
+
+def _extract_targets(text: str) -> list[str]:
+    """Return all canonical mission/target labels inferred from ``text``.
+
+    A multi-mission science goal ("compare ACE, Wind, and OMNI ...") names
+    several spacecraft; surfacing only the first match silently drops the rest
+    and breaks comparison workflows (T009). This returns every distinct mission
+    mentioned, in first-appearance (text-position) order, de-duplicated.
+
+    Matching is conservative and identical in spirit to ``_extract_target``:
+    keywords match on word boundaries so a short token like ``ace`` does not fire
+    inside ``"surface"``/``"space"``; bare ``wind`` only counts in spacecraft
+    phrasing (see ``_wind_is_mission``); and spacecraft whose short names are
+    everyday words (``solo``, ``cluster``) are only inferred from explicit
+    phrasing (see ``_QUALIFIED_MISSION_KEYWORDS``).
+    """
+    lowered = text.lower()
+    # Collect (position, label) so the result is ordered by first appearance.
+    hits: list[tuple[int, str]] = []
+    for pattern, label in _QUALIFIED_MISSION_KEYWORDS:
+        match = pattern.search(text)
+        if match is not None:
+            hits.append((match.start(), label))
+    for keyword, label in _MISSION_KEYWORDS:
+        if keyword == "wind":
+            match = re.search(
+                r"(?<![a-z0-9])(?<!solar )(?<!solar-)wind(?![a-z0-9])"
+                r"(?!\s+(?:speed|velocity|direction|stream|streams|profile|data))",
+                lowered,
+            )
+            if match is not None:
+                hits.append((match.start(), label))
+            continue
+        # Use the shared keyword matcher so numbered/lettered probe phrasing
+        # ("MMS1", "rbspa", "themisa") is recognised in the list path exactly as
+        # in the scalar ``_extract_target`` (Batch V T007 + T009 reconciliation).
+        match = re.search(_mission_keyword_pattern(keyword), lowered)
+        if match is not None:
+            hits.append((match.start(), label))
+
+    ordered: list[str] = []
+    for _pos, label in sorted(hits, key=lambda item: item[0]):
+        if label not in ordered:
+            ordered.append(label)
+    return ordered
+
+
 def _extract_target(text: str) -> str | None:
-    """Return a canonical mission/target label inferred from ``text``.
+    """Return a single canonical mission/target label inferred from ``text``.
+
+    Back-compatible scalar wrapper: explicit, qualified spacecraft phrasing still
+    takes precedence over plain keywords, then the first mission keyword in
+    declaration order (matching the historical behaviour). Returns ``None`` when
+    no mission is recognised. For multi-mission goals use ``_extract_targets``.
 
     Matching is conservative: a keyword only matches on word boundaries so a
     short token like ``ace`` does not fire inside ``"surface"`` or ``"space"``.
@@ -214,14 +383,10 @@ def _extract_target(text: str) -> str | None:
         if keyword == "wind":
             # Match "wind" as a mission only in spacecraft phrasing, never inside
             # "solar wind"/"solar-wind" or generic phrases like "wind speed".
-            if re.search(
-                r"(?<![a-z0-9])(?<!solar )(?<!solar-)wind(?![a-z0-9])"
-                r"(?!\s+(?:speed|velocity|direction|stream|streams|profile|data))",
-                lowered,
-            ):
+            if _wind_is_mission(lowered):
                 return label
             continue
-        if re.search(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", lowered):
+        if re.search(_mission_keyword_pattern(keyword), lowered):
             return label
     return None
 
@@ -450,6 +615,12 @@ def plan_observation(
     ``inferred`` key for transparency.
     """
     inferred: dict[str, str] = {}
+    # Every mission named in the goal, in first-appearance order. A multi-mission
+    # comparison goal ("compare ACE, Wind, and OMNI ...") names several
+    # spacecraft; surfacing only the first would silently drop Wind/OMNI and
+    # break the comparison (T009). An explicit ``target`` is kept first below so
+    # the scalar and the list always agree on element 0.
+    inferred_targets: list[str] = _extract_targets(science_goal) if science_goal else []
     if science_goal:
         if not start or not stop:
             extracted_start, extracted_stop = _extract_time_range(science_goal)
@@ -464,6 +635,13 @@ def plan_observation(
             if extracted_target:
                 target = extracted_target
                 inferred["target"] = extracted_target
+
+    # Ensure an explicit target leads the list and is never duplicated, so
+    # ``targets[0]`` and the scope ``target`` always agree.
+    if target:
+        targets = [target] + [m for m in inferred_targets if m != target]
+    else:
+        targets = list(inferred_targets)
 
     ranked = _ranked_sources(question=science_goal, target=target, observables=observables)
     requested_sources = [s.lower().replace("-", "_") for s in _as_list(data_sources)]
@@ -498,6 +676,7 @@ def plan_observation(
             "phase": "scope",
             "goal": science_goal,
             "target": target,
+            "targets": targets,
             "time_range": {"start": start, "stop": stop},
             "observables": _as_list(observables),
             "needs_user_input": needs_user_input,
@@ -552,6 +731,7 @@ def plan_observation(
         "plan": steps,
         "needs_user_input": needs_user_input,
         "inferred": inferred,
+        "inferred_targets": targets,
         "invalid_sources": invalid_sources,
         "time_range_warning": time_range_warning,
         "low_level_tools_remain_available": True,

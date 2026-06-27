@@ -387,6 +387,158 @@ def test_plan_spedas_observation_does_not_infer_target_for_generic_wind():
 
 
 # ---------------------------------------------------------------------------
+# T009: multi-mission upstream comparison. A goal naming several spacecraft
+# (e.g. "compare ACE, Wind, and OMNI ...") must surface ALL of them, not just
+# the first match. The single-target path is preserved for back-compat; the
+# extra missions are reported additively so a comparison workflow does not
+# silently drop Wind/OMNI.
+# ---------------------------------------------------------------------------
+
+def test_extract_targets_returns_all_named_missions_in_order():
+    from spedas_mcp.workflows import _extract_targets
+
+    goal = (
+        "Compare ACE, Wind, and OMNI solar-wind magnetic field and plasma "
+        "upstream of Earth on 2015-10-16"
+    )
+    assert _extract_targets(goal) == ["ACE", "Wind", "OMNI"]
+
+
+def test_extract_targets_deduplicates_and_preserves_first_position():
+    from spedas_mcp.workflows import _extract_targets
+
+    # Repeated mentions collapse; first appearance order wins.
+    goal = "ACE vs Wind upstream; cross-check ACE against OMNI and Wind again"
+    assert _extract_targets(goal) == ["ACE", "Wind", "OMNI"]
+
+
+def test_extract_targets_single_mission_matches_extract_target():
+    from spedas_mcp.workflows import _extract_target, _extract_targets
+
+    goal = "Parker Solar Probe perihelion magnetic field on 2021-04-29"
+    assert _extract_targets(goal) == ["Parker Solar Probe"]
+    assert _extract_target(goal) == "Parker Solar Probe"
+
+
+def test_extract_targets_no_false_positive_for_generic_wind():
+    from spedas_mcp.workflows import _extract_targets
+
+    assert _extract_targets("characterise solar-wind speed near the bow shock") == []
+
+
+def test_extract_target_unchanged_returns_first_for_multimission():
+    # Back-compat: the scalar helper still returns the first match only.
+    from spedas_mcp.workflows import _extract_target
+
+    goal = "Compare ACE, Wind, and OMNI upstream solar wind on 2015-10-16"
+    assert _extract_target(goal) == "ACE"
+
+
+def test_plan_spedas_observation_reports_all_inferred_targets():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": (
+            "Compare ACE, Wind, and OMNI solar-wind magnetic field and plasma "
+            "upstream of Earth"
+        ),
+        "start": "2015-10-16T00:00:00Z",
+        "stop": "2015-10-18T00:00:00Z",
+    }))
+    assert data["status"] == "success"
+    # Scalar target preserved for back-compat (first match).
+    assert data["inferred"]["target"] == "ACE"
+    # New: every named mission is surfaced for the comparison.
+    assert data["inferred_targets"] == ["ACE", "Wind", "OMNI"]
+    scope = next(step for step in data["plan"] if step["phase"] == "scope")
+    assert scope["targets"] == ["ACE", "Wind", "OMNI"]
+
+
+def test_plan_spedas_observation_explicit_target_not_overridden_by_inference():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Compare ACE, Wind, and OMNI upstream solar wind",
+        "start": "2015-10-16T00:00:00Z",
+        "stop": "2015-10-18T00:00:00Z",
+        "target": "Wind",
+    }))
+    # An explicit target wins and is not inferred away...
+    assert data["plan"][0]["target"] == "Wind"
+    assert "target" not in data["inferred"]
+    # ...but the goal still names several missions, so they remain visible,
+    # with the explicit target leading the list.
+    assert data["inferred_targets"] == ["Wind", "ACE", "OMNI"]
+
+
+def test_plan_spedas_observation_single_target_has_singleton_targets_list():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Parker Solar Probe perihelion solar wind",
+        "start": "2021-04-29T00:00:00Z",
+        "stop": "2021-04-29T06:00:00Z",
+    }))
+    scope = next(step for step in data["plan"] if step["phase"] == "scope")
+    assert scope["target"] == "Parker Solar Probe"
+    assert scope["targets"] == ["Parker Solar Probe"]
+
+
+# ---------------------------------------------------------------------------
+# T010: Cluster is a four-spacecraft constellation, so multi-spacecraft phrasing
+# is its most natural wording. The qualified-keyword matcher must recognise the
+# multi-point/C1-C4/instrument forms, while still rejecting generic "cluster"
+# uses (no false positive for "a cluster of substorms").
+# ---------------------------------------------------------------------------
+
+@_pytest_b1.mark.parametrize(
+    "goal",
+    [
+        "Cluster multi-spacecraft magnetopause crossing",
+        "Cluster multi-point magnetopause timing",
+        "multi-spacecraft Cluster magnetopause study",
+        "multi-point Cluster timing analysis",
+        "Cluster four-spacecraft timing",
+        "Cluster C1 C2 C3 C4 magnetopause",
+        "Cluster C3 boundary crossing",
+        "Cluster FGM magnetopause crossing",
+        "Cluster CIS ion moments",
+    ],
+)
+def test_extract_target_cluster_multispacecraft_phrasing(goal):
+    from spedas_mcp.workflows import _extract_target
+
+    assert _extract_target(goal) == "Cluster"
+
+
+@_pytest_b1.mark.parametrize(
+    "goal",
+    [
+        "a cluster of substorms",
+        "a cluster of events near the magnetopause",
+        "clustering algorithm for boundary detection",
+        "star cluster catalogue",
+    ],
+)
+def test_extract_target_cluster_no_false_positive(goal):
+    from spedas_mcp.workflows import _extract_target
+
+    assert _extract_target(goal) is None
+
+
+def test_plan_spedas_observation_infers_cluster_for_multispacecraft_goal():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": (
+            "Cluster multi-spacecraft magnetopause crossing on 2002-03-30 "
+            "around 10:00 UT using FGM magnetic field"
+        ),
+    }))
+    assert data["inferred"].get("target") == "Cluster"
+    # The natural-language date/time should still be inferred alongside the target.
+    assert data["inferred"].get("start") == "2002-03-30T09:00:00Z"
+    assert data["inferred"].get("stop") == "2002-03-30T11:00:00Z"
+    assert data["status"] == "success"
+
+
+# ---------------------------------------------------------------------------
 # Issue #30 / zhipu-1 nice-to-have: a non-positive interval (start >= stop)
 # should be flagged rather than silently succeeding.
 # ---------------------------------------------------------------------------
@@ -441,6 +593,56 @@ def test_psp_perihelion_observation_plan_has_discovery_and_geometry_steps():
     assert {"discover_cdaweb", "fetch_or_compute_cdaweb", "discover_spice", "fetch_or_compute_spice"} <= phases
     spice_step = next(step for step in data["plan"] if step["phase"] == "fetch_or_compute_spice")
     assert "get_ephemeris" in spice_step["tools"]
+
+
+# ---------------------------------------------------------------------------
+# T006: THEMIS magnetotail substorm routing.
+# A magnetospheric goal phrased in pure physics terms ("THEMIS magnetotail
+# substorm") used to score only 1 on the bare "themis" token. With nothing above
+# the score>1 selection threshold, plan_observation fell back to "all sources
+# equally" and recommended the PDS planetary archive, which is explicitly
+# not_for near-Earth CDAWeb observatories. The magnetospheric/substorm
+# vocabulary must route these queries to CDAWeb alone.
+# ---------------------------------------------------------------------------
+
+def test_themis_magnetotail_substorm_routes_to_cdaweb_only():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "THEMIS magnetotail substorm injection workflow",
+        "target": "THEMIS",
+        "observables": ["magnetic field", "ion plasma", "particle injection"],
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    # The planetary archive must not be dredged up for a near-Earth study.
+    assert "pds" not in data["recommended_sources"]
+
+
+def test_themis_substorm_plan_recommends_cdaweb_not_pds():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "THEMIS magnetotail substorm on 2008-02-26 around 04:35 UT",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    # Target and a bounded window are inferred from the natural-language goal.
+    assert data["inferred"]["target"] == "THEMIS"
+    assert data["inferred"]["start"] == "2008-02-26T03:35:00Z"
+    assert data["inferred"]["stop"] == "2008-02-26T05:35:00Z"
+    phases = {step["phase"] for step in data["plan"]}
+    assert {"discover_cdaweb", "fetch_or_compute_cdaweb", "preserve_provenance"} <= phases
+    assert "discover_pds" not in phases
+
+
+def test_planetary_routing_not_regressed_by_magnetospheric_keywords():
+    """The T006 magnetospheric terms must not suppress PDS for planetary goals."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Juno magnetic field and plasma measurements near Jupiter",
+        "target": "Jupiter",
+    }))
+    assert data["status"] == "success"
+    assert "pds" in data["recommended_sources"]
 
 
 # ---------------------------------------------------------------------------
@@ -1365,3 +1567,125 @@ def test_browse_fdsn_datasets_bad_trange_validates_before_backend():
     data = json.loads(_call_tool(server, "browse_fdsn_datasets", {"trange": ["only-one"]}))
     assert data["status"] == "error"
     assert data["code"] == "invalid_argument"
+
+
+# ---------------------------------------------------------------------------
+# Numbered/lettered spacecraft target inference (Batch V T007). Mission keywords
+# are matched on strict word boundaries, so the per-spacecraft suffix used in
+# the natural way to phrase a single-probe goal ("MMS1 bow-shock crossing",
+# "rbspa", "themisa") was rejected and ``_extract_target`` returned ``None`` --
+# even though the CDAWeb discovery layer already fuzzy-resolves "MMS1" -> "mms".
+# Allow the suffix for the missions that fly numbered/lettered probes, without
+# weakening the false-positive guards for generic words (ace/wind/solo/cluster).
+# ---------------------------------------------------------------------------
+
+@_pytest_b1.mark.parametrize(
+    "goal,expected",
+    [
+        ("MMS1 bow-shock crossing", "MMS"),
+        ("use MMS3 FGM survey", "MMS"),
+        ("MMS4 dayside magnetopause", "MMS"),
+        ("rbspa radiation belt", "Van Allen Probes"),
+        ("RBSP-B EMFISIS", "Van Allen Probes"),
+        ("themisa substorm tail", "THEMIS"),
+        ("stereoa upstream", "STEREO"),
+    ],
+)
+def test_extract_target_numbered_spacecraft(goal, expected):
+    from spedas_mcp.workflows import _extract_target
+
+    assert _extract_target(goal) == expected
+
+
+@_pytest_b1.mark.parametrize(
+    "goal",
+    # Suffix relaxation must not resurrect the generic-word false positives:
+    # bare "ace"/"wind"/"solo"/"cluster" and plausible-suffix lookalikes.
+    ["surface waves", "spacelike", "acexyz", "windy day", "soloist", "clustered"],
+)
+def test_extract_target_numbered_suffix_no_false_positive(goal):
+    from spedas_mcp.workflows import _extract_target
+
+    assert _extract_target(goal) is None
+
+
+def test_extract_targets_preserves_mixed_mission_ordering():
+    from spedas_mcp.workflows import _extract_targets
+
+    assert _extract_targets(
+        "Compare ACE then the Cluster multi-spacecraft constellation and finally Wind"
+    ) == ["ACE", "Cluster", "Wind"]
+
+
+def test_plan_spedas_observation_infers_numbered_mms_target():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": (
+            "Identify an MMS1 bow-shock crossing on 2015-10-07 using FGM "
+            "magnetic field and FPI ion plasma moments"
+        ),
+    }))
+    assert data["status"] == "success"
+    assert data["inferred"]["target"] == "MMS"
+    assert data["inferred"]["start"] == "2015-10-07T00:00:00Z"
+    assert data["recommended_sources"] == ["cdaweb"]
+
+
+# ---------------------------------------------------------------------------
+# Van Allen Probes (RBSP) source routing. ``_extract_target`` already maps the
+# "van allen probes"/"rbsp" phrasing to the canonical "Van Allen Probes" label
+# (issue #30), but the source router previously had no matching CDAWeb keyword,
+# so a bare radiation-belt goal fell back to "recommend all three families
+# equally" instead of leading with CDAWeb. RBSP is a CDAWeb-only mission (no
+# SPICE kernels, no PDS bundles), so CDAWeb must win.
+# ---------------------------------------------------------------------------
+
+def test_van_allen_probes_radiation_belt_routes_to_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Plan a Van Allen Probes radiation belt interval with electron flux and magnetic field",
+    }))
+    assert data["status"] == "success"
+    # CDAWeb must lead and outrank PDS/SPICE — RBSP is a CDAWeb-only mission.
+    assert data["ranked_sources"][0]["source"] == "cdaweb"
+    assert data["recommended_sources"] == ["cdaweb"]
+
+
+def test_rbsp_acronym_routes_to_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "RBSP EMFISIS and MagEIS radiation belt electron flux interval",
+    }))
+    assert data["status"] == "success"
+    assert data["ranked_sources"][0]["source"] == "cdaweb"
+    assert "cdaweb" in data["recommended_sources"]
+    assert "pds" not in data["recommended_sources"]
+    assert "spice" not in data["recommended_sources"]
+
+
+def test_planetary_radiation_belt_does_not_add_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Jupiter radiation belt dynamics from Juno",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["pds"]
+    assert data["ranked_sources"][0]["source"] == "pds"
+    assert "cdaweb" not in data["recommended_sources"]
+
+
+def test_van_allen_probes_observation_plan_leads_with_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": (
+            "Van Allen Probes radiation belt electron flux and EMFISIS magnetic "
+            "field during the 2015-03-17 storm"
+        ),
+    }))
+    assert data["status"] == "success"
+    # Mission and day-scale interval inferred from the goal text (issue #30).
+    assert data["inferred"]["target"] == "Van Allen Probes"
+    assert data["inferred"]["start"] == "2015-03-17T00:00:00Z"
+    assert data["recommended_sources"] == ["cdaweb"]
+    phases = {step["phase"] for step in data["plan"]}
+    assert {"discover_cdaweb", "fetch_or_compute_cdaweb"} <= phases
