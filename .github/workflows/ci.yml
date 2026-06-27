@@ -30,10 +30,11 @@ jobs:
         run: python scripts/smoke_mcp_list_tools.py --json
 
   analysis:
-    # Real-backend lane: installs the optional [analysis] extra (pyspedas>=2.0)
-    # so the particle/coordinate tests exercise the real pyspedas algorithms
-    # instead of skipping. All analysis tests use synthetic, in-memory data and
-    # never download remote data, so this lane stays network-free and stable.
+    # Real-backend lane: installs the optional [analysis] extra (pyspedas>=2.0,
+    # matplotlib) so particle/coordinate tests exercise real pyspedas algorithms
+    # and plotting tests exercise the real Agg renderer instead of skipping.
+    # All analysis tests use synthetic, in-memory data and never download remote
+    # data, so this lane stays network-free and stable.
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -54,3 +55,5 @@ jobs:
         run: pytest -q tests/test_analysis_particles.py
       - name: Run coordinate-transform real-backend tests
         run: pytest -q tests/test_analysis_coords.py
+      - name: Run plotting render tests (#20, incl. real Agg PNG round-trip)
+        run: pytest -q tests/test_analysis_plotting.py

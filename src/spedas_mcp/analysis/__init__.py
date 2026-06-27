@@ -43,4 +43,40 @@ def require_pyspedas():
     return pyspedas
 
 
-__all__ = ["AnalysisDependencyError", "require_pyspedas"]
+_MATPLOTLIB_HINT = (
+    "This tool requires the optional analysis backend. Install it with: "
+    "pip install 'spedas-mcp[analysis]' (provides matplotlib via pyspedas). "
+    "matplotlib is intentionally not part of the base install."
+)
+
+
+def require_matplotlib():
+    """Lazily import and return the ``matplotlib`` module on the Agg backend.
+
+    The plotting tool (:func:`spedas_mcp.analysis.plotting.render_tplot`, issue
+    #20) renders headlessly, so this forces the non-interactive ``Agg`` backend
+    before pyplot is imported and never opens a display.
+
+    Returns
+    -------
+    module
+        The imported ``matplotlib`` module.
+
+    Raises
+    ------
+    AnalysisDependencyError
+        If ``matplotlib`` cannot be imported. The message tells the caller how to
+        install the optional ``[analysis]`` extra.
+    """
+    try:
+        import matplotlib  # noqa: F401  (imported for side effect + return)
+
+        matplotlib.use("Agg", force=True)
+    except Exception as exc:  # pragma: no cover - exercised via monkeypatch in tests
+        raise AnalysisDependencyError(
+            f"{_MATPLOTLIB_HINT} (import error: {exc})"
+        ) from exc
+    return matplotlib
+
+
+__all__ = ["AnalysisDependencyError", "require_pyspedas", "require_matplotlib"]

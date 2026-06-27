@@ -55,6 +55,7 @@ EXPECTED_TOOLS = [
     "calculate_lshell",
     "compute_particle_moments",
     "compute_particle_spectra",
+    "render_tplot",
 ]
 
 

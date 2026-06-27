@@ -33,10 +33,13 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.26.0"]
-# Optional pyspedas-backed analysis layer (Phase 1: coordinate transforms).
-# Not part of the base install; analysis tools import pyspedas lazily and return
-# a clear "install spedas-mcp[analysis]" error when this extra is absent.
-analysis = ["pyspedas>=2.0"]
+# Optional pyspedas-backed analysis layer (coordinate transforms, spectral/field/
+# particle analysis, and PNG rendering). Not part of the base install; analysis
+# tools import their backends lazily and return a clear "install
+# spedas-mcp[analysis]" error when this extra is absent. matplotlib is declared
+# explicitly because render_tplot (#20) imports it directly rather than relying
+# on it being a transitive pyspedas dependency.
+analysis = ["pyspedas>=2.0", "matplotlib>=3.5"]
 dev = [
     "pytest>=7.0",
     "mcp>=1.26.0",
