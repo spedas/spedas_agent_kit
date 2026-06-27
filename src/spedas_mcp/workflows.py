@@ -51,6 +51,29 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             # Probes" (issue #30); the source router must agree so a radiation-belt
             # goal routes to CDAWeb instead of falling back to "all sources equally".
             "rbsp", "van allen", "van allen probes",
+            # Parker Solar Probe (PSP) heliophysics-observatory vocabulary. The
+            # CDAWeb keyword list registered only the abbreviation "psp", so a
+            # goal that spells out the full mission name ("Parker Solar Probe")
+            # without also using a generic CDAWeb token ("magnetic"/"plasma"/
+            # "solar wind") scored 0 on CDAWeb. PSP FIELDS/SWEAP products are
+            # CDAWeb-only, so the full name and the core science vocabulary must
+            # route to CDAWeb. "switchback"/"SWEAP" are unambiguous PSP
+            # solar-wind terms; "encounter" is the standard PSP perihelion-pass
+            # term. Without these, a "Parker Solar Probe encounter 8 switchback
+            # survey" routed to SPICE-first with CDAWeb scoring 0 (the actual
+            # measurement source dropped below threshold), and "switchback ...
+            # SWEAP and FIELDS" fell back to "all sources equally" and dredged up
+            # the PDS planetary archive — explicitly not_for PSP (Batch W T014).
+            # The heliospheric near-Sun nudge below adds the multi-word phrases.
+            #
+            # Note: the bare plural "fields" is intentionally NOT a keyword. It is
+            # an everyday plasma-physics word ("magnetic fields") that fires in
+            # planetary contexts too and would erode the PDS lead for goals like
+            # "MESSENGER magnetic fields near Mercury". The instrument is captured
+            # via "parker"/"psp"/"switchback"/"sweap" instead, which are
+            # unambiguous PSP tokens.
+            "parker", "parker solar probe", "switchback", "switchbacks",
+            "sweap", "encounter",
         ],
     },
     "pds": {
@@ -158,6 +181,18 @@ def _score_sources(text: str) -> dict[str, int]:
     # heliophysics goals, but not for explicitly planetary/Juno/Cassini contexts:
     # Jupiter radiation belts are PDS planetary-archive science, not CDAWeb.
     if "radiation belt" in text and not planetary_context:
+        near_earth_context = True
+    # Heliospheric near-Sun PSP/Solar-Orbiter science is CDAWeb observatory work
+    # (FIELDS/SWEAP, MAG/SWA) the same way magnetotail/substorm is near-Earth
+    # CDAWeb work (T006). "switchback" and "SWEAP" are unambiguous PSP solar-wind
+    # terms, so they reinforce CDAWeb just like "magnetopause"/"bow shock" do —
+    # ensuring a geometry/archive nudge can never overtake CDAWeb for a switchback
+    # survey. Gated on ``not planetary_context`` so a Mercury/Venus "near the Sun"
+    # planetary study still routes to PDS (Batch W T014).
+    helio_observatory_context = any(term in text for term in [
+        "switchback", "switchbacks", "sweap",
+    ]) and not planetary_context
+    if helio_observatory_context:
         near_earth_context = True
     if near_earth_context:
         scores["cdaweb"] += 2

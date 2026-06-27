@@ -596,6 +596,72 @@ def test_psp_perihelion_observation_plan_has_discovery_and_geometry_steps():
 
 
 # ---------------------------------------------------------------------------
+# Batch W T014: Parker Solar Probe switchback routing beyond perihelion.
+# The CDAWeb keyword list registered only the abbreviation "psp", and PSP science
+# vocabulary ("switchback", "SWEAP", "FIELDS", "encounter") was unknown. So a goal
+# that spelled out the full mission name, or that emphasised switchback science,
+# scored 0 on CDAWeb:
+#   - "switchback ... Parker Solar Probe SWEAP and FIELDS" fell back to "all
+#     sources equally" and dredged up the PDS planetary archive (not_for PSP);
+#   - "Parker Solar Probe encounter 8 switchback survey" routed SPICE-first with
+#     CDAWeb scoring 0 — the actual FIELDS/SWEAP measurement source dropped below
+#     the selection threshold.
+# PSP FIELDS/SWEAP products are CDAWeb-only, so these must route to CDAWeb. The
+# guardrail: the bare plural "fields" stays out of the keyword list so planetary
+# "magnetic fields near Mercury" goals keep their PDS lead.
+# ---------------------------------------------------------------------------
+
+def test_psp_switchback_full_name_routes_to_cdaweb_not_pds():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "switchback interval study using Parker Solar Probe SWEAP and FIELDS",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    # The planetary archive must not be dredged up for a PSP solar-wind study.
+    assert "pds" not in data["recommended_sources"]
+
+
+def test_psp_switchback_encounter_survey_keeps_cdaweb_above_spice():
+    """A PSP encounter switchback survey must not drop CDAWeb below SPICE.
+
+    "encounter" legitimately nudges SPICE (perihelion geometry context), but the
+    FIELDS/SWEAP measurement source (CDAWeb) must stay the lead, not fall to 0.
+    """
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Parker Solar Probe encounter 8 switchback survey 2021-04-29",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    assert data["inferred"]["target"] == "Parker Solar Probe"
+    phases = {step["phase"] for step in data["plan"]}
+    assert {"discover_cdaweb", "fetch_or_compute_cdaweb"} <= phases
+    assert "discover_pds" not in phases
+
+
+def test_psp_switchback_with_perihelion_geometry_keeps_spice():
+    """Explicit perihelion geometry still pulls in SPICE alongside CDAWeb."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Analyze switchbacks in PSP solar wind near perihelion",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb", "spice"]
+
+
+def test_psp_switchback_routing_does_not_regress_planetary_fields_goals():
+    """The PSP keywords must not erode the PDS lead for planetary 'fields' goals."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "MESSENGER magnetic fields near Mercury close to the Sun",
+        "target": "Mercury",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"][0] == "pds"
+
+
+# ---------------------------------------------------------------------------
 # T006: THEMIS magnetotail substorm routing.
 # A magnetospheric goal phrased in pure physics terms ("THEMIS magnetotail
 # substorm") used to score only 1 on the bare "themis" token. With nothing above
