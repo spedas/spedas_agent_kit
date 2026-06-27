@@ -1609,6 +1609,14 @@ def test_extract_target_numbered_suffix_no_false_positive(goal):
     assert _extract_target(goal) is None
 
 
+def test_extract_targets_preserves_mixed_mission_ordering():
+    from spedas_mcp.workflows import _extract_targets
+
+    assert _extract_targets(
+        "Compare ACE then the Cluster multi-spacecraft constellation and finally Wind"
+    ) == ["ACE", "Cluster", "Wind"]
+
+
 def test_plan_spedas_observation_infers_numbered_mms_target():
     server = create_server()
     data = json.loads(_call_tool(server, "plan_spedas_observation", {
@@ -1653,6 +1661,17 @@ def test_rbsp_acronym_routes_to_cdaweb():
     assert "cdaweb" in data["recommended_sources"]
     assert "pds" not in data["recommended_sources"]
     assert "spice" not in data["recommended_sources"]
+
+
+def test_planetary_radiation_belt_does_not_add_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Jupiter radiation belt dynamics from Juno",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["pds"]
+    assert data["ranked_sources"][0]["source"] == "pds"
+    assert "cdaweb" not in data["recommended_sources"]
 
 
 def test_van_allen_probes_observation_plan_leads_with_cdaweb():

@@ -50,7 +50,7 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             # ``_extract_target`` already canonicalises these phrases to "Van Allen
             # Probes" (issue #30); the source router must agree so a radiation-belt
             # goal routes to CDAWeb instead of falling back to "all sources equally".
-            "rbsp", "van allen", "van allen probes", "radiation belt",
+            "rbsp", "van allen", "van allen probes",
         ],
     },
     "pds": {
@@ -121,6 +121,13 @@ def _blob(*parts: object) -> str:
     return " ".join(tokens).lower()
 
 
+_PLANETARY_CONTEXT_TERMS = (
+    "jupiter", "saturn", "mars", "venus", "mercury", "uranus", "neptune",
+    "juno", "cassini", "galileo", "voyager", "maven", "messenger",
+    "new horizons", "pioneer",
+)
+
+
 def _score_sources(text: str) -> dict[str, int]:
     scores: dict[str, int] = {}
     for key, profile in SOURCE_PROFILES.items():
@@ -136,16 +143,23 @@ def _score_sources(text: str) -> dict[str, int]:
         scores["pds"] += 1
     if any(term in text for term in ["where", "location", "near", "encounter", "closest approach"]):
         scores["spice"] += 1
-    if any(term in text for term in ["jupiter", "saturn", "cassini", "juno", "galileo", "voyager"]):
+    planetary_context = any(term in text for term in _PLANETARY_CONTEXT_TERMS)
+    if planetary_context:
         scores["pds"] += 2
         scores["spice"] += 1
-    if any(term in text for term in [
+    near_earth_context = any(term in text for term in [
         "earth", "magnetopause", "bow shock", "solar wind", "omni",
         # Magnetotail/substorm phrasing is unambiguously near-Earth CDAWeb science
         # (T006). These reinforce CDAWeb the same way "magnetopause"/"bow shock"
         # already do, so a geometry/archive nudge can never overtake it.
-        "magnetotail", "magnetosheath", "plasma sheet", "substorm", "radiation belt",
-    ]):
+        "magnetotail", "magnetosheath", "plasma sheet", "substorm",
+    ])
+    # A bare "radiation belt" phrase is a good CDAWeb nudge for Earth/RBSP-style
+    # heliophysics goals, but not for explicitly planetary/Juno/Cassini contexts:
+    # Jupiter radiation belts are PDS planetary-archive science, not CDAWeb.
+    if "radiation belt" in text and not planetary_context:
+        near_earth_context = True
+    if near_earth_context:
         scores["cdaweb"] += 2
 
     if max(scores.values()) == 0:
