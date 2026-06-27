@@ -593,6 +593,7 @@ def calculate_lshell(
     footprint: bool = False,
     time_col: str = "time",
     position_cols: list[str] | None = None,
+    parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """McIlwain L-shell (+ optional ionospheric footprint) for Nx3 GSM positions (#17).
 
@@ -603,12 +604,34 @@ def calculate_lshell(
     Writes the per-sample L series (and any ionospheric footprint) to
     ``output_file`` as a compressed ``.npz`` and returns the L summary stats and
     paths only. Requires ``spedas-mcp[analysis]``.
+
+    ``parameters`` is accepted as an alias for ``geomag_parameters`` so the
+    geomagnetic-index argument has the same name as in
+    :func:`evaluate_magnetic_field`; ``geomag_parameters`` remains supported for
+    backward compatibility. Supplying both with different values is rejected with
+    a structured ``invalid_argument`` error.
     """
+    # Resolve the geomag_parameters / parameters alias. They name the same
+    # concept; allow either, but reject conflicting both-provided values.
+    if parameters is not None and geomag_parameters is not None:
+        if parameters != geomag_parameters:
+            return _error(
+                "'parameters' and 'geomag_parameters' were both provided with "
+                "different values; they are aliases for the same geomagnetic "
+                "index set. Pass only one (prefer 'geomag_parameters').",
+                code="invalid_argument",
+            )
+        resolved_params = geomag_parameters
+    else:
+        resolved_params = (
+            geomag_parameters if geomag_parameters is not None else parameters
+        )
+
     model_l, err = _resolve_model(model)
     if err is not None:
         return err
 
-    param_err = _require_parameters(model_l, geomag_parameters)
+    param_err = _require_parameters(model_l, resolved_params)
     if param_err is not None:
         return param_err
 
@@ -638,7 +661,7 @@ def calculate_lshell(
     pos_var = "_spedas_mcp_lshell_pos_gsm"
     eq_foot = "_spedas_mcp_lshell_eq_foot"
     iono_foot = "_spedas_mcp_lshell_iono_foot"
-    trace_kwargs = _model_kwargs(model_l, geomag_parameters)
+    trace_kwargs = _model_kwargs(model_l, resolved_params)
 
     footprint_arr = None
     try:

@@ -1820,6 +1820,7 @@ def create_server() -> FastMCP:
         footprint: bool = False,
         time_col: str = "time",
         position_cols: list[str] | None = None,
+        parameters: dict[str, Any] | None = None,
     ) -> str:
         """Analysis: McIlwain L-shell (+ optional ionospheric footprint) for Nx3 GSM positions.
 
@@ -1830,7 +1831,9 @@ def create_server() -> FastMCP:
         footprint=True) to output_file as .npz, and returns the L summary
         {min_L, max_L, mean_L} plus paths only. IGRF (default) is fast and
         parameter-free; distorted models require geomag_parameters (no hidden
-        network I/O). Requires spedas-mcp[analysis].
+        network I/O). 'parameters' is accepted as an alias for 'geomag_parameters'
+        (same name as evaluate_magnetic_field); supplying both with different
+        values is an invalid_argument error. Requires spedas-mcp[analysis].
         """
         from spedas_mcp.analysis.fieldmodels import calculate_lshell as _impl
 
@@ -1842,6 +1845,7 @@ def create_server() -> FastMCP:
             footprint=footprint,
             time_col=time_col,
             position_cols=position_cols,
+            parameters=parameters,
         ))
 
     return mcp

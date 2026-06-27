@@ -452,6 +452,74 @@ def test_lshell_backend_returns_no_foot(positions_npz, tmp_path, monkeypatch):
     assert out["code"] == "backend_error"
 
 
+# --------------------------------------------------------------------------
+# parameters= alias for geomag_parameters= (calculate_lshell)
+# --------------------------------------------------------------------------
+
+def test_lshell_parameters_alias_is_accepted(positions_npz, tmp_path, monkeypatch):
+    # The 'parameters' alias drives the distorted-model gate exactly like
+    # 'geomag_parameters' (t96 here succeeds because the indices are supplied).
+    _install_fake_pyspedas(monkeypatch)
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "l_alias.npz"),
+        model="t96",
+        parameters={"pdyn": 2.0, "dst": -10.0, "byimf": 0.0, "bzimf": -2.0},
+    )
+    assert out["status"] == "success"
+    assert out["model"] == "t96"
+
+
+def test_lshell_parameters_alias_gates_missing(positions_npz, tmp_path):
+    # Neither alias provided for a distorted model -> parameters_required
+    # (no backend needed; the gate fires before any import).
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "l.npz"),
+        model="t96",
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "parameters_required"
+
+
+def test_lshell_both_params_same_value_ok(positions_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    params = {"pdyn": 2.0, "dst": -10.0, "byimf": 0.0, "bzimf": -2.0}
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "l_both.npz"),
+        model="t96",
+        geomag_parameters=params,
+        parameters=dict(params),  # equal value, different object
+    )
+    assert out["status"] == "success"
+
+
+def test_lshell_both_params_conflict_rejected(positions_npz, tmp_path):
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "l.npz"),
+        model="t96",
+        geomag_parameters={"pdyn": 2.0, "dst": -10.0, "byimf": 0.0, "bzimf": -2.0},
+        parameters={"pdyn": 5.0, "dst": -20.0, "byimf": 0.0, "bzimf": -5.0},
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert "geomag_parameters" in out["message"]
+
+
+def test_lshell_geomag_parameters_still_works(positions_npz, tmp_path, monkeypatch):
+    # Backward compatibility: the original keyword keeps working unchanged.
+    _install_fake_pyspedas(monkeypatch)
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "l_bc.npz"),
+        model="igrf",
+        geomag_parameters=None,
+    )
+    assert out["status"] == "success"
+
+
 def test_eval_csv_positions(tmp_path, monkeypatch):
     _install_fake_pyspedas(monkeypatch)
     import pandas as pd
@@ -584,3 +652,85 @@ def test_lshell_real_backend_roundtrip(positions_npz, tmp_path):  # pragma: no c
     npz = np.load(tmp_path / "lshell_real.npz")
     assert npz["lshell"].shape[0] == 8
     assert np.isfinite(npz["lshell"]).any()
+
+
+def _equatorial_positions_npz(tmp_path: Path, radii_re) -> Path:
+    """Write GSM-equatorial-plane (z=0) positions at the given radii (Re), in km."""
+    radii_re = np.asarray(radii_re, dtype="float64")
+    n = radii_re.shape[0]
+    positions = np.zeros((n, 3), dtype="float64")
+    positions[:, 0] = radii_re * fieldmodels.R_E_KM  # along +X_GSM, on the equator
+    t = np.arange(n, dtype="float64") + 1_577_836_800.0  # 2020-01-01, IGRF-valid epoch
+    path = tmp_path / "equ_pos.npz"
+    np.savez(path, positions=positions, times=t)
+    return path
+
+
+@pytest.mark.skipif(
+    not _real_geopack_available(),
+    reason="requires a pyspedas with geopack tigrf + ttrace2endpoint APIs",
+)
+def test_lshell_real_backend_numeric(tmp_path):  # pragma: no cover
+    # For dipole-dominated IGRF, a field line starting on the magnetic equator
+    # has its apex at (approximately) its starting radius, so L ~= r/Re. The
+    # geomagnetic dipole is tilted/offset from GSM, so use a generous tolerance
+    # rather than an exact equality -- this is a sanity bound, not a precise ref.
+    radii = [3.0, 4.0, 5.0, 6.0]
+    pos = _equatorial_positions_npz(tmp_path, radii)
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(pos),
+        output_file=str(tmp_path / "lshell_num.npz"),
+        model="igrf",
+    )
+    assert out["status"] == "success"
+    npz = np.load(tmp_path / "lshell_num.npz")
+    lshell = np.asarray(npz["lshell"], dtype="float64")
+    assert lshell.shape == (len(radii),)
+    assert np.isfinite(lshell).all()
+    assert (lshell > 0).all()
+    # L within +/-30% of the starting equatorial radius (Re), and monotone-ish:
+    # larger starting radius -> larger L.
+    for r, L in zip(radii, lshell):
+        assert L == pytest.approx(r, rel=0.30), f"L={L} not within 30% of r={r}"
+    assert lshell[-1] > lshell[0]
+    # Summary stats are consistent with the per-sample series.
+    assert out["summary"]["min_L"] == pytest.approx(float(lshell.min()), rel=1e-9)
+    assert out["summary"]["max_L"] == pytest.approx(float(lshell.max()), rel=1e-9)
+
+
+@pytest.mark.skipif(
+    not _real_geopack_available(),
+    reason="requires a pyspedas with geopack tigrf + ttrace2endpoint APIs",
+)
+def test_evaluate_magnetic_field_real_backend_igrf(tmp_path):  # pragma: no cover
+    # IGRF B at equatorial positions: artifact contents, finite vectors, strictly
+    # positive field strength (nT), and a falling magnitude with radius (dipole
+    # |B| ~ 1/r^3 on the equator) as a defensible physical sanity check.
+    radii = [3.0, 4.0, 5.0, 6.0]
+    pos = _equatorial_positions_npz(tmp_path, radii)
+    out_file = tmp_path / "b_real.npz"
+    out = fieldmodels.evaluate_magnetic_field(
+        positions_file=str(pos),
+        output_file=str(out_file),
+        model="igrf",
+    )
+    assert out["status"] == "success"
+    assert out["model"] == "igrf"
+    assert out["n_samples"] == len(radii)
+
+    fs = out["field_strength_nT"]
+    assert np.isfinite(fs["min"]) and np.isfinite(fs["max"]) and np.isfinite(fs["mean"])
+    assert fs["min"] > 0.0  # |B| is strictly positive
+    assert fs["min"] <= fs["mean"] <= fs["max"]
+
+    npz = np.load(out_file)
+    bvec = np.asarray(npz["b_gsm"], dtype="float64")
+    assert bvec.shape == (len(radii), 3)
+    assert np.isfinite(bvec).all()
+    assert "positions" in npz and "time" in npz
+    assert "footpoints_gsm" not in npz  # trace='none'
+
+    strength = np.linalg.norm(bvec, axis=1)
+    assert (strength > 0).all()
+    # Dipole field magnitude falls with radius on the equator.
+    assert strength[0] > strength[-1]
