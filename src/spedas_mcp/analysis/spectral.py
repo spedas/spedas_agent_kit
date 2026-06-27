@@ -233,6 +233,18 @@ def dynamic_power_spectrum(
 
     times = np.asarray(tdps, dtype="float64")
     freqs = np.asarray(fdps, dtype="float64")
+    # pyspedas dpwrspc returns fdps as a time x frequency grid. Downstream
+    # renderers expect a single frequency axis matching power.shape[1], so
+    # collapse the grid deterministically before serializing the artifact.
+    if freqs.ndim == 2:
+        if freqs.shape[-1] == power.shape[-1]:
+            freqs = freqs[0, :]
+        elif freqs.shape[0] == power.shape[-1]:
+            freqs = freqs[:, 0]
+        else:
+            freqs = freqs.reshape(-1)
+    elif freqs.ndim > 2:
+        freqs = np.squeeze(freqs)
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

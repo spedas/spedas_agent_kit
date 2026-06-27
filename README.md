@@ -61,7 +61,7 @@ SPICE is exposed as a data source category, but geometry operations are clearer 
 
 Phase-1 coordinate transforms and Phase-2 time-frequency analysis over fetched
 artifacts. These tools require the optional `analysis` extra
-(`pip install 'spedas-mcp[analysis]'`, which installs `pyspedas` and, through it,
+(`pip install 'spedas-mcp[analysis]'`, which installs `pyspedas>=2.0` and, through it,
 `PyWavelets`). `pyspedas` is **not** part of the base install; the tools import it
 lazily and return a clear `status="error"` with an install hint when the extra is
 missing. They are file-in / file-out: inputs are paths to fetched CSV/JSON

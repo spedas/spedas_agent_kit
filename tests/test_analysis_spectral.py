@@ -88,7 +88,8 @@ def _default_dpwrspc(time, quantity, nboxpoints=256, nshiftpoints=128, bin=3, no
     nwin = max(1, (n - nboxpoints) // nshiftpoints)
     nfreq = max(2, nboxpoints // (2 * bin))
     tdps = np.asarray(time, dtype="float64")[:nwin]
-    fdps = np.linspace(0.0, 0.5, nfreq)
+    freq_axis = np.linspace(0.0, 0.5, nfreq)
+    fdps = np.tile(freq_axis, (nwin, 1))
     dps = np.ones((nwin, nfreq), dtype="float64")
     return tdps, fdps, dps
 
@@ -228,6 +229,8 @@ def test_dpwrspc_writes_spectrogram(channel_csv, tmp_path, monkeypatch):
     npz = np.load(spec)
     assert npz["power"].ndim == 2
     assert "time" in npz and "freq" in npz
+    assert npz["freq"].ndim == 1
+    assert npz["freq"].shape[0] == npz["power"].shape[1]
     assert len(out["freq_range"]) == 2
     assert len(out["time_range"]) == 2
 
