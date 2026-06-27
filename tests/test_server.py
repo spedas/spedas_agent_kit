@@ -646,6 +646,69 @@ def test_planetary_routing_not_regressed_by_magnetospheric_keywords():
 
 
 # ---------------------------------------------------------------------------
+# T013: Ulysses high-latitude solar-wind routing.
+# Ulysses is a heliospheric solar-wind mission served from SPDF/CDAWeb (PySPEDAS
+# loads SWOOPS/VHM/SWICS/URAP/... from ``*_cdaweb/`` paths), not the PDS PPI
+# planetary archive. It used to be a PDS-only keyword, so a high-latitude
+# solar-wind goal either fell back to "all sources equally" (and surfaced PDS
+# first) or, for hyphenated "solar-wind" phrasing, scored only 1 on CDAWeb. The
+# router must lead with CDAWeb (measurements) and keep SPICE available for the
+# defining heliographic-latitude geometry, never PDS.
+# ---------------------------------------------------------------------------
+
+def test_ulysses_high_latitude_solar_wind_routes_to_cdaweb_not_pds():
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Ulysses high-latitude fast solar wind over the south polar pass",
+        "target": "Ulysses",
+        "observables": ["solar wind", "magnetic field", "proton plasma"],
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    # The planetary archive must not be dredged up for this heliospheric mission.
+    assert "pds" not in data["recommended_sources"]
+
+
+def test_ulysses_hyphenated_solar_wind_phrasing_routes_to_cdaweb():
+    """Hyphenated "solar-wind" must route like "solar wind" (no PDS fallback)."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Plan a Ulysses polar pass solar-wind workflow",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    assert "pds" not in data["recommended_sources"]
+
+
+def test_ulysses_high_latitude_plan_infers_target_and_leads_with_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Ulysses high heliographic latitude fast solar wind on 1995-01-01",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"] == ["cdaweb"]
+    assert data["inferred"]["target"] == "Ulysses"
+    phases = {step["phase"] for step in data["plan"]}
+    assert {"discover_cdaweb", "fetch_or_compute_cdaweb", "preserve_provenance"} <= phases
+    assert "discover_pds" not in phases
+
+
+def test_ulysses_high_latitude_does_not_regress_planetary_routing():
+    """A planetary high-latitude goal must still be PDS-led, not pulled to CDAWeb.
+
+    The Ulysses high-latitude nudge is guarded against planetary contexts so a
+    "high-latitude" mention near Saturn/Jupiter stays in the PDS archive lane.
+    """
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Cassini high-latitude orbit at Saturn",
+        "target": "Cassini",
+    }))
+    assert data["status"] == "success"
+    assert data["recommended_sources"][0] == "pds"
+
+
+# ---------------------------------------------------------------------------
 # Issue #24: parameter-name consistency between discovery tools.
 # search_spedas_data_sources historically takes `question`; browse_data_sources
 # takes `query`. Accept `query` as a backward-compatible alias so agents that

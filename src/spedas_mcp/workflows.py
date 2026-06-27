@@ -51,6 +51,16 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
             # Probes" (issue #30); the source router must agree so a radiation-belt
             # goal routes to CDAWeb instead of falling back to "all sources equally".
             "rbsp", "van allen", "van allen probes",
+            # Ulysses is a heliospheric solar-wind mission served from SPDF/CDAWeb,
+            # not the PDS PPI planetary archive. PySPEDAS loads its SWOOPS plasma,
+            # VHM/FGM magnetic field, SWICS, URAP, COSPIN, HI-SCALE, EPAC and GRB
+            # products from ``spdf.gsfc.nasa.gov/pub/data/ulysses/`` under
+            # ``*_cdaweb/`` paths (CDAWeb IDs ``UY_*``). The canonical Ulysses
+            # high-latitude / fast-solar-wind workflow is therefore CDAWeb
+            # measurements plus SPICE heliographic-latitude geometry — never PDS
+            # (T013). ``_extract_target`` already canonicalises "ulysses" to the
+            # "Ulysses" target; the source router must agree.
+            "ulysses",
         ],
     },
     "pds": {
@@ -67,7 +77,7 @@ SOURCE_PROFILES: dict[str, dict[str, Any]] = {
         "keywords": [
             "pds", "ppi", "planetary", "jupiter", "saturn", "mars", "venus", "mercury",
             "uranus", "neptune", "juno", "cassini", "voyager", "galileo", "maven",
-            "messenger", "new horizons", "pioneer", "ulysses", "planet", "archive",
+            "messenger", "new horizons", "pioneer", "planet", "archive",
             "bundle", "dataset", "urn",
         ],
     },
@@ -148,7 +158,7 @@ def _score_sources(text: str) -> dict[str, int]:
         scores["pds"] += 2
         scores["spice"] += 1
     near_earth_context = any(term in text for term in [
-        "earth", "magnetopause", "bow shock", "solar wind", "omni",
+        "earth", "magnetopause", "bow shock", "solar wind", "solar-wind", "omni",
         # Magnetotail/substorm phrasing is unambiguously near-Earth CDAWeb science
         # (T006). These reinforce CDAWeb the same way "magnetopause"/"bow shock"
         # already do, so a geometry/archive nudge can never overtake it.
@@ -161,6 +171,24 @@ def _score_sources(text: str) -> dict[str, int]:
         near_earth_context = True
     if near_earth_context:
         scores["cdaweb"] += 2
+
+    # Heliospheric high-latitude / fast-solar-wind phrasing (Ulysses' signature
+    # science: polar passes, fast wind from coronal holes, corotating interaction
+    # regions sampled out of the ecliptic). The measurements are CDAWeb time
+    # series, and the defining quantity — heliographic latitude — is SPICE
+    # geometry, so this nudges both families exactly like the PSP perihelion
+    # workflow (T013). Guarded against planetary contexts so a "high latitude" or
+    # "polar" mention near Jupiter/Saturn/Mars does not pull a planetary goal into
+    # CDAWeb; those stay PDS-led.
+    heliospheric_highlat_context = any(term in text for term in [
+        "high latitude", "high-latitude", "high heliographic latitude",
+        "heliographic latitude", "heliolatitude", "polar pass", "polar passes",
+        "fast solar wind", "fast-solar-wind", "out of the ecliptic",
+        "out-of-ecliptic", "corotating interaction region",
+    ])
+    if heliospheric_highlat_context and not planetary_context:
+        scores["cdaweb"] += 2
+        scores["spice"] += 1
 
     if max(scores.values()) == 0:
         # A general SPEDAS request should expose all families but ask the agent to
