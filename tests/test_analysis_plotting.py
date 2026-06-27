@@ -1,0 +1,513 @@
+"""Offline tests for the artifact renderer ``render_tplot`` (issue #20).
+
+Like ``test_analysis_spectral.py``, these run without network access and without
+a real ``matplotlib`` install:
+
+- Argument validation happens before the backend import and is checked directly.
+- The "optional analysis extra missing" guard (matplotlib) is verified by forcing
+  the import to fail.
+- The load / auto-detect / trange / log-scaling / serialization logic is
+  exercised against a lightweight fake ``matplotlib`` injected into
+  ``sys.modules`` that records the draw calls and writes a real (tiny) PNG file.
+
+A real-backend round-trip is provided as an opt-in test that skips when the
+``[analysis]`` extra (matplotlib) is not installed.
+"""
+from __future__ import annotations
+
+import builtins
+import importlib
+import json
+import sys
+import types
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from spedas_mcp.analysis import plotting
+
+
+# --------------------------------------------------------------------------
+# Fixtures: synthetic artifacts mirroring the spectral / particle / data tools
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def spectrogram_npz(tmp_path: Path) -> Path:
+    """A spectral-tool-style spectrogram .npz (power matrix + time/freq axes)."""
+    n_time, n_freq = 40, 16
+    t = np.arange(n_time, dtype="float64") + 1_600_000_000.0
+    freq = np.linspace(0.01, 0.5, n_freq)
+    power = np.abs(np.random.default_rng(0).standard_normal((n_time, n_freq))) + 0.1
+    path = tmp_path / "spec.npz"
+    np.savez_compressed(path, time=t, freq=freq, power=power)
+    return path
+
+
+@pytest.fixture
+def particle_spectrogram_npz(tmp_path: Path) -> Path:
+    """A particle-spectra-style .npz (spectrogram matrix + time/axis axes)."""
+    n_time, n_bin = 30, 12
+    t = np.arange(n_time, dtype="float64") + 1_600_000_000.0
+    axis = np.linspace(10.0, 1000.0, n_bin)
+    spectrogram = np.abs(np.random.default_rng(1).standard_normal((n_time, n_bin))) + 0.1
+    path = tmp_path / "pspec.npz"
+    np.savez_compressed(path, time=t, axis=axis, spectrogram=spectrogram)
+    return path
+
+
+@pytest.fixture
+def line_csv(tmp_path: Path) -> Path:
+    """A data-layer-style CSV time-series (time + two numeric channels)."""
+    n = 50
+    t = np.arange(n, dtype="float64") + 1_600_000_000.0
+    df = pd.DataFrame({"time": t, "bx": np.sin(t / 10.0), "by": np.cos(t / 7.0)})
+    path = tmp_path / "ts.csv"
+    df.to_csv(path, index=False)
+    return path
+
+
+@pytest.fixture
+def positive_line_csv(tmp_path: Path) -> Path:
+    """A strictly-positive CSV time-series (safe for ylog)."""
+    n = 50
+    t = np.arange(n, dtype="float64") + 1_600_000_000.0
+    df = pd.DataFrame({"time": t, "flux": np.linspace(1.0, 100.0, n)})
+    path = tmp_path / "pos.csv"
+    df.to_csv(path, index=False)
+    return path
+
+
+# --------------------------------------------------------------------------
+# Fake matplotlib (records calls, writes a real tiny PNG on savefig)
+# --------------------------------------------------------------------------
+
+class _FakeAxes:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def plot(self, *a, **k):
+        self.calls.append("plot")
+
+    def pcolormesh(self, *a, **k):
+        self.calls.append("pcolormesh")
+        return object()
+
+    def set_yscale(self, *a, **k):
+        self.calls.append(f"yscale:{a[0] if a else ''}")
+
+    def set_ylabel(self, *a, **k):
+        pass
+
+    def set_xlabel(self, *a, **k):
+        pass
+
+    def legend(self, *a, **k):
+        self.calls.append("legend")
+
+
+class _FakeFigure:
+    def __init__(self, n):
+        self._axes = [_FakeAxes() for _ in range(n)]
+        self.colorbars = 0
+
+    def colorbar(self, *a, **k):
+        self.colorbars += 1
+
+    def tight_layout(self, *a, **k):
+        pass
+
+    def savefig(self, path, *a, **k):
+        # Write a minimal but valid 1x1 PNG so callers can stat() a real file.
+        Path(path).write_bytes(
+            bytes.fromhex(
+                "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+                "890000000a49444154789c6300010000050001a5f645400000000049454e44ae"
+                "426082"
+            )
+        )
+
+
+def _install_fake_matplotlib(monkeypatch):
+    """Install a minimal fake matplotlib tree into sys.modules; return state."""
+    state: dict[str, object] = {"backend": None, "figures": []}
+
+    mpl = types.ModuleType("matplotlib")
+
+    def _use(backend, force=False):
+        state["backend"] = backend
+
+    mpl.use = _use
+
+    pyplot = types.ModuleType("matplotlib.pyplot")
+
+    def _subplots(n, m, figsize=None, squeeze=False, sharex=False):
+        fig = _FakeFigure(n)
+        state["figures"].append(fig)
+        # Return axes shaped (n, 1) like squeeze=False.
+        axes = np.empty((n, 1), dtype=object)
+        for i in range(n):
+            axes[i, 0] = fig._axes[i]
+        return fig, axes
+
+    pyplot.subplots = _subplots
+    pyplot.close = lambda fig: state.__setitem__("closed", True)
+
+    colors = types.ModuleType("matplotlib.colors")
+
+    class _LogNorm:
+        def __init__(self, vmin=None, vmax=None):
+            self.vmin, self.vmax = vmin, vmax
+
+    colors.LogNorm = _LogNorm
+
+    monkeypatch.setitem(sys.modules, "matplotlib", mpl)
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", pyplot)
+    monkeypatch.setitem(sys.modules, "matplotlib.colors", colors)
+    return state
+
+
+# --------------------------------------------------------------------------
+# Validation (no backend needed)
+# --------------------------------------------------------------------------
+
+def test_rejects_empty_input_files(tmp_path):
+    out = plotting.render_tplot(input_files=[], output_file=str(tmp_path / "o.png"))
+    assert out["status"] == "error"
+    assert "input_files" in out["message"]
+
+
+def test_rejects_non_png_output(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(tmp_path / "o.pdf")
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert ".png" in out["message"]
+
+
+def test_rejects_bad_dpi(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(tmp_path / "o.png"), dpi=5000
+    )
+    assert out["status"] == "error"
+    assert "dpi" in out["message"]
+
+
+def test_rejects_bad_xsize(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(tmp_path / "o.png"), xsize=0
+    )
+    assert out["status"] == "error"
+    assert "xsize" in out["message"]
+
+
+def test_rejects_panel_types_length_mismatch(tmp_path, spectrogram_npz, line_csv):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz), str(line_csv)],
+        output_file=str(tmp_path / "o.png"),
+        panel_types=["spectrogram"],  # only one for two inputs
+    )
+    assert out["status"] == "error"
+    assert "panel_types" in out["message"]
+
+
+def test_rejects_unknown_panel_type(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        panel_types=["heatmap"],
+    )
+    assert out["status"] == "error"
+    assert "supported_panel_types" in out
+
+
+def test_rejects_bad_trange_length(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        trange=["2020-01-01"],
+    )
+    assert out["status"] == "error"
+    assert "trange" in out["message"]
+
+
+def test_rejects_unparseable_trange(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        trange=["not-a-time", "also-bad"],
+    )
+    assert out["status"] == "error"
+    assert "trange" in out["message"]
+
+
+def test_rejects_inverted_trange(tmp_path, spectrogram_npz):
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        trange=[1_600_000_100.0, 1_600_000_000.0],
+    )
+    assert out["status"] == "error"
+    assert "start" in out["message"]
+
+
+def test_rejects_missing_input_file(tmp_path):
+    out = plotting.render_tplot(
+        input_files=[str(tmp_path / "nope.npz")], output_file=str(tmp_path / "o.png")
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "resource_not_found"
+
+
+# --------------------------------------------------------------------------
+# Missing-extra guard
+# --------------------------------------------------------------------------
+
+def test_missing_matplotlib(tmp_path, spectrogram_npz, monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "matplotlib" or name.startswith("matplotlib."):
+            raise ModuleNotFoundError("No module named 'matplotlib'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "matplotlib", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(tmp_path / "o.png")
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "dependency_missing"
+    assert "spedas-mcp[analysis]" in out["message"]
+
+
+# --------------------------------------------------------------------------
+# Logic with fake matplotlib
+# --------------------------------------------------------------------------
+
+def test_renders_spectrogram_panel(tmp_path, spectrogram_npz, monkeypatch):
+    state = _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(tmp_path / "o.png")
+    )
+    assert out["status"] == "success"
+    assert out["n_panels"] == 1
+    assert Path(out["output_file"]).exists()
+    assert out["panels"][0]["type"] == "spectrogram"
+    assert out["panels"][0]["shape"] == [40, 16]
+    assert out["panels"][0]["axis_range"] is not None
+    assert out["size_px"] == [int(12 * 200), out["size_px"][1]]
+    # The Agg backend must be forced and a colorbar drawn for the spectrogram.
+    assert state["backend"] == "Agg"
+    assert state["figures"][0].colorbars == 1
+
+
+def test_renders_line_panel_with_two_series(tmp_path, line_csv, monkeypatch):
+    state = _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(line_csv)], output_file=str(tmp_path / "o.png")
+    )
+    assert out["status"] == "success"
+    assert out["panels"][0]["type"] == "line"
+    assert out["panels"][0]["n_series"] == 2
+    fig = state["figures"][0]
+    assert fig._axes[0].calls.count("plot") == 2
+    assert "legend" in fig._axes[0].calls
+
+
+def test_multi_panel_mixed(tmp_path, spectrogram_npz, line_csv, particle_spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz), str(line_csv), str(particle_spectrogram_npz)],
+        output_file=str(tmp_path / "multi.png"),
+    )
+    assert out["status"] == "success"
+    assert out["n_panels"] == 3
+    types_seen = [p["type"] for p in out["panels"]]
+    assert types_seen == ["spectrogram", "line", "spectrogram"]
+
+
+def test_panel_type_override_forces_line_on_npz(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        panel_types="line",  # scalar broadcast; force a line interpretation
+    )
+    assert out["status"] == "success"
+    assert out["panels"][0]["type"] == "line"
+
+
+def test_zlog_applied_to_spectrogram(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        zlog=True,
+    )
+    assert out["status"] == "success"
+    assert out["panels"][0]["zlog"] is True
+
+
+def test_ylog_rejected_on_nonpositive(tmp_path, line_csv, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(line_csv)],  # bx/by include negatives
+        output_file=str(tmp_path / "o.png"),
+        ylog=True,
+    )
+    assert out["status"] == "error"
+    assert "ylog" in out["message"]
+    assert out["code"] == "invalid_argument"
+
+
+def test_ylog_ok_on_positive(tmp_path, positive_line_csv, monkeypatch):
+    state = _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(positive_line_csv)],
+        output_file=str(tmp_path / "o.png"),
+        ylog=[True],
+    )
+    assert out["status"] == "success"
+    assert out["panels"][0]["ylog"] is True
+    assert any(c.startswith("yscale:log") for c in state["figures"][0]._axes[0].calls)
+
+
+def test_trange_filters_samples(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    # Keep only the first 10 of 40 time steps (Unix base + [0,9]).
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        trange=[1_600_000_000.0, 1_600_000_009.0],
+    )
+    assert out["status"] == "success"
+    assert out["panels"][0]["shape"][0] == 10
+    assert out["trange"]["requested"] == [1_600_000_000.0, 1_600_000_009.0]
+
+
+def test_trange_excluding_everything_errors(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        trange=[1_700_000_000.0, 1_700_000_100.0],
+    )
+    assert out["status"] == "error"
+    assert "trange" in out["message"]
+
+
+def test_iso_trange_accepted(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    # 1_600_000_000 -> 2020-09-13T12:26:40Z; choose an ISO window covering it.
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)],
+        output_file=str(tmp_path / "o.png"),
+        trange=["2020-09-13T12:26:40Z", "2020-09-13T12:27:00Z"],
+    )
+    assert out["status"] == "success"
+    assert out["trange"]["requested"][0] == pytest.approx(1_600_000_000.0)
+
+
+def test_creates_parent_dirs(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    nested = tmp_path / "a" / "b" / "out.png"
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(nested)
+    )
+    assert out["status"] == "success"
+    assert nested.exists()
+
+
+def test_no_image_bytes_in_payload(tmp_path, spectrogram_npz, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(spectrogram_npz)], output_file=str(tmp_path / "o.png")
+    )
+    blob = json.dumps(out)
+    # The serialized payload must stay tiny: no inlined arrays/image bytes.
+    assert len(blob) < 4000
+    assert "data:image" not in blob
+
+
+def test_npz_value_array_as_line(tmp_path, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    # A bare value series .npz (e.g. an L-shell series) with a time axis.
+    t = np.arange(20, dtype="float64") + 1_600_000_000.0
+    lshell = np.linspace(2.0, 6.0, 20)
+    p = tmp_path / "lshell.npz"
+    np.savez_compressed(p, time=t, lshell=lshell)
+    out = plotting.render_tplot(input_files=[str(p)], output_file=str(tmp_path / "o.png"))
+    assert out["status"] == "success"
+    assert out["panels"][0]["type"] == "line"
+
+
+def test_json_timeseries_as_line(tmp_path, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    t = (np.arange(15, dtype="float64") + 1_600_000_000.0).tolist()
+    payload = {"time": t, "b": np.sin(np.arange(15) / 3.0).tolist()}
+    p = tmp_path / "ts.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    out = plotting.render_tplot(input_files=[str(p)], output_file=str(tmp_path / "o.png"))
+    assert out["status"] == "success"
+    assert out["panels"][0]["type"] == "line"
+
+
+def test_spectrogram_request_on_table_errors(tmp_path, line_csv, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    out = plotting.render_tplot(
+        input_files=[str(line_csv)],
+        output_file=str(tmp_path / "o.png"),
+        panel_types=["spectrogram"],
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+
+
+def test_unsupported_extension_errors(tmp_path, monkeypatch):
+    _install_fake_matplotlib(monkeypatch)
+    bad = tmp_path / "data.txt"
+    bad.write_text("nope", encoding="utf-8")
+    out = plotting.render_tplot(input_files=[str(bad)], output_file=str(tmp_path / "o.png"))
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+
+
+# --------------------------------------------------------------------------
+# Opt-in real backend round-trip (skips without matplotlib)
+# --------------------------------------------------------------------------
+
+def _have_matplotlib() -> bool:
+    try:
+        importlib.import_module("matplotlib")
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _have_matplotlib(), reason="requires spedas-mcp[analysis] (matplotlib)")
+def test_real_render_roundtrip(tmp_path):
+    # spectrogram + line, rendered by the real matplotlib Agg backend.
+    n_time, n_freq = 32, 12
+    t = np.arange(n_time, dtype="float64") + 1_600_000_000.0
+    freq = np.linspace(0.01, 0.5, n_freq)
+    power = np.abs(np.random.default_rng(2).standard_normal((n_time, n_freq))) + 0.1
+    spec = tmp_path / "spec.npz"
+    np.savez_compressed(spec, time=t, freq=freq, power=power)
+
+    df = pd.DataFrame({"time": t, "bx": np.sin(t / 5.0)})
+    csv = tmp_path / "ts.csv"
+    df.to_csv(csv, index=False)
+
+    out = plotting.render_tplot(
+        input_files=[str(spec), str(csv)],
+        output_file=str(tmp_path / "real.png"),
+        zlog=[True, False],
+    )
+    assert out["status"] == "success"
+    png = Path(out["output_file"])
+    assert png.exists() and png.stat().st_size > 0
+    assert out["n_panels"] == 2

@@ -14,7 +14,7 @@ The `xhelio-*` packages are implementation backends. They should stay visible to
 - Official repo: <https://github.com/spedas/spedas_mcp>
 - Python package name: `spedas-mcp`
 - Python module / CLI module: `spedas_mcp`
-- Current MCP tool count: 26
+- Current MCP tool count: 36
 
 ## Layered capability map
 
@@ -62,7 +62,7 @@ SPICE is exposed as a data source category, but geometry operations are clearer 
 Phase-1 coordinate transforms and Phase-2 time-frequency analysis over fetched
 artifacts. These tools require the optional `analysis` extra
 (`pip install 'spedas-mcp[analysis]'`, which installs `pyspedas>=2.0` and, through it,
-`PyWavelets`). `pyspedas` is **not** part of the base install; the tools import it
+`PyWavelets` and `matplotlib`). `pyspedas`/`matplotlib` are **not** part of the base install; the tools import them
 lazily and return a clear `status="error"` with an install hint when the extra is
 missing. They are file-in / file-out: inputs are paths to fetched CSV/JSON
 products, bulk outputs are written to disk, and only paths plus compact summaries
@@ -108,6 +108,14 @@ matrices are never returned inline).
 
 - `compute_particle_moments(dist_file, output_dir, sc_potential_v=0.0, energy_range_ev=None, output_format="json", no_unit_conversion=False)` — plasma moments (density, velocity, temperature, pressure tensor, heat-flux-related quantities) per time slice (`pyspedas` `moments_3d`). Optionally restricts to `energy_range_ev=[min,max]` eV (by masking inactive bins) and applies the spacecraft potential. Writes the full moment time series to `output_dir/particle_moments.{json,csv}`. Returns `{moments_file, n_time, time_range, density_summary, velocity_summary, temperature_summary, pressure_tensor_summary, columns, ...}` with `{min,max,mean}` scalar summaries only. Units follow `moments_3d` (density cm⁻³, velocity km/s, temperature eV, pressure eV/cm³).
 - `compute_particle_spectra(dist_file, output_dir, spectrum_types=["energy","pitch_angle"], mag_file=None, resolution=None)` — energy / azimuth (`phi`) / elevation (`theta`) / **pitch-angle** spectrograms. Energy/phi/theta use `pyspedas` `spd_pgs_make_e_spec` / `spd_pgs_make_phi_spec` / `spd_pgs_make_theta_spec`, averaging the distribution over the complementary dimensions per slice. `azimuth`→`phi` and `elevation`→`theta` aliases are accepted. Field-aligned `pitch_angle` spectra require a `mag_file` (B-field reference): each slice is rotated into field-aligned coordinates with `spd_pgs_do_fac` (B as +z) and the polar (pitch) angle is binned over 0–180° via `spd_pgs_make_theta_spec` in colatitude mode — **no optional `spd_pgs_make_pad_spec` backend is needed**, so pitch-angle is delivered on every pyspedas build that has the spectra functions. `mag_file` is an `.npz`/`.json` with key `b` as `(T,3)` (one B vector per slice, matched by index) or `(3,)` (broadcast across slices), in the distribution's coordinate frame; only B's direction is used. `resolution` sets the number of pitch-angle bins (default 18). When `mag_file` is absent the `pitch_angle` entry reports `needs_input` while the other requested spectra still compute. Each spectrogram is written to `output_dir/particle_spectra_<type>.npz`. Returns `{spectra: {energy: {spectrogram_file, axis_label, axis_units, shape, axis_range, value_range, ...}, pitch_angle: {..., n_pitch_angle_bins}, ...}, requested, succeeded, n_time, time_range, ...}`.
+
+Phase 2 — artifact rendering / visualization (issue #20, plotting epic #10). This
+closes the explore/visualize step of the research loop: the data, spectral, field-model,
+and particle tools above all write bulk arrays to disk and return only compact summaries,
+and `render_tplot` turns those artifacts into a picture. It uses `matplotlib` (headless
+`Agg` backend, no GUI/display) and never fetches remote data.
+
+- `render_tplot(input_files, output_file, panel_types=None, trange=None, xsize=12, ysize=None, dpi=200, ylog=None, zlog=None)` — render a multi-panel tplot-style **PNG** from local artifacts, one stacked panel per `input_file` (top to bottom). Spectrogram `.npz` matrices (`power`/`spectrogram` keys with `time` + `freq`/`axis` axes, as written by `dynamic_power_spectrum`/`wavelet_transform`/`compute_particle_spectra`) render as `pcolormesh` panels with a colorbar; CSV/JSON tables and 1-D/2-D `.npz`/`.npy` value arrays render as line panels. `panel_types` overrides per-file auto-detection — each of `auto` (default), `line`/`timeseries`, or `spectrogram`; pass `None` (all auto), a single token (broadcast), or a list matching `input_files`. `trange` is an optional 2-element window (ISO-8601 strings or Unix seconds) that filters samples. `ylog`/`zlog` (per-panel booleans or a scalar broadcast) set a log y-axis / log color scale and are rejected with `invalid_argument` when the data includes non-positive values. `xsize`/`ysize` are inches and `dpi` is bounded to avoid absurd canvases. The PNG is written to `output_file` (parent dirs created); the return is `{status, output_file, n_panels, trange: {requested, actual}, size_px, dpi, panels: [{index, type, file, shape, value_range, time_range, axis_range?/n_series?, ylog?/zlog?}], warnings?}` only — **image bytes are never inlined and no bulk arrays are returned**. Requires `spedas-mcp[analysis]` (matplotlib).
 
 ### 5. Compatibility low-level tools
 

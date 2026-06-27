@@ -595,6 +595,7 @@ def create_server() -> FastMCP:
                         "calculate_lshell",
                         "compute_particle_moments",
                         "compute_particle_spectra",
+                        "render_tplot",
                     ],
                 },
                 "compatibility_low_level": {
@@ -1931,6 +1932,62 @@ def create_server() -> FastMCP:
             spectrum_types=spectrum_types,
             mag_file=mag_file,
             resolution=resolution,
+        ))
+
+    # ------------------------------------------------------------------
+    # Analysis layer (Phase 2: artifact rendering / visualization, issue #20,
+    # plotting epic #10). Optional matplotlib backend (installed via the same
+    # spedas-mcp[analysis] extra). File-in / file-out: inputs are paths to the
+    # spectral/particle/data artifacts above, the output is a PNG written to
+    # output_file, and only the path plus compact per-panel metadata is returned
+    # — never inline image bytes (artifact-first). Rendering is headless (Agg)
+    # and never fetches remote data.
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    @_safe_tool
+    def render_tplot(
+        input_files: list[str],
+        output_file: str,
+        panel_types: list[str] | None = None,
+        trange: list[str] | None = None,
+        xsize: int = 12,
+        ysize: int | None = None,
+        dpi: int = 200,
+        ylog: list[bool] | None = None,
+        zlog: list[bool] | None = None,
+    ) -> str:
+        """Analysis: render a multi-panel tplot-style PNG from analysis artifacts.
+
+        Backend: matplotlib (headless Agg). Consumes the file artifacts written
+        by the data/spectral/particle tools — spectrogram .npz matrices (keys
+        'power'/'spectrogram' with 'time' + 'freq'/'axis' axes) and CSV/JSON or
+        .npz/.npy time-series — and stacks one panel per input_file (top to
+        bottom). Spectrogram artifacts render as pcolormesh panels with a
+        colorbar; time-series render as line panels. panel_types overrides the
+        per-file auto-detection (each of 'auto', 'line'/'timeseries',
+        'spectrogram'); it may be None (all auto), a single token (broadcast), or
+        a list matching input_files. trange (2-element ISO-8601 or Unix-second
+        bounds) filters samples; ylog/zlog (per-panel booleans or a scalar
+        broadcast) set log y / log color scales and are rejected when values are
+        non-positive. xsize/ysize are inches; dpi is bounded to avoid absurd
+        canvases. The PNG is written to output_file (parent dirs created) and
+        only {status, output_file, n_panels, trange, size_px, panels[...]} is
+        returned — image bytes are never inlined. Does not fetch remote data.
+        Requires spedas-mcp[analysis].
+        """
+        from spedas_mcp.analysis.plotting import render_tplot as _impl
+
+        return _json(_impl(
+            input_files=input_files,
+            output_file=output_file,
+            panel_types=panel_types,
+            trange=trange,
+            xsize=xsize,
+            ysize=ysize,
+            dpi=dpi,
+            ylog=ylog,
+            zlog=zlog,
         ))
 
     return mcp

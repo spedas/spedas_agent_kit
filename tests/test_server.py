@@ -56,6 +56,9 @@ def test_server_has_expected_tools():
         "wavelet_transform",
         "evaluate_magnetic_field",
         "calculate_lshell",
+        "compute_particle_moments",
+        "compute_particle_spectra",
+        "render_tplot",
     } <= names
 
 
@@ -810,6 +813,52 @@ def test_analysis_tools_are_wrapped_in_safe_tool():
         "output_dir": "/tmp",
     }))
     _assert_uniform_error(missing_file)
+
+
+def test_render_tplot_registered_and_validates(tmp_path: Path):
+    server = create_server()
+    # Pure validation path (no matplotlib needed): non-PNG output is rejected
+    # through the server with the uniform structured envelope.
+    bad_ext = json.loads(_call_tool(server, "render_tplot", {
+        "input_files": [str(tmp_path / "in.npz")],
+        "output_file": str(tmp_path / "out.pdf"),
+    }))
+    _assert_uniform_error(bad_ext)
+    assert bad_ext["code"] == "invalid_argument"
+
+    # Empty input list -> structured invalid_argument, not a traceback.
+    empty = json.loads(_call_tool(server, "render_tplot", {
+        "input_files": [],
+        "output_file": str(tmp_path / "out.png"),
+    }))
+    _assert_uniform_error(empty)
+
+
+def test_render_tplot_missing_file_is_structured(tmp_path: Path):
+    server = create_server()
+    missing = json.loads(_call_tool(server, "render_tplot", {
+        "input_files": [str(tmp_path / "nope.npz")],
+        "output_file": str(tmp_path / "out.png"),
+    }))
+    _assert_uniform_error(missing)
+    assert missing["code"] == "resource_not_found"
+
+
+def test_render_tplot_wrapped_in_safe_tool(monkeypatch):
+    server = create_server()
+    import spedas_mcp.analysis.plotting as plotting_mod
+
+    def _boom(*args, **kwargs):
+        raise OSError("disk write failed at /Users/secret/path")
+
+    monkeypatch.setattr(plotting_mod, "render_tplot", _boom)
+    raw = _call_tool(server, "render_tplot", {
+        "input_files": ["a.npz"], "output_file": "o.png",
+    })
+    payload = json.loads(raw)
+    _assert_uniform_error(payload)
+    assert payload["tool"] == "render_tplot"
+    assert "/Users/" not in raw
 
 
 def test_analysis_safe_tool_converts_unexpected_exception(monkeypatch):
