@@ -347,7 +347,6 @@ def _unsupported_spice_target_error(target: str, *, role: str = "target") -> str
         "unsupported_spice_target",
         f"SPICE geometry {role} '{target}' is not a supported SPICE body or mission.",
         hint=hint,
-        sanitize=False,
         spice_target=target,
         role=role,
         suggested_targets=suggestions,
