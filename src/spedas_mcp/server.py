@@ -591,6 +591,8 @@ def create_server() -> FastMCP:
                         "analyze_minvar_coordinates",
                         "dynamic_power_spectrum",
                         "wavelet_transform",
+                        "evaluate_magnetic_field",
+                        "calculate_lshell",
                     ],
                 },
                 "compatibility_low_level": {
@@ -1762,6 +1764,84 @@ def create_server() -> FastMCP:
             compute_significance=compute_significance,
             siglvl=siglvl,
             time_col=time_col,
+        ))
+
+    # ------------------------------------------------------------------
+    # Analysis layer (Phase 2: magnetic field models & L-shell, issues #16/#17).
+    # Same optional pyspedas (geopack) backend. File-in / file-out: the input is
+    # an Nx3 GSM positions artifact (preferably .npz with 'positions' and optional
+    # 'times'); per-sample B vectors / footpoints / L series are written to
+    # output_file as a compressed .npz and only summary stats plus paths are
+    # returned (artifact-first). IGRF is cheap and parameter-free; distorted
+    # Tsyganenko models require explicit parameters rather than hidden network I/O.
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    @_safe_tool
+    def evaluate_magnetic_field(
+        positions_file: str,
+        output_file: str,
+        model: str = "igrf",
+        parameters: dict[str, Any] | None = None,
+        trace: str = "none",
+        time_col: str = "time",
+        position_cols: list[str] | None = None,
+    ) -> str:
+        """Analysis: evaluate IGRF/T89/T96/T01/TS04 B (nT) at Nx3 GSM positions, optional tracing.
+
+        Backend: pyspedas geopack tigrf/tt89/tt96/tt01/tts04 (field) and
+        ttrace2endpoint (trace in {none, ionosphere, equator}). Reads a positions
+        artifact (.npz with 'positions' Nx3 in GSM km and optional 'times'; .npy;
+        or CSV/JSON), writes per-sample B (and any footpoints/L series) to
+        output_file as .npz, and returns the model, field_strength_nT min/max/mean,
+        paths, and (for equator traces) an lshell_summary only. IGRF is fast and
+        parameter-free; distorted models require explicit parameters (no hidden
+        network I/O). Requires spedas-mcp[analysis].
+        """
+        from spedas_mcp.analysis.fieldmodels import evaluate_magnetic_field as _impl
+
+        return _json(_impl(
+            positions_file=positions_file,
+            output_file=output_file,
+            model=model,
+            parameters=parameters,
+            trace=trace,
+            time_col=time_col,
+            position_cols=position_cols,
+        ))
+
+    @mcp.tool()
+    @_safe_tool
+    def calculate_lshell(
+        positions_file: str,
+        output_file: str,
+        model: str = "igrf",
+        geomag_parameters: dict[str, Any] | None = None,
+        footprint: bool = False,
+        time_col: str = "time",
+        position_cols: list[str] | None = None,
+    ) -> str:
+        """Analysis: McIlwain L-shell (+ optional ionospheric footprint) for Nx3 GSM positions.
+
+        Backend: pyspedas geopack ttrace2endpoint (trace to the magnetic equator;
+        the equatorial foot radius in Re is L). Reads a positions artifact (.npz
+        with 'positions' Nx3 in GSM km and optional 'times'; .npy; or CSV/JSON),
+        writes the per-sample L series (and any ionospheric footprint when
+        footprint=True) to output_file as .npz, and returns the L summary
+        {min_L, max_L, mean_L} plus paths only. IGRF (default) is fast and
+        parameter-free; distorted models require geomag_parameters (no hidden
+        network I/O). Requires spedas-mcp[analysis].
+        """
+        from spedas_mcp.analysis.fieldmodels import calculate_lshell as _impl
+
+        return _json(_impl(
+            positions_file=positions_file,
+            output_file=output_file,
+            model=model,
+            geomag_parameters=geomag_parameters,
+            footprint=footprint,
+            time_col=time_col,
+            position_cols=position_cols,
         ))
 
     return mcp

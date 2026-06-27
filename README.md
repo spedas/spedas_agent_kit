@@ -82,6 +82,19 @@ Pair the spectrogram with a downstream renderer to view it.
 - `dynamic_power_spectrum(input_file, output_dir, data_col=None, nboxpoints=256, nshiftpoints=128, bin=3, nohanning=False, time_col="time")` — sliding Hanning-window Welch dynamic power spectrum (`pyspedas` `dpwrspc`). Returns `{spectrogram_file, data_col, shape, time_range, freq_range, ...}`.
 - `wavelet_transform(input_file, output_dir, data_col=None, wavename="morl", min_period=None, max_period=None, compute_significance=False, siglvl=0.95, time_col="time")` — continuous wavelet transform (Morlet/Paul/DOG) via PyWavelets over Torrence & Compo scales, optionally limited to a period band. `compute_significance=True` adds the per-scale 95% red-noise significance (`pyspedas` `wave_signif`); it is opt-in because significance and wide scale ranges are compute-heavy. Returns `{spectrogram_file, data_col, wavename, shape, time_range, freq_range, period_range, significance_computed, ...}`.
 
+Phase 2 — magnetic field models & radiation-belt coordinates (issues #16, #17).
+Both read a **positions artifact** — preferably an `.npz` with a `positions` array
+of shape `(N, 3)` in **GSM coordinates (km)** plus an optional `times` array of
+Unix seconds (a bare `.npy` Nx3 array, or a CSV/JSON with a time column and three
+numeric position columns, are also accepted). Per-sample B vectors, footpoints,
+and L series are written to `output_file` as a compressed `.npz`; only summary
+stats and paths are returned. IGRF is fast and parameter-free; the distorted
+Tsyganenko models require explicit geomagnetic parameters and return a
+`parameters_required` error otherwise (no hidden network downloads).
+
+- `evaluate_magnetic_field(positions_file, output_file, model="igrf", parameters=None, trace="none", time_col="time", position_cols=None)` — evaluate `igrf`/`t89`/`t96`/`t01`/`ts04` B (nT) at each GSM position (`pyspedas` geopack `tigrf`/`tt89`/`tt96`/`tt01`/`tts04`), optionally tracing each field line (`trace` in `none`/`ionosphere`/`equator`, via `ttrace2endpoint`). `parameters` carries model indices (e.g. `t89` needs `iopt` or `kp`; `t96`/`t01`/`ts04` need `pdyn`/`dst`/`byimf`/`bzimf`(`/g1,g2`/`w1..w6`) or a precomputed `parmod`). Returns `{result_file, model, field_strength_nT: {min,max,mean,components}, footpoints_file?, lshell_summary?, ...}`.
+- `calculate_lshell(positions_file, output_file, model="igrf", geomag_parameters=None, footprint=False, time_col="time", position_cols=None)` — McIlwain L-shell (equatorial field-line apex radius, Re) by tracing each GSM position to the magnetic equator (`pyspedas` geopack `ttrace2endpoint`). `footprint=True` also writes the northern ionospheric footprint. Distorted models reuse the same `geomag_parameters` contract as `evaluate_magnetic_field`. Returns `{lshell_file, model, summary: {min_L, max_L, mean_L}, footprint_file?, ...}`.
+
 ### 5. Compatibility low-level tools
 
 These remain available for clients that already know the source-specific operations:

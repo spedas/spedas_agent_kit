@@ -54,6 +54,8 @@ def test_server_has_expected_tools():
         "analyze_minvar_coordinates",
         "dynamic_power_spectrum",
         "wavelet_transform",
+        "evaluate_magnetic_field",
+        "calculate_lshell",
     } <= names
 
 
