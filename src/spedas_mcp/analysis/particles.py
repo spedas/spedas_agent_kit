@@ -7,10 +7,16 @@ thermodynamic and spectral observables:
   temperature, pressure tensor, heat-flux summaries) from a time series of 3D
   distributions, via ``pyspedas.particles.moments.moments_3d``.
 - :func:`compute_particle_spectra` (#19) - energy / azimuth (phi) / elevation
-  (theta) spectrograms via ``pyspedas`` ``spd_pgs_make_e_spec`` /
-  ``spd_pgs_make_phi_spec`` / ``spd_pgs_make_theta_spec``; field-aligned
-  pitch-angle spectra are gated on the (optional) ``spd_pgs_make_pad_spec``
-  backend plus a magnetic-field reference.
+  (theta) / pitch-angle spectrograms. Energy/phi/theta use ``pyspedas``
+  ``spd_pgs_make_e_spec`` / ``spd_pgs_make_phi_spec`` /
+  ``spd_pgs_make_theta_spec``. Field-aligned **pitch-angle** spectra are computed
+  by rotating each slice into field-aligned coordinates with
+  ``spd_pgs_do_fac`` (B as the +z axis) and binning the resulting polar
+  (pitch) angle via ``spd_pgs_make_theta_spec`` in colatitude mode. This path
+  needs a magnetic-field reference (``mag_file``); when it is absent the
+  pitch-angle entry reports ``needs_input`` instead of failing the whole call.
+  It depends only on ``spd_pgs_do_fac`` + ``spd_pgs_make_theta_spec`` (present
+  in every pyspedas build), not on the optional ``spd_pgs_make_pad_spec``.
 
 Design contract (mirrors :mod:`spedas_mcp.analysis.spectral` /
 :mod:`spedas_mcp.analysis.fieldmodels`, roadmap epics #5/#9):
@@ -69,8 +75,9 @@ _SPECTRA_REQUIRED = {
     "energy": {"data", "energy", "bins"},
     "phi": {"data", "theta", "dtheta", "phi", "dphi", "bins"},
     "theta": {"data", "theta", "dtheta", "dphi", "bins"},
-    # pitch_angle additionally needs a mag reference + the (optional) pad backend.
-    "pitch_angle": {"data", "energy", "theta", "dtheta", "phi", "dphi", "bins"},
+    # pitch_angle: FAC rotation needs the full angular geometry; the B reference
+    # comes from mag_file (validated separately), not the distribution artifact.
+    "pitch_angle": {"data", "theta", "dtheta", "phi", "dphi", "bins"},
 }
 
 # Spectrum types this tool knows about. "azimuth" is accepted as an alias for
@@ -92,6 +99,21 @@ DIST_SCHEMA_DOC = (
     "A=solid-angle bins. Per-slice 2D fields may be given once (E,A) and are "
     "broadcast across all T slices."
 )
+
+MAG_SCHEMA_DOC = (
+    "Magnetic-field reference schema (file-in, for pitch-angle spectra). Provide "
+    "an .npz (preferred) or a JSON object with key 'b' holding the B-field "
+    "vectors and an optional 'times' axis. 'b' is either (T,3) - one B vector per "
+    "distribution time slice (matched by index; T must equal the number of "
+    "distribution slices) - or (3,), a single B vector broadcast across all "
+    "slices. B must be in the SAME coordinate frame as the distribution's "
+    "theta/phi look directions (only B's direction is used; magnitude is "
+    "ignored). The pitch angle is the angle between each bin's look direction "
+    "and +B."
+)
+
+# Default number of pitch-angle bins over 0-180 deg when 'resolution' is unset.
+_DEFAULT_PAD_BINS = 18
 
 
 class ParticleBackendError(AnalysisDependencyError):
@@ -292,6 +314,84 @@ def _require_attr(module_path: str, attr: str) -> Any:
     return fn
 
 
+def _load_mag(mag_file: str, n_time: int) -> Any:
+    """Load the B-field reference into a ``(n_time, 3)`` float array.
+
+    Accepts the same .npz/.json containers as the distribution (see
+    :data:`MAG_SCHEMA_DOC`). A single ``(3,)`` vector is broadcast across all
+    slices; a ``(T, 3)`` array must have ``T == n_time``.
+
+    Raises
+    ------
+    ValueError
+        If the file is missing/unparseable, lacks ``'b'``, or has an
+        incompatible shape.
+    """
+    import numpy as np
+
+    raw = _load_distribution(mag_file)  # reuses the .npz/.json loader + checks
+    if "b" not in raw:
+        raise ValueError(f"mag_file is missing required field 'b'. {MAG_SCHEMA_DOC}")
+    b = np.asarray(raw["b"], dtype="float64")
+    if b.ndim == 1:
+        if b.shape[0] != 3:
+            raise ValueError(
+                f"mag_file 'b' 1D vector must have length 3; got {b.shape[0]}. "
+                f"{MAG_SCHEMA_DOC}"
+            )
+        b = np.broadcast_to(b, (n_time, 3)).copy()
+    elif b.ndim == 2:
+        if b.shape[1] != 3:
+            raise ValueError(
+                f"mag_file 'b' 2D array must be (T,3); got {b.shape}. {MAG_SCHEMA_DOC}"
+            )
+        if b.shape[0] != n_time:
+            raise ValueError(
+                f"mag_file 'b' has {b.shape[0]} time samples but the distribution "
+                f"has {n_time}; supply one B vector per slice (or a single (3,) "
+                "vector to broadcast)."
+            )
+    else:
+        raise ValueError(
+            f"mag_file 'b' must be 1D (3,) or 2D (T,3); got ndim {b.ndim}. "
+            f"{MAG_SCHEMA_DOC}"
+        )
+    return b
+
+
+def _fac_matrix(b_vec: Any) -> Any:
+    """Build a 3x3 field-aligned rotation matrix with +z along ``b_vec``.
+
+    Rows are the FAC basis vectors (x, y, z) expressed in the input frame, so
+    ``mat @ v`` rotates a vector ``v`` into FAC. The x/y reference axes are
+    chosen by a stable Gram-Schmidt against a fixed seed; only the polar
+    (pitch) angle about +z = B is used downstream, and that is invariant to the
+    azimuthal reference, so the seed choice does not affect pitch-angle results.
+
+    Raises
+    ------
+    ValueError
+        If ``b_vec`` has (near) zero magnitude (no defined direction).
+    """
+    import numpy as np
+
+    b = np.asarray(b_vec, dtype="float64").reshape(-1)
+    norm = float(np.linalg.norm(b))
+    if not np.isfinite(norm) or norm == 0.0:
+        raise ValueError(
+            "mag_file contains a zero or non-finite B vector; cannot define a "
+            "field-aligned direction for the pitch-angle rotation."
+        )
+    z = b / norm
+    seed = np.array([0.0, 0.0, 1.0])
+    if abs(float(np.dot(z, seed))) > 0.99:  # B nearly parallel to seed: re-seed
+        seed = np.array([0.0, 1.0, 0.0])
+    x = np.cross(seed, z)
+    x = x / np.linalg.norm(x)
+    y = np.cross(z, x)
+    return np.vstack([x, y, z])
+
+
 # --------------------------------------------------------------------------
 # Issue #18 - particle moments
 # --------------------------------------------------------------------------
@@ -490,10 +590,12 @@ def compute_particle_spectra(
     (azimuth/phi), ``spd_pgs_make_theta_spec`` (elevation/theta). Each averages the
     distribution over the complementary dimensions per time slice to build a
     ``(n_time, n_bin)`` spectrogram. Field-aligned **pitch_angle** spectra require
-    both a magnetic-field reference (``mag_file``) and the optional
-    ``spd_pgs_make_pad_spec`` backend; when either is missing the pitch-angle
-    entry is reported as ``unsupported`` / ``needs_input`` instead of failing the
-    whole call.
+    a magnetic-field reference (``mag_file``, see :data:`MAG_SCHEMA_DOC`): each
+    slice is rotated into field-aligned coordinates with ``spd_pgs_do_fac`` (B as
+    +z) and the resulting polar (pitch) angle is binned over 0-180 deg via
+    ``spd_pgs_make_theta_spec`` in colatitude mode. When ``mag_file`` is absent
+    the pitch-angle entry reports ``needs_input`` instead of failing the whole
+    call; the rest of the requested spectra still compute.
 
     Each spectrogram matrix (with its axes) is written to ``output_dir`` as a
     compressed ``.npz``; only paths plus ranges/shapes are returned (artifact-
@@ -566,7 +668,9 @@ def compute_particle_spectra(
 
     for stype in resolved:
         if stype == "pitch_angle":
-            spectra_out["pitch_angle"] = _pitch_angle_entry(mag_file)
+            spectra_out["pitch_angle"] = _pitch_angle_entry(
+                cubes, scalars, times, n_time, mag_file, resolution, out_dir
+            )
             continue
 
         module_path, attr, axis_label, axis_units = spec_backends[stype]
@@ -628,20 +732,43 @@ def compute_particle_spectra(
         "note": (
             "Each successful spectrum writes a (n_time, n_bin) matrix to its .npz "
             "under key 'spectrogram' with axes 'time' (Unix seconds) and 'axis' "
-            "(energy eV / phi deg / theta deg). Pair with a renderer to view; this "
-            "tool returns paths/ranges/shapes only."
+            "(energy eV / phi deg / theta deg / pitch_angle deg). Pitch-angle "
+            "spectra need mag_file; without it that entry is 'needs_input'. Pair "
+            "with a renderer to view; this tool returns paths/ranges/shapes only."
         ),
     }
 
 
-def _pitch_angle_entry(mag_file: str | None) -> dict[str, Any]:
-    """Resolve the pitch-angle spectrum status (needs B-field + optional backend).
+def _pitch_angle_entry(
+    cubes: dict[str, Any],
+    scalars: dict[str, Any],
+    times: Any,
+    n_time: int,
+    mag_file: str | None,
+    resolution: int | None,
+    out_dir: Path,
+) -> dict[str, Any]:
+    """Compute the field-aligned pitch-angle spectrogram for a distribution (#19).
 
-    Returns a structured per-spectrum entry rather than failing the whole call:
-    - ``needs_input`` when ``mag_file`` is absent (FAC requires a B reference);
-    - ``unsupported`` when this pyspedas build lacks ``spd_pgs_make_pad_spec``;
-    - otherwise a ``not_implemented`` marker (the full FAC pad pipeline is
-      intentionally out of scope for this PR and tracked as future work).
+    Algorithm (per time slice):
+
+    1. Build a field-aligned rotation matrix with +z along that slice's B vector
+       (:func:`_fac_matrix`).
+    2. Rotate the slice's ``theta``/``phi`` look directions into FAC with
+       ``pyspedas`` ``spd_pgs_do_fac``.
+    3. Convert the rotated latitude ``theta`` to colatitude (``90 - theta``); the
+       colatitude from +z = B *is* the pitch angle. Bin it over 0-180 deg with
+       ``spd_pgs_make_theta_spec(..., colatitude=True)``.
+
+    Returns a structured per-spectrum entry (this function never raises into the
+    caller):
+
+    - ``needs_input`` when ``mag_file`` is absent (the FAC rotation needs a B
+      reference). This is the documented, valid response - not a stub.
+    - ``unsupported`` when this pyspedas build lacks ``spd_pgs_do_fac`` /
+      ``spd_pgs_make_theta_spec`` (exact-availability gate, Batch O lesson).
+    - ``error`` for a bad/missing ``mag_file`` or a backend failure.
+    - ``success`` (with the ``.npz`` artifact path + ranges/shape) otherwise.
     """
     if mag_file is None:
         return {
@@ -650,7 +777,8 @@ def _pitch_angle_entry(mag_file: str | None) -> dict[str, Any]:
             "message": (
                 "pitch-angle spectra require a magnetic-field reference for the "
                 "field-aligned-coordinate rotation; supply mag_file (an Nx3 B "
-                "time series matching the distribution times)."
+                "time series in the distribution's coordinate frame). "
+                + MAG_SCHEMA_DOC
             ),
         }
     if not Path(mag_file).exists():
@@ -659,42 +787,83 @@ def _pitch_angle_entry(mag_file: str | None) -> dict[str, Any]:
             "code": "invalid_argument",
             "message": f"mag_file does not exist: {mag_file}",
         }
-    # Exact-availability gate: the pad-spec backend is absent in some pyspedas
-    # builds (Batch O lesson). Report unsupported rather than crash.
-    import importlib
 
-    pad_mod = "pyspedas.particles.spd_part_products.spd_pgs_make_pad_spec"
+    import numpy as np
+
+    # Exact-availability gate on the two backends this path actually uses. Both
+    # ship in every pyspedas build that has the spectra functions, but gate
+    # anyway (package presence != function presence).
     try:
-        module = importlib.import_module(pad_mod)
-        has_pad = getattr(module, "spd_pgs_make_pad_spec", None) is not None
-    except Exception:
-        has_pad = False
-    if not has_pad:
+        do_fac = _require_attr(
+            "pyspedas.particles.spd_part_products.spd_pgs_do_fac", "spd_pgs_do_fac"
+        )
+        theta_spec = _require_attr(
+            "pyspedas.particles.spd_part_products.spd_pgs_make_theta_spec",
+            "spd_pgs_make_theta_spec",
+        )
+    except ParticleBackendError as exc:
+        return {"status": "unsupported", "code": "unsupported", "message": str(exc)}
+
+    try:
+        b = _load_mag(mag_file, n_time)
+    except ValueError as exc:
+        return {"status": "error", "code": "invalid_argument", "message": str(exc)}
+
+    n_pa = resolution if resolution is not None else _DEFAULT_PAD_BINS
+
+    rows: list[Any] = []
+    axis_ref: Any = None
+    try:
+        for i in range(n_time):
+            mat = _fac_matrix(b[i])
+            slice_in = _slice_dict(cubes, scalars, i)
+            rotated = do_fac(slice_in, mat)
+            # FAC latitude theta (-90..90 from the B-perp plane) -> pitch-angle
+            # colatitude (0..180 from +B).
+            rotated = dict(rotated)
+            rotated["theta"] = 90.0 - np.asarray(rotated["theta"], dtype="float64")
+            y, ave = theta_spec(rotated, resolution=n_pa, colatitude=True)
+            if axis_ref is None:
+                axis_ref = np.asarray(y, dtype="float64")
+            rows.append(np.asarray(ave, dtype="float64"))
+    except ValueError as exc:
+        # _fac_matrix raises ValueError on a zero/non-finite B vector.
+        return {"status": "error", "code": "invalid_argument", "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - convert backend failure to envelope
         return {
-            "status": "unsupported",
-            "code": "unsupported",
-            "message": (
-                "this pyspedas build lacks spd_pgs_make_pad_spec; field-aligned "
-                "pitch-angle spectra are unavailable. Upgrade pyspedas, or use the "
-                "energy/phi/theta spectra which are supported here."
-            ),
+            "status": "error",
+            "code": "backend_error",
+            "message": f"pitch-angle FAC pipeline failed: {exc}",
         }
-    # Backend + mag reference present, but the full FAC pad pipeline (do_fac +
-    # pad spec wiring) is deliberately deferred so this PR ships honest,
-    # validated tools rather than an untested path.
+
+    spectrogram = np.vstack(rows)  # (n_time, n_pa)
+    spec_path = out_dir / "particle_spectra_pitch_angle.npz"
+    np.savez_compressed(
+        spec_path,
+        time=times,
+        axis=axis_ref,
+        spectrogram=spectrogram,
+    )
     return {
-        "status": "not_implemented",
-        "code": "not_implemented",
-        "message": (
-            "spd_pgs_make_pad_spec is available, but the field-aligned pitch-angle "
-            "pipeline (FAC rotation + pad spec) is not yet wired in this tool. "
-            "Tracked as future work; energy/phi/theta spectra are supported now."
+        "status": "success",
+        "spectrogram_file": str(spec_path),
+        "axis_label": "pitch_angle",
+        "axis_units": "deg",
+        "shape": list(spectrogram.shape),
+        "axis_range": _finite_range(axis_ref),
+        "value_range": _finite_range(spectrogram),
+        "n_pitch_angle_bins": int(n_pa),
+        "note": (
+            "Pitch angle = angle between each look direction and +B, via "
+            "spd_pgs_do_fac (B as +z) then spd_pgs_make_theta_spec in colatitude "
+            "mode. Axis spans 0-180 deg."
         ),
     }
 
 
 __all__ = [
     "DIST_SCHEMA_DOC",
+    "MAG_SCHEMA_DOC",
     "ParticleBackendError",
     "compute_particle_moments",
     "compute_particle_spectra",

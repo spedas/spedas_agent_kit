@@ -117,10 +117,35 @@ def _fake_phi_spec(data_in, resolution=None):
 
 def _fake_theta_spec(data_in, resolution=None, colatitude=False):
     n = resolution if resolution is not None else 4
-    return np.linspace(-90, 90, n), np.full(n, 3.0)
+    # Echo the active-bin mean so colatitude (pitch-angle) calls produce a
+    # non-trivial, data-dependent value the tests can assert on.
+    val = float(np.nanmean(np.asarray(data_in["data"], dtype="float64")))
+    lo, hi = (0, 180) if colatitude else (-90, 90)
+    return np.linspace(lo, hi, n), np.full(n, val)
 
 
-def _install_fake_pyspedas(monkeypatch, *, include_pad=False, **overrides):
+def _fake_do_fac(data_in, mat):
+    """Minimal stand-in for spd_pgs_do_fac: applies the rotation to look dirs.
+
+    Mirrors the real backend's contract (returns a copy with rotated
+    theta/phi) closely enough for the tool's pitch-angle path to exercise the
+    full code, while staying deterministic and dependency-free.
+    """
+    out = dict(data_in)
+    theta = np.asarray(data_in["theta"], dtype="float64") * np.pi / 180.0
+    phi = np.asarray(data_in["phi"], dtype="float64") * np.pi / 180.0
+    x = np.cos(theta) * np.cos(phi)
+    y = np.cos(theta) * np.sin(phi)
+    z = np.sin(theta)
+    xr = mat[0, 0] * x + mat[0, 1] * y + mat[0, 2] * z
+    yr = mat[1, 0] * x + mat[1, 1] * y + mat[1, 2] * z
+    zr = mat[2, 0] * x + mat[2, 1] * y + mat[2, 2] * z
+    out["theta"] = np.arcsin(np.clip(zr, -1.0, 1.0)) * 180.0 / np.pi
+    out["phi"] = np.arctan2(yr, xr) * 180.0 / np.pi
+    return out
+
+
+def _install_fake_pyspedas(monkeypatch, *, include_fac=True, **overrides):
     """Install a minimal fake ``pyspedas`` particle tree into sys.modules."""
     mods: dict[str, types.ModuleType] = {}
 
@@ -146,17 +171,19 @@ def _install_fake_pyspedas(monkeypatch, *, include_pad=False, **overrides):
     theta_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_make_theta_spec")
     theta_mod.spd_pgs_make_theta_spec = overrides.get("theta_spec", _fake_theta_spec)
 
-    if include_pad:
-        pad_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_make_pad_spec")
-        pad_mod.spd_pgs_make_pad_spec = overrides.get("pad_spec", lambda *a, **k: (np.zeros(4), np.zeros(4)))
+    # spd_pgs_do_fac powers the pitch-angle FAC rotation. Present in every real
+    # pyspedas build that has the spectra functions; inject it here unless a test
+    # explicitly drops it to exercise the unsupported gate.
+    if include_fac:
+        fac_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_do_fac")
+        fac_mod.spd_pgs_do_fac = overrides.get("do_fac", _fake_do_fac)
 
     for name, mod in mods.items():
         monkeypatch.setitem(sys.modules, name, mod)
-    # If pad backend should appear absent, ensure no stale real module lingers.
-    if not include_pad:
+    if not include_fac:
         monkeypatch.delitem(
             sys.modules,
-            "pyspedas.particles.spd_part_products.spd_pgs_make_pad_spec",
+            "pyspedas.particles.spd_part_products.spd_pgs_do_fac",
             raising=False,
         )
     return mods
@@ -355,6 +382,15 @@ def test_spectra_resolution_controls_bins(dist_npz, tmp_path, monkeypatch):
     assert out["spectra"]["phi"]["shape"][1] == 9
 
 
+def _mag_npz(tmp_path: Path, n_time: int = 3, b=None) -> Path:
+    """Write a (T,3) B-field reference matching the synthetic distribution."""
+    if b is None:
+        b = np.tile(np.array([0.0, 0.0, 1.0]), (n_time, 1))
+    path = tmp_path / "mag.npz"
+    np.savez(path, times=np.arange(float(n_time)), b=np.asarray(b, dtype="float64"))
+    return path
+
+
 def test_pitch_angle_needs_mag_file(dist_npz, tmp_path, monkeypatch):
     _install_fake_pyspedas(monkeypatch)
     out = particles.compute_particle_spectra(
@@ -368,33 +404,142 @@ def test_pitch_angle_needs_mag_file(dist_npz, tmp_path, monkeypatch):
     assert "energy" in out["succeeded"]
 
 
-def test_pitch_angle_unsupported_when_pad_absent(dist_npz, tmp_path, monkeypatch):
-    # pad backend absent + a mag_file present -> unsupported, not a crash.
-    _install_fake_pyspedas(monkeypatch, include_pad=False)
-    mag = tmp_path / "mag.npz"
-    np.savez(mag, times=np.arange(3.0), b=np.ones((3, 3)))
+def test_pitch_angle_success_with_mag_file(dist_npz, tmp_path, monkeypatch):
+    # With a valid mag_file the FAC pitch-angle path computes and writes an
+    # artifact spanning 0-180 deg (the honest #19 deliverable).
+    _install_fake_pyspedas(monkeypatch)
+    mag = _mag_npz(tmp_path)
     out = particles.compute_particle_spectra(
         str(dist_npz),
         str(tmp_path / "spec"),
         spectrum_types=["pitch_angle"],
         mag_file=str(mag),
     )
-    # No spectra succeeded -> overall error, but pitch_angle entry is structured.
+    assert out["status"] == "success"
+    entry = out["spectra"]["pitch_angle"]
+    assert entry["status"] == "success"
+    assert entry["axis_label"] == "pitch_angle"
+    assert entry["axis_units"] == "deg"
+    # Default 18 bins over 0-180 deg.
+    assert entry["n_pitch_angle_bins"] == 18
+    assert entry["shape"] == [3, 18]
+    lo, hi = entry["axis_range"]
+    assert lo >= 0.0 and hi <= 180.0
+    spec = np.load(entry["spectrogram_file"])
+    assert spec["spectrogram"].shape == (3, 18)
+    assert np.isfinite(spec["spectrogram"]).all()
+
+
+def test_pitch_angle_resolution_controls_bins(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    mag = _mag_npz(tmp_path)
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+        resolution=12,
+    )
+    assert out["status"] == "success"
+    assert out["spectra"]["pitch_angle"]["shape"][1] == 12
+    assert out["spectra"]["pitch_angle"]["n_pitch_angle_bins"] == 12
+
+
+def test_pitch_angle_single_b_vector_broadcast(dist_npz, tmp_path, monkeypatch):
+    # A single (3,) B vector is broadcast across all distribution slices.
+    _install_fake_pyspedas(monkeypatch)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, b=np.array([0.0, 0.0, 1.0]))
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
+    assert out["status"] == "success"
+    assert out["spectra"]["pitch_angle"]["shape"][0] == 3
+
+
+def test_pitch_angle_mag_missing_file(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(tmp_path / "nope.npz"),
+    )
+    assert out["spectra"]["pitch_angle"]["status"] == "error"
+    assert "does not exist" in out["spectra"]["pitch_angle"]["message"]
+
+
+def test_pitch_angle_mag_missing_b_field(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, times=np.arange(3.0))  # no 'b'
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
+    assert out["spectra"]["pitch_angle"]["status"] == "error"
+    assert "'b'" in out["spectra"]["pitch_angle"]["message"]
+
+
+def test_pitch_angle_mag_time_mismatch(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, b=np.ones((5, 3)))  # 5 != 3 distribution slices
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
+    assert out["spectra"]["pitch_angle"]["status"] == "error"
+    assert "time samples" in out["spectra"]["pitch_angle"]["message"]
+
+
+def test_pitch_angle_zero_b_vector_rejected(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, b=np.zeros((3, 3)))  # no defined direction
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
+    assert out["spectra"]["pitch_angle"]["status"] == "error"
+    assert "zero" in out["spectra"]["pitch_angle"]["message"].lower()
+
+
+def test_pitch_angle_unsupported_when_fac_absent(dist_npz, tmp_path, monkeypatch):
+    # do_fac backend absent -> unsupported (structured), not a crash.
+    _install_fake_pyspedas(monkeypatch, include_fac=False)
+    mag = _mag_npz(tmp_path)
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
     assert out["spectra"]["pitch_angle"]["status"] == "unsupported"
     assert out["status"] == "error"
 
 
-def test_pitch_angle_not_implemented_when_pad_present(dist_npz, tmp_path, monkeypatch):
-    _install_fake_pyspedas(monkeypatch, include_pad=True)
-    mag = tmp_path / "mag.npz"
-    np.savez(mag, times=np.arange(3.0), b=np.ones((3, 3)))
+def test_pitch_angle_with_energy_combined(dist_npz, tmp_path, monkeypatch):
+    # energy + pitch_angle together: both succeed, overall success.
+    _install_fake_pyspedas(monkeypatch)
+    mag = _mag_npz(tmp_path)
     out = particles.compute_particle_spectra(
         str(dist_npz),
         str(tmp_path / "spec"),
-        spectrum_types=["pitch_angle"],
+        spectrum_types=["energy", "pitch_angle"],
         mag_file=str(mag),
     )
-    assert out["spectra"]["pitch_angle"]["status"] == "not_implemented"
+    assert out["status"] == "success"
+    assert set(out["succeeded"]) == {"energy", "pitch_angle"}
 
 
 # --------------------------------------------------------------------------
@@ -519,3 +664,99 @@ def test_real_spectra_roundtrip(tmp_path):
     assert set(out["succeeded"]) == {"energy", "phi", "theta"}
     espec = np.load(out["spectra"]["energy"]["spectrogram_file"])
     assert espec["spectrogram"].shape[0] == arrays["data"].shape[0]
+
+
+def _have_fac_backend() -> bool:
+    try:
+        for mod, attr in (
+            ("pyspedas.particles.spd_part_products.spd_pgs_do_fac", "spd_pgs_do_fac"),
+            (
+                "pyspedas.particles.spd_part_products.spd_pgs_make_theta_spec",
+                "spd_pgs_make_theta_spec",
+            ),
+        ):
+            if getattr(importlib.import_module(mod), attr, None) is None:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _have_fac_backend(), reason="requires pyspedas spd_pgs_do_fac")
+def test_real_pitch_angle_roundtrip(tmp_path):
+    # Real FAC pitch-angle pipeline: synthetic distribution + synthetic B field,
+    # no network. Asserts a 0-180 deg artifact with finite values is produced.
+    arrays = _make_dist_arrays()
+    n_time = arrays["data"].shape[0]
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, b=np.tile(np.array([0.0, 0.0, 1.0]), (n_time, 1)))
+    out = particles.compute_particle_spectra(
+        str(path),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+        resolution=18,
+    )
+    assert out["status"] == "success"
+    entry = out["spectra"]["pitch_angle"]
+    assert entry["status"] == "success"
+    assert entry["shape"] == [n_time, 18]
+    lo, hi = entry["axis_range"]
+    assert 0.0 <= lo and hi <= 180.0
+    spec = np.load(entry["spectrogram_file"])
+    assert spec["spectrogram"].shape == (n_time, 18)
+    # At least some finite values are produced from the synthetic distribution.
+    assert np.isfinite(spec["spectrogram"]).any()
+
+
+@pytest.mark.skipif(not _have_fac_backend(), reason="requires pyspedas spd_pgs_do_fac")
+def test_real_pitch_angle_beam_peaks_along_b(tmp_path):
+    # Physics sanity: a beam pointing along +z, with B along +z, must put its
+    # peak at low pitch angle (near 0 deg), not high.
+    n_energy, n_theta, n_phi = 6, 8, 8
+    n_angle = n_theta * n_phi
+    theta_vals = np.linspace(-78.75, 78.75, n_theta)
+    phi_vals = np.linspace(22.5, 337.5, n_phi)
+    th, ph = np.meshgrid(theta_vals, phi_vals, indexing="ij")
+    theta = np.repeat(th.reshape(-1)[None, :], n_energy, axis=0)
+    phi = np.repeat(ph.reshape(-1)[None, :], n_energy, axis=0)
+    dtheta = np.full((n_energy, n_angle), 180.0 / n_theta)
+    dphi = np.full((n_energy, n_angle), 360.0 / n_phi)
+    bins = np.ones((n_energy, n_angle))
+    # Beam concentrated near +z look direction (high latitude theta).
+    beam = (th.reshape(-1) > 60.0).astype("float64") + 1e-3
+    data = np.repeat(beam[None, :], n_energy, axis=0)[None, ...]
+    arrays = {
+        "times": np.array([1_600_000_000.0]),
+        "data": data,
+        "energy": np.repeat(np.geomspace(10.0, 1000.0, n_energy)[:, None], n_angle, axis=1),
+        "denergy": np.ones((n_energy, n_angle)),
+        "theta": theta,
+        "dtheta": dtheta,
+        "phi": phi,
+        "dphi": dphi,
+        "bins": bins,
+        "charge": 1.0,
+        "mass": 5.68e-6,
+    }
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, b=np.array([[0.0, 0.0, 1.0]]))  # B along +z
+    out = particles.compute_particle_spectra(
+        str(path),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+        resolution=9,
+    )
+    assert out["status"] == "success"
+    spec = np.load(out["spectra"]["pitch_angle"]["spectrogram_file"])
+    axis = spec["axis"]  # pitch-angle bin centers (deg)
+    row = spec["spectrogram"][0]
+    finite = np.isfinite(row)
+    # Restrict to finite bins; the peak bin should sit in the low-PA half.
+    peak_pa = axis[finite][np.nanargmax(row[finite])]
+    assert peak_pa < 90.0

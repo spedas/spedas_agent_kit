@@ -28,3 +28,29 @@ jobs:
         run: python scripts/validate_plugin_packages.py
       - name: Run MCP list-tools smoke
         run: python scripts/smoke_mcp_list_tools.py --json
+
+  analysis:
+    # Real-backend lane: installs the optional [analysis] extra (pyspedas>=2.0)
+    # so the particle/coordinate tests exercise the real pyspedas algorithms
+    # instead of skipping. All analysis tests use synthetic, in-memory data and
+    # never download remote data, so this lane stays network-free and stable.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies (with analysis extra)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[analysis,dev,mcp]"
+      - name: Show pyspedas build
+        run: python -c "import pyspedas, importlib.metadata as m; print('pyspedas', m.version('pyspedas'))"
+      - name: Run particle real-backend tests (#18, #19, incl. pitch-angle)
+        run: pytest -q tests/test_analysis_particles.py
+      - name: Run coordinate-transform real-backend tests
+        run: pytest -q tests/test_analysis_coords.py

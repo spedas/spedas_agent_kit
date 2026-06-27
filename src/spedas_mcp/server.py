@@ -1912,10 +1912,14 @@ def create_server() -> FastMCP:
         distribution over complementary dimensions per time slice into a
         (n_time, n_bin) spectrogram. spectrum_types defaults to
         ['energy','pitch_angle']; 'azimuth'->'phi' and 'elevation'->'theta' aliases
-        are accepted. Field-aligned 'pitch_angle' spectra need both a mag_file
-        (B-field reference) and the optional spd_pgs_make_pad_spec backend; when
-        either is missing that entry reports needs_input/unsupported instead of
-        failing the whole call. Each spectrogram is written to
+        are accepted. Field-aligned 'pitch_angle' spectra need a mag_file (B-field
+        reference): each slice is rotated into field-aligned coordinates with
+        spd_pgs_do_fac (B as +z) and the polar (pitch) angle binned over 0-180 deg
+        via spd_pgs_make_theta_spec in colatitude mode (no optional pad backend
+        required). Without mag_file that entry reports needs_input while the other
+        requested spectra still compute. mag_file is an .npz/.json with 'b' as
+        (T,3) (one B vector per slice) or (3,) (broadcast), in the distribution's
+        coordinate frame. Each spectrogram is written to
         output_dir/particle_spectra_<type>.npz; only paths/ranges/shapes are
         returned (artifact-first). Requires spedas-mcp[analysis].
         """
