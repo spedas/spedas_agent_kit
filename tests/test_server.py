@@ -1918,3 +1918,96 @@ def test_earth_bow_shock_still_routes_to_cdaweb():
     }))
     assert data["status"] == "success"
     assert data["recommended_sources"] == ["cdaweb"]
+
+
+# ===========================================================================
+# Batch X T016: Cassini / Saturn magnetosphere planetary guard.
+#
+# Cassini is a PDS-only planetary-archive mission (its MAG/CAPS products live in
+# the PDS PPI node; it has no CDAWeb datasets). A goal phrased with generic
+# physics vocabulary ("Cassini Saturn magnetosphere magnetic field") still hit
+# the bare CDAWeb *keywords* ``magnetosphere``/``magnetic`` and lifted CDAWeb to
+# score 3 -- above the score>1 selection threshold -- so the planner wrongly
+# recommended CDAWeb alongside PDS for a mission with no CDAWeb data. The boundary
+# (bow shock / magnetopause) and radiation-belt nudges were already guarded
+# against planetary contexts (T015/T006); these tests extend that same discipline
+# to the generic CDAWeb magnetosphere/field/plasma/particle keywords, which are
+# equally planetary-archive physics vocabulary.
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Cassini Saturn magnetosphere magnetic field",
+        "Cassini MAG Saturn orbit",
+        "Cassini plasma near Saturn",
+    ],
+)
+def test_cassini_saturn_goals_lead_with_pds_not_cdaweb(goal):
+    """Cassini/Saturn goals are PDS-led and must not recommend CDAWeb."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": goal,
+    }))
+    assert data["status"] == "success"
+    assert data["ranked_sources"][0]["source"] == "pds"
+    assert data["recommended_sources"][0] == "pds"
+    assert "cdaweb" not in data["recommended_sources"]
+
+
+def test_cassini_mag_saturn_orbit_keeps_spice_geometry_context():
+    """An explicit orbit/geometry phrasing may still surface SPICE as context."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+        "question": "Cassini MAG Saturn orbit",
+    }))
+    assert data["recommended_sources"] == ["pds", "spice"]
+
+
+def test_cassini_plan_observation_leads_with_pds_no_cdaweb():
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": (
+            "Cassini Saturn magnetosphere magnetic field survey 2006-01-01 to "
+            "2006-01-02"
+        ),
+    }))
+    assert data["status"] == "success"
+    assert data["inferred"]["target"] == "Cassini"
+    assert data["recommended_sources"][0] == "pds"
+    assert "cdaweb" not in data["recommended_sources"]
+    phases = {step["phase"] for step in data["plan"]}
+    assert "discover_pds" in phases
+    assert "discover_cdaweb" not in phases
+
+
+def test_planetary_magnetosphere_keywords_do_not_boost_cdaweb():
+    """The generic magnetosphere/magnetic keywords must not raise CDAWeb for a
+    planetary (Saturn) goal, mirroring the T015 boundary-nudge guard."""
+    from spedas_mcp.workflows import _score_sources
+
+    physics = _score_sources("cassini saturn magnetosphere magnetic field survey")
+    # The generic magnetosphere/field keyword matches are subtracted, so CDAWeb
+    # stays at most the single cross-source measurement nudge (+1) -- below the
+    # score>1 recommendation threshold -- while PDS leads the planetary goal.
+    assert physics["cdaweb"] <= 1
+    assert physics["pds"] > physics["cdaweb"]
+    # The bare magnetosphere/magnetic keywords must not lift CDAWeb above the
+    # selection threshold the way they did before the planetary guard (was 3).
+    no_physics = _score_sources("cassini saturn survey")
+    assert physics["cdaweb"] - no_physics["cdaweb"] <= 1
+
+
+def test_planetary_guard_does_not_regress_near_earth_magnetosphere():
+    """Near-Earth magnetosphere goals (no planetary body/mission) keep CDAWeb."""
+    server = create_server()
+    for goal in (
+        "Earth magnetosphere magnetic field bow shock",
+        "THEMIS magnetotail substorm magnetic field",
+        "MMS reconnection magnetopause plasma",
+    ):
+        data = json.loads(_call_tool(server, "search_spedas_data_sources", {
+            "question": goal,
+        }))
+        assert data["recommended_sources"] == ["cdaweb"], goal

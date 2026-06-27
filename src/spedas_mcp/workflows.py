@@ -223,6 +223,23 @@ _HIGH_LATITUDE_PATTERNS = tuple(
 _HELIO_OBSERVATORY_PATTERNS = tuple(
     _word_pattern(t) for t in ("switchback", "switchbacks", "sweap")
 )
+# Generic measurement vocabulary that sits in the CDAWeb keyword list but is
+# *equally* planetary-archive physics ("Cassini Saturn magnetosphere magnetic
+# field", "Galileo Jupiter plasma"). For a near-Earth/heliophysics goal these
+# words rightly reinforce CDAWeb, but a Cassini/Juno/MAVEN-style planetary goal
+# names a PDS-only mission with no CDAWeb datasets, so leaving them in inflates
+# the CDAWeb score above the score>1 recommendation threshold and surfaces CDAWeb
+# alongside PDS for missions that have no CDAWeb data (Batch X T016). When a
+# planetary body/mission is named these matches are subtracted from CDAWeb,
+# mirroring the existing boundary (bow shock) and radiation-belt planetary guards
+# (T015/T006). Mission/observatory-specific CDAWeb tokens (omni/mms/themis/psp/
+# rbsp/...) are deliberately *not* listed here: a goal that names a near-Earth
+# observatory keeps its CDAWeb score even if it also mentions a planet.
+_GENERIC_CDAWEB_MEASUREMENT_PATTERNS = tuple(
+    _word_pattern(t) for t in (
+        "magnetosphere", "ionosphere", "magnetic", "electric", "particle", "plasma",
+    )
+)
 
 
 def _score_sources(text: str) -> dict[str, int]:
@@ -242,6 +259,18 @@ def _score_sources(text: str) -> dict[str, int]:
     if planetary_context:
         scores["pds"] += 2
         scores["spice"] += 1
+        # Generic measurement keywords (magnetosphere / magnetic / plasma / ...)
+        # are equally planetary-archive physics vocabulary, so they must not
+        # inflate CDAWeb for a PDS-only planetary mission (Cassini/Juno/MAVEN
+        # have no CDAWeb datasets). Subtract those bare-keyword matches from the
+        # CDAWeb score, mirroring the boundary/radiation-belt planetary guards
+        # below (T015/T006). Floored at 0 so a planetary goal that *also* names a
+        # near-Earth observatory still keeps that observatory's CDAWeb token
+        # (e.g. "OMNI") -- only the generic physics words are removed (T016).
+        generic_cdaweb = sum(
+            1 for pattern in _GENERIC_CDAWEB_MEASUREMENT_PATTERNS if pattern.search(text)
+        )
+        scores["cdaweb"] = max(0, scores["cdaweb"] - generic_cdaweb)
     near_earth_context = _any_match(_NEAR_EARTH_PATTERNS, text)
     # Boundary structures (bow shock / magnetopause / magnetosheath) and a bare
     # "radiation belt" phrase are good CDAWeb nudges for Earth/near-Earth science,
