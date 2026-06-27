@@ -593,6 +593,8 @@ def create_server() -> FastMCP:
                         "wavelet_transform",
                         "evaluate_magnetic_field",
                         "calculate_lshell",
+                        "compute_particle_moments",
+                        "compute_particle_spectra",
                     ],
                 },
                 "compatibility_low_level": {
@@ -1846,6 +1848,89 @@ def create_server() -> FastMCP:
             time_col=time_col,
             position_cols=position_cols,
             parameters=parameters,
+        ))
+
+    # ------------------------------------------------------------------
+    # Analysis layer (Phase 2: particle moments & spectra, issues #18/#19).
+    # Same optional pyspedas backend. File-in / file-out: the input is an explicit
+    # distribution artifact (.npz preferred, JSON accepted) holding per-slice
+    # energy/angle cubes; moment time series and spectrogram matrices are written
+    # to output_dir and only scalar summaries / paths / ranges are returned
+    # (artifact-first; never inline full cubes/tensors). Each pyspedas particle
+    # function is gated on exact availability before use (some builds lack e.g.
+    # spd_pgs_make_pad_spec), so a missing backend yields a structured
+    # unsupported/needs_input entry rather than a raw ImportError.
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    @_safe_tool
+    def compute_particle_moments(
+        dist_file: str,
+        output_dir: str,
+        sc_potential_v: float = 0.0,
+        energy_range_ev: list[float] | None = None,
+        output_format: str = "json",
+        no_unit_conversion: bool = False,
+    ) -> str:
+        """Analysis: plasma moments (density/velocity/temperature/pressure) from 3D distributions.
+
+        Backend: pyspedas moments_3d applied per time slice. Reads an explicit
+        distribution artifact (.npz preferred, or JSON) with per-slice energy/angle
+        cubes ('data','energy','denergy','theta','dtheta','phi','dphi','bins' plus
+        scalars 'charge','mass'); a single (E,A) slice is broadcast across time.
+        Optionally restricts to energy_range_ev=[min,max] eV and applies
+        sc_potential_v. Writes the full moment time series to
+        output_dir/particle_moments.{json,csv} and returns scalar density/velocity/
+        temperature summaries plus the pressure-trace summary and path only — full
+        pressure/temperature tensors and particle cubes are never returned inline.
+        Requires spedas-mcp[analysis].
+        """
+        from spedas_mcp.analysis.particles import compute_particle_moments as _impl
+
+        return _json(_impl(
+            dist_file=dist_file,
+            output_dir=output_dir,
+            sc_potential_v=sc_potential_v,
+            energy_range_ev=energy_range_ev,
+            output_format=output_format,
+            no_unit_conversion=no_unit_conversion,
+        ))
+
+    @mcp.tool()
+    @_safe_tool
+    def compute_particle_spectra(
+        dist_file: str,
+        output_dir: str,
+        spectrum_types: list[str] | None = None,
+        mag_file: str | None = None,
+        resolution: int | None = None,
+    ) -> str:
+        """Analysis: energy / azimuth / elevation / pitch-angle spectrograms from 3D distributions.
+
+        Backends: pyspedas spd_pgs_make_e_spec (energy), spd_pgs_make_phi_spec
+        (azimuth/phi), spd_pgs_make_theta_spec (elevation/theta), each averaging the
+        distribution over complementary dimensions per time slice into a
+        (n_time, n_bin) spectrogram. spectrum_types defaults to
+        ['energy','pitch_angle']; 'azimuth'->'phi' and 'elevation'->'theta' aliases
+        are accepted. Field-aligned 'pitch_angle' spectra need a mag_file (B-field
+        reference): each slice is rotated into field-aligned coordinates with
+        spd_pgs_do_fac (B as +z) and the polar (pitch) angle binned over 0-180 deg
+        via spd_pgs_make_theta_spec in colatitude mode (no optional pad backend
+        required). Without mag_file that entry reports needs_input while the other
+        requested spectra still compute. mag_file is an .npz/.json with 'b' as
+        (T,3) (one B vector per slice) or (3,) (broadcast), in the distribution's
+        coordinate frame. Each spectrogram is written to
+        output_dir/particle_spectra_<type>.npz; only paths/ranges/shapes are
+        returned (artifact-first). Requires spedas-mcp[analysis].
+        """
+        from spedas_mcp.analysis.particles import compute_particle_spectra as _impl
+
+        return _json(_impl(
+            dist_file=dist_file,
+            output_dir=output_dir,
+            spectrum_types=spectrum_types,
+            mag_file=mag_file,
+            resolution=resolution,
         ))
 
     return mcp
