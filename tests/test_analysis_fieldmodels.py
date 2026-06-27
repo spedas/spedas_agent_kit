@@ -145,6 +145,24 @@ def _install_fake_pyspedas(monkeypatch, *, trace_returns_foot=True, b_scale=100.
 
     monkeypatch.setitem(sys.modules, "pyspedas", pyspedas)
     monkeypatch.setitem(sys.modules, "pyspedas.geopack", geopack)
+
+    # Register fake per-symbol submodules so _resolve_geopack's module-first
+    # import (importlib.import_module("pyspedas.geopack.<mod>")) returns the
+    # fakes rather than the real installed submodules when a real pyspedas is
+    # present in the environment (e.g. the anaconda interpreter).
+    submodule_symbols = {
+        "igrf": {"tigrf": tigrf},
+        "t89": {"tt89": tt89},
+        "t96": {"tt96": tt96},
+        "t01": {"tt01": tt01},
+        "ts04": {"tts04": tts04},
+        "ttrace2endpoint": {"ttrace2endpoint": ttrace2endpoint},
+    }
+    for mod_name, attrs in submodule_symbols.items():
+        sub = types.ModuleType(f"pyspedas.geopack.{mod_name}")
+        for attr, fn in attrs.items():
+            setattr(sub, attr, fn)
+        monkeypatch.setitem(sys.modules, f"pyspedas.geopack.{mod_name}", sub)
     return store
 
 
@@ -460,12 +478,101 @@ def test_eval_csv_positions(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Optional real-backend round-trip (skips without the [analysis] extra)
+# Outdated-backend guard (older pyspedas missing the required geopack APIs)
 # --------------------------------------------------------------------------
 
+def _install_partial_geopack(monkeypatch):
+    """Install a fake pyspedas whose geopack lacks ttrace2endpoint / tigrf.
+
+    Mirrors the older installed pyspedas that exposes tt89/tt96/tt01/tts04 but
+    not the modern tracing / IGRF entry points (and no per-model submodules to
+    import them from).
+    """
+    store = _FakeTplotStore()
+    pyspedas = types.ModuleType("pyspedas")
+    geopack = types.ModuleType("pyspedas.geopack")
+    pyspedas.store_data = store.store
+    pyspedas.get_data = store.get
+    pyspedas.del_data = store.delete
+    pyspedas.set_coords = lambda *a, **k: None
+    pyspedas.set_units = lambda *a, **k: None
+    # Only the older subset of model wrappers exists; tigrf + ttrace2endpoint and
+    # the per-model submodules are absent.
+    geopack.tt89 = lambda *a, **k: "x"
+    geopack.tt96 = lambda *a, **k: "x"
+    geopack.tt01 = lambda *a, **k: "x"
+    geopack.tts04 = lambda *a, **k: "x"
+    monkeypatch.setitem(sys.modules, "pyspedas", pyspedas)
+    monkeypatch.setitem(sys.modules, "pyspedas.geopack", geopack)
+    # Ensure the per-model submodule import paths fail (older layout).
+    for sub in ("igrf", "ttrace2endpoint"):
+        monkeypatch.delitem(sys.modules, f"pyspedas.geopack.{sub}", raising=False)
+    return store
+
+
+def test_eval_igrf_outdated_geopack(positions_npz, tmp_path, monkeypatch):
+    _install_partial_geopack(monkeypatch)
+    out = fieldmodels.evaluate_magnetic_field(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "b.npz"),
+        model="igrf",
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "backend_outdated"
+    assert "tigrf" in out["missing"]
+    assert "update" in out["message"].lower()
+
+
+def test_eval_t89_trace_outdated_geopack(positions_npz, tmp_path, monkeypatch):
+    # T89 model exists in the old backend, but tracing to the equator needs
+    # ttrace2endpoint, which does not -> backend_outdated.
+    _install_partial_geopack(monkeypatch)
+    out = fieldmodels.evaluate_magnetic_field(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "b.npz"),
+        model="t89",
+        parameters={"iopt": 2},
+        trace="equator",
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "backend_outdated"
+    assert "ttrace2endpoint" in out["missing"]
+
+
+def test_lshell_outdated_geopack(positions_npz, tmp_path, monkeypatch):
+    _install_partial_geopack(monkeypatch)
+    out = fieldmodels.calculate_lshell(
+        positions_file=str(positions_npz),
+        output_file=str(tmp_path / "l.npz"),
+        model="igrf",
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "backend_outdated"
+    assert "ttrace2endpoint" in out["missing"]
+
+
+# --------------------------------------------------------------------------
+# Optional real-backend round-trip (skips unless the SPECIFIC geopack APIs are
+# importable, not merely because the pyspedas package exists -- an older
+# pyspedas without ttrace2endpoint must still let the normal suite pass).
+# --------------------------------------------------------------------------
+
+def _real_geopack_available() -> bool:
+    """True only if a real pyspedas with the required geopack APIs is importable."""
+    if importlib.util.find_spec("pyspedas") is None:
+        return False
+    try:
+        from spedas_mcp.analysis.fieldmodels import _resolve_geopack
+
+        _resolve_geopack(["tigrf", "ttrace2endpoint"])
+        return True
+    except Exception:
+        return False
+
+
 @pytest.mark.skipif(
-    importlib.util.find_spec("pyspedas") is None,
-    reason="requires the optional [analysis] extra (pyspedas/geopack)",
+    not _real_geopack_available(),
+    reason="requires a pyspedas with geopack tigrf + ttrace2endpoint APIs",
 )
 def test_lshell_real_backend_roundtrip(positions_npz, tmp_path):  # pragma: no cover
     out = fieldmodels.calculate_lshell(

@@ -82,6 +82,81 @@ def _error(
     return payload
 
 
+class GeopackVersionError(AnalysisDependencyError):
+    """Raised when the installed ``pyspedas`` lacks a required geopack API.
+
+    ``pyspedas`` is importable but is an older release whose ``pyspedas.geopack``
+    package does not expose the field-model / field-line-tracing entry points
+    these tools need (e.g. ``ttrace2endpoint`` / ``tigrf``). This is distinct from
+    ``pyspedas`` being absent entirely (:class:`AnalysisDependencyError`).
+    """
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = list(missing)
+        super().__init__(
+            "The installed pyspedas is missing required geopack APIs: "
+            f"{self.missing}. These field-model / tracing entry points were added "
+            "in newer pyspedas releases. Update with: pip install -U "
+            "'spedas-mcp[analysis]' (pyspedas>=2.0 with geopack ttrace2endpoint / "
+            "tigrf)."
+        )
+
+
+# Geopack symbols these tools resolve. Each maps a logical name to the dotted
+# submodule path it lives in for modern pyspedas, so we can import the symbol
+# from its own module first (the modern source layout) and fall back to the
+# pyspedas.geopack package namespace where the symbol is re-exported.
+_GEOPACK_SYMBOLS: dict[str, str] = {
+    "tigrf": "pyspedas.geopack.igrf",
+    "tt89": "pyspedas.geopack.t89",
+    "tt96": "pyspedas.geopack.t96",
+    "tt01": "pyspedas.geopack.t01",
+    "tts04": "pyspedas.geopack.ts04",
+    "ttrace2endpoint": "pyspedas.geopack.ttrace2endpoint",
+}
+
+
+def _resolve_geopack(required: list[str]) -> dict[str, Any]:
+    """Import the requested geopack symbols, compatible with old/new layouts.
+
+    For each name in ``required`` the symbol is imported from its dedicated
+    submodule (the modern ``pyspedas/geopack/<model>.py`` layout) and, failing
+    that, looked up as an attribute on the ``pyspedas.geopack`` package (older
+    releases that re-export a subset). Anything still missing is collected and a
+    single :class:`GeopackVersionError` is raised, so callers never see a raw
+    ``ImportError`` for an outdated pyspedas.
+
+    Returns a ``{name: callable}`` dict for the resolved symbols.
+    """
+    import importlib
+
+    resolved: dict[str, Any] = {}
+    missing: list[str] = []
+    try:
+        geopack_pkg = importlib.import_module("pyspedas.geopack")
+    except Exception:  # pragma: no cover - require_pyspedas already gates this
+        raise GeopackVersionError(list(required)) from None
+
+    for name in required:
+        module_path = _GEOPACK_SYMBOLS.get(name)
+        symbol = None
+        if module_path is not None:
+            try:
+                symbol = getattr(importlib.import_module(module_path), name, None)
+            except Exception:
+                symbol = None
+        if symbol is None:
+            symbol = getattr(geopack_pkg, name, None)
+        if symbol is None:
+            missing.append(name)
+        else:
+            resolved[name] = symbol
+
+    if missing:
+        raise GeopackVersionError(missing)
+    return resolved
+
+
 def _load_positions(
     positions_file: str,
     time_col: str = "time",
@@ -374,8 +449,25 @@ def evaluate_magnetic_field(
     if param_err is not None:
         return param_err
 
+    # Resolve only the geopack APIs this call needs: the chosen model's wrapper,
+    # plus ttrace2endpoint when tracing. A missing pyspedas yields
+    # dependency_missing; an older pyspedas that lacks the specific entry points
+    # yields backend_outdated -- never a raw ImportError.
+    model_symbol = {
+        "igrf": "tigrf",
+        "t89": "tt89",
+        "t96": "tt96",
+        "t01": "tt01",
+        "ts04": "tts04",
+    }[model_l]
+    required_apis = [model_symbol]
+    if endpoint is not None:
+        required_apis.append("ttrace2endpoint")
     try:
         require_pyspedas()
+        gp = _resolve_geopack(required_apis)
+    except GeopackVersionError as exc:
+        return _error(str(exc), code="backend_outdated", missing=exc.missing)
     except AnalysisDependencyError as exc:
         return _error(str(exc), code="dependency_missing")
 
@@ -389,14 +481,6 @@ def evaluate_magnetic_field(
         return _error(str(exc))
 
     from pyspedas import del_data, get_data, set_coords, set_units, store_data
-    from pyspedas.geopack import (
-        tigrf,
-        tt01,
-        tt89,
-        tt96,
-        ttrace2endpoint,
-        tts04,
-    )
 
     pos_var = "_spedas_mcp_eval_pos_gsm"
     model_kwargs = _model_kwargs(model_l, parameters)
@@ -411,16 +495,10 @@ def evaluate_magnetic_field(
             # tigrf() returns a '<pos>_igrf' name but actually stores the field
             # under '<pos>_btigrf' (known upstream inconsistency), so read from
             # the variable that was actually written.
-            tigrf(pos_var)
+            gp["tigrf"](pos_var)
             b_var = pos_var + "_btigrf"
-        elif model_l == "t89":
-            b_var = tt89(pos_var, **model_kwargs)
-        elif model_l == "t96":
-            b_var = tt96(pos_var, **model_kwargs)
-        elif model_l == "t01":
-            b_var = tt01(pos_var, **model_kwargs)
-        else:  # ts04
-            b_var = tts04(pos_var, **model_kwargs)
+        else:
+            b_var = gp[model_symbol](pos_var, **model_kwargs)
 
         if not b_var:
             return _error(
@@ -450,7 +528,7 @@ def evaluate_magnetic_field(
             foot_var = "_spedas_mcp_eval_foot"
             trace_model = model_l
             trace_kwargs = _model_kwargs(model_l, parameters)
-            ttrace2endpoint(
+            gp["ttrace2endpoint"](
                 pos_var,
                 trace_model,
                 endpoint,
@@ -534,8 +612,14 @@ def calculate_lshell(
     if param_err is not None:
         return param_err
 
+    # L-shell always traces field lines, so ttrace2endpoint is mandatory here.
+    # A missing pyspedas yields dependency_missing; an older pyspedas lacking
+    # the tracer yields backend_outdated -- never a raw ImportError.
     try:
         require_pyspedas()
+        gp = _resolve_geopack(["ttrace2endpoint"])
+    except GeopackVersionError as exc:
+        return _error(str(exc), code="backend_outdated", missing=exc.missing)
     except AnalysisDependencyError as exc:
         return _error(str(exc), code="dependency_missing")
 
@@ -549,8 +633,8 @@ def calculate_lshell(
         return _error(str(exc))
 
     from pyspedas import del_data, get_data, set_coords, set_units, store_data
-    from pyspedas.geopack import ttrace2endpoint
 
+    ttrace2endpoint = gp["ttrace2endpoint"]
     pos_var = "_spedas_mcp_lshell_pos_gsm"
     eq_foot = "_spedas_mcp_lshell_eq_foot"
     iono_foot = "_spedas_mcp_lshell_iono_foot"
@@ -638,6 +722,7 @@ __all__ = [
     "FIELD_MODELS",
     "DISTORTED_MODELS",
     "TRACE_TARGETS",
+    "GeopackVersionError",
     "evaluate_magnetic_field",
     "calculate_lshell",
 ]
