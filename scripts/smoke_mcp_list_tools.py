@@ -53,6 +53,8 @@ EXPECTED_TOOLS = [
     "wavelet_transform",
     "evaluate_magnetic_field",
     "calculate_lshell",
+    "compute_particle_moments",
+    "compute_particle_spectra",
 ]
 
 

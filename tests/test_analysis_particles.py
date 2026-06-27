@@ -1,0 +1,521 @@
+"""Offline tests for the Phase-2 particle tools (issues #18, #19).
+
+Like ``test_analysis_spectral.py``, these run without network access and without
+relying on a particular ``pyspedas`` build:
+
+- Argument validation happens before the backend import and is checked directly.
+- The "optional analysis extra missing" guard is verified by forcing the import
+  to fail.
+- The "exact backend function absent" gate (Batch O lesson: package presence
+  does not imply a given function exists) is verified by injecting a fake
+  ``pyspedas`` tree with selected functions missing.
+- The file-in / file-out, serialization, and summary logic is exercised against
+  a lightweight fake ``pyspedas`` injected into ``sys.modules``.
+
+Deterministic real-backend round-trips are provided as opt-in tests that skip
+when the *exact* pyspedas particle functions are not importable.
+"""
+from __future__ import annotations
+
+import builtins
+import importlib
+import json
+import sys
+import types
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from spedas_mcp.analysis import particles
+
+
+# --------------------------------------------------------------------------
+# Synthetic distribution fixtures
+# --------------------------------------------------------------------------
+
+def _make_dist_arrays(n_time: int = 3, n_energy: int = 8, n_theta: int = 4, n_phi: int = 4):
+    """Build a deterministic synthetic distribution matching the documented schema."""
+    n_angle = n_theta * n_phi
+    theta_vals = np.linspace(-67.5, 67.5, n_theta)
+    phi_vals = np.linspace(22.5, 337.5, n_phi)
+    th, ph = np.meshgrid(theta_vals, phi_vals, indexing="ij")
+    theta_ang = th.reshape(-1)
+    phi_ang = ph.reshape(-1)
+    energy_vals = np.geomspace(10.0, 30000.0, n_energy)
+
+    energy = np.repeat(energy_vals[:, None], n_angle, axis=1)
+    theta = np.repeat(theta_ang[None, :], n_energy, axis=0)
+    phi = np.repeat(phi_ang[None, :], n_energy, axis=0)
+    dtheta = np.full((n_energy, n_angle), 45.0)
+    dphi = np.full((n_energy, n_angle), 90.0)
+    denergy = np.repeat((energy_vals * 0.3)[:, None], n_angle, axis=1)
+    bins = np.ones((n_energy, n_angle))
+    data = np.random.RandomState(0).rand(n_time, n_energy, n_angle) * 1e6
+    times = 1_600_000_000.0 + np.arange(n_time, dtype="float64")
+    return {
+        "times": times,
+        "data": data,
+        "energy": energy,
+        "denergy": denergy,
+        "theta": theta,
+        "dtheta": dtheta,
+        "phi": phi,
+        "dphi": dphi,
+        "bins": bins,
+        "charge": 1.0,
+        "mass": 5.68e-6,  # electron mass in pyspedas eV/(km/s)^2 units
+    }
+
+
+@pytest.fixture
+def dist_npz(tmp_path: Path) -> Path:
+    arrays = _make_dist_arrays()
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    return path
+
+
+@pytest.fixture
+def dist_json(tmp_path: Path) -> Path:
+    arrays = _make_dist_arrays()
+    payload = {
+        k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in arrays.items()
+    }
+    path = tmp_path / "dist.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+# --------------------------------------------------------------------------
+# Fake pyspedas backend injection
+# --------------------------------------------------------------------------
+
+def _fake_moments_3d(data_in, sc_pot=0, no_unit_conversion=False):
+    n_active = float(np.nansum(data_in["bins"]))
+    return {
+        "density": 1.0 + 0.001 * n_active,
+        "flux": np.array([10.0, 20.0, 30.0]),
+        "mftens": np.arange(6, dtype="float64"),
+        "velocity": np.array([100.0, -50.0, 25.0]),
+        "ptens": np.array([1.0, 2.0, 3.0, 0.1, 0.2, 0.3]),
+        "ttens": np.diag([5.0, 6.0, 7.0]).astype("float64"),
+        "vthermal": 42.0,
+        "avgtemp": 6.0,
+    }
+
+
+def _fake_e_spec(data_in):
+    e = np.asarray(data_in["energy"], dtype="float64")[:, 0]
+    return e, np.ones(e.shape[0])
+
+
+def _fake_phi_spec(data_in, resolution=None):
+    n = resolution if resolution is not None else 4
+    return np.linspace(0, 360, n), np.full(n, 2.0)
+
+
+def _fake_theta_spec(data_in, resolution=None, colatitude=False):
+    n = resolution if resolution is not None else 4
+    return np.linspace(-90, 90, n), np.full(n, 3.0)
+
+
+def _install_fake_pyspedas(monkeypatch, *, include_pad=False, **overrides):
+    """Install a minimal fake ``pyspedas`` particle tree into sys.modules."""
+    mods: dict[str, types.ModuleType] = {}
+
+    def _mod(name: str) -> types.ModuleType:
+        m = types.ModuleType(name)
+        mods[name] = m
+        return m
+
+    _mod("pyspedas")
+    _mod("pyspedas.particles")
+    _mod("pyspedas.particles.moments")
+    _mod("pyspedas.particles.spd_part_products")
+
+    moments_mod = _mod("pyspedas.particles.moments.moments_3d")
+    moments_mod.moments_3d = overrides.get("moments_3d", _fake_moments_3d)
+
+    e_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_make_e_spec")
+    e_mod.spd_pgs_make_e_spec = overrides.get("e_spec", _fake_e_spec)
+
+    phi_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_make_phi_spec")
+    phi_mod.spd_pgs_make_phi_spec = overrides.get("phi_spec", _fake_phi_spec)
+
+    theta_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_make_theta_spec")
+    theta_mod.spd_pgs_make_theta_spec = overrides.get("theta_spec", _fake_theta_spec)
+
+    if include_pad:
+        pad_mod = _mod("pyspedas.particles.spd_part_products.spd_pgs_make_pad_spec")
+        pad_mod.spd_pgs_make_pad_spec = overrides.get("pad_spec", lambda *a, **k: (np.zeros(4), np.zeros(4)))
+
+    for name, mod in mods.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+    # If pad backend should appear absent, ensure no stale real module lingers.
+    if not include_pad:
+        monkeypatch.delitem(
+            sys.modules,
+            "pyspedas.particles.spd_part_products.spd_pgs_make_pad_spec",
+            raising=False,
+        )
+    return mods
+
+
+# --------------------------------------------------------------------------
+# Validation (no backend needed)
+# --------------------------------------------------------------------------
+
+def test_moments_rejects_bad_output_format(dist_npz, tmp_path):
+    out = particles.compute_particle_moments(
+        str(dist_npz), str(tmp_path / "mom"), output_format="xml"
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert "output_format" in out["message"]
+
+
+def test_moments_rejects_bad_energy_range(dist_npz, tmp_path):
+    out = particles.compute_particle_moments(
+        str(dist_npz), str(tmp_path / "mom"), energy_range_ev=[100.0, 10.0]
+    )
+    assert out["status"] == "error"
+    assert "energy_range_ev" in out["message"]
+
+
+def test_moments_rejects_single_energy_bound(dist_npz, tmp_path):
+    out = particles.compute_particle_moments(
+        str(dist_npz), str(tmp_path / "mom"), energy_range_ev=[100.0]
+    )
+    assert out["status"] == "error"
+
+
+def test_spectra_rejects_unknown_type(dist_npz, tmp_path):
+    out = particles.compute_particle_spectra(
+        str(dist_npz), str(tmp_path / "spec"), spectrum_types=["bogus"]
+    )
+    assert out["status"] == "error"
+    assert "valid_spectrum_types" in out
+
+
+def test_spectra_rejects_empty_types(dist_npz, tmp_path):
+    out = particles.compute_particle_spectra(
+        str(dist_npz), str(tmp_path / "spec"), spectrum_types=[]
+    )
+    assert out["status"] == "error"
+
+
+def test_spectra_rejects_bad_resolution(dist_npz, tmp_path):
+    out = particles.compute_particle_spectra(
+        str(dist_npz), str(tmp_path / "spec"), spectrum_types=["phi"], resolution=0
+    )
+    assert out["status"] == "error"
+    assert "resolution" in out["message"]
+
+
+# --------------------------------------------------------------------------
+# Missing-extra / missing-backend guards
+# --------------------------------------------------------------------------
+
+def test_moments_missing_pyspedas(dist_npz, tmp_path, monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pyspedas" or name.startswith("pyspedas."):
+            raise ModuleNotFoundError("No module named 'pyspedas'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "pyspedas", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    out = particles.compute_particle_moments(str(dist_npz), str(tmp_path / "mom"))
+    assert out["status"] == "error"
+    assert out["code"] == "dependency_missing"
+    assert "spedas-mcp[analysis]" in out["message"]
+
+
+def test_moments_backend_function_absent(dist_npz, tmp_path, monkeypatch):
+    # pyspedas imports, but the moments_3d module lacks the function.
+    mods = _install_fake_pyspedas(monkeypatch)
+    del mods["pyspedas.particles.moments.moments_3d"].moments_3d
+
+    out = particles.compute_particle_moments(str(dist_npz), str(tmp_path / "mom"))
+    assert out["status"] == "error"
+    assert out["code"] == "unsupported"
+
+
+def test_spectra_missing_pyspedas(dist_npz, tmp_path, monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pyspedas" or name.startswith("pyspedas."):
+            raise ModuleNotFoundError("No module named 'pyspedas'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "pyspedas", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    out = particles.compute_particle_spectra(str(dist_npz), str(tmp_path / "spec"))
+    assert out["status"] == "error"
+    assert out["code"] == "dependency_missing"
+
+
+# --------------------------------------------------------------------------
+# Logic with fake backends
+# --------------------------------------------------------------------------
+
+def test_moments_writes_json_artifact(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_moments(
+        str(dist_npz), str(tmp_path / "mom"), output_format="json"
+    )
+    assert out["status"] == "success"
+    assert out["n_time"] == 3
+    assert out["output_format"] == "json"
+    assert out["density_summary"]["mean"] > 0
+    assert out["temperature_summary"]["mean"] == 6.0
+    assert "trace" in out["pressure_tensor_summary"]
+    # Artifact-first: full tensors are NOT inline.
+    assert "ptens" not in out and "ttens" not in out
+    path = Path(out["moments_file"])
+    assert path.exists() and path.suffix == ".json"
+    payload = json.loads(path.read_text())
+    assert len(payload["density"]) == 3
+    assert "pxy" in payload  # pressure-tensor off-diagonal preserved in artifact
+
+
+def test_moments_writes_csv_artifact(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_moments(
+        str(dist_npz), str(tmp_path / "mom"), output_format="csv"
+    )
+    assert out["status"] == "success"
+    path = Path(out["moments_file"])
+    assert path.exists() and path.suffix == ".csv"
+    text = path.read_text()
+    assert "density" in text.splitlines()[0]
+
+
+def test_moments_energy_range_masks_bins(dist_npz, tmp_path, monkeypatch):
+    # The fake moments_3d encodes the active-bin count into density, so a
+    # narrower energy band must lower the active count and thus the density.
+    _install_fake_pyspedas(monkeypatch)
+    full = particles.compute_particle_moments(
+        str(dist_npz), str(tmp_path / "full"), output_format="json"
+    )
+    banded = particles.compute_particle_moments(
+        str(dist_npz),
+        str(tmp_path / "banded"),
+        energy_range_ev=[100.0, 5000.0],
+        output_format="json",
+    )
+    assert full["status"] == "success" and banded["status"] == "success"
+    assert banded["density_summary"]["mean"] < full["density_summary"]["mean"]
+    assert banded["energy_range_ev"] == [100.0, 5000.0]
+
+
+def test_moments_accepts_json_input(dist_json, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_moments(
+        str(dist_json), str(tmp_path / "mom"), output_format="json"
+    )
+    assert out["status"] == "success"
+    assert out["n_time"] == 3
+
+
+def test_spectra_writes_npz_per_type(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["energy", "azimuth", "elevation"],
+    )
+    assert out["status"] == "success"
+    assert set(out["succeeded"]) == {"energy", "phi", "theta"}
+    for stype in ("energy", "phi", "theta"):
+        entry = out["spectra"][stype]
+        assert entry["status"] == "success"
+        spec = Path(entry["spectrogram_file"])
+        assert spec.exists()
+        npz = np.load(spec)
+        assert npz["spectrogram"].shape[0] == 3  # n_time
+        assert "time" in npz and "axis" in npz
+        assert entry["shape"][0] == 3
+
+
+def test_spectra_resolution_controls_bins(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["phi"],
+        resolution=9,
+    )
+    assert out["status"] == "success"
+    assert out["spectra"]["phi"]["shape"][1] == 9
+
+
+def test_pitch_angle_needs_mag_file(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["energy", "pitch_angle"],
+    )
+    # energy succeeds; pitch_angle reports needs_input without failing the call.
+    assert out["status"] == "success"
+    assert out["spectra"]["pitch_angle"]["status"] == "needs_input"
+    assert "energy" in out["succeeded"]
+
+
+def test_pitch_angle_unsupported_when_pad_absent(dist_npz, tmp_path, monkeypatch):
+    # pad backend absent + a mag_file present -> unsupported, not a crash.
+    _install_fake_pyspedas(monkeypatch, include_pad=False)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, times=np.arange(3.0), b=np.ones((3, 3)))
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
+    # No spectra succeeded -> overall error, but pitch_angle entry is structured.
+    assert out["spectra"]["pitch_angle"]["status"] == "unsupported"
+    assert out["status"] == "error"
+
+
+def test_pitch_angle_not_implemented_when_pad_present(dist_npz, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch, include_pad=True)
+    mag = tmp_path / "mag.npz"
+    np.savez(mag, times=np.arange(3.0), b=np.ones((3, 3)))
+    out = particles.compute_particle_spectra(
+        str(dist_npz),
+        str(tmp_path / "spec"),
+        spectrum_types=["pitch_angle"],
+        mag_file=str(mag),
+    )
+    assert out["spectra"]["pitch_angle"]["status"] == "not_implemented"
+
+
+# --------------------------------------------------------------------------
+# Distribution-schema robustness
+# --------------------------------------------------------------------------
+
+def test_missing_distribution_file(tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out = particles.compute_particle_moments(
+        str(tmp_path / "nope.npz"), str(tmp_path / "mom")
+    )
+    assert out["status"] == "error"
+    assert "does not exist" in out["message"]
+
+
+def test_missing_required_field(tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    # Drop 'charge' (required by moments) from an otherwise-valid distribution.
+    arrays = _make_dist_arrays()
+    del arrays["charge"]
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    out = particles.compute_particle_moments(str(path), str(tmp_path / "mom"))
+    assert out["status"] == "error"
+    assert "charge" in out["message"]
+
+
+def test_single_slice_broadcast(tmp_path, monkeypatch):
+    # A 2D (E,A) 'data' is treated as a single time slice.
+    _install_fake_pyspedas(monkeypatch)
+    arrays = _make_dist_arrays(n_time=1)
+    arrays["data"] = arrays["data"][0]  # (E,A)
+    del arrays["times"]
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    out = particles.compute_particle_moments(
+        str(path), str(tmp_path / "mom"), output_format="json"
+    )
+    assert out["status"] == "success"
+    assert out["n_time"] == 1
+
+
+def test_2d_slice_field_broadcast_across_time(tmp_path, monkeypatch):
+    # Per-slice geometry given once as (E,A) is broadcast across all time slices.
+    _install_fake_pyspedas(monkeypatch)
+    arrays = _make_dist_arrays(n_time=3)
+    # energy/theta/etc are already (E,A); data is (T,E,A) -> valid mixed case.
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    out = particles.compute_particle_spectra(
+        str(path), str(tmp_path / "spec"), spectrum_types=["energy"]
+    )
+    assert out["status"] == "success"
+    assert out["spectra"]["energy"]["shape"][0] == 3
+
+
+def test_inconsistent_field_shape_rejected(tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    arrays = _make_dist_arrays(n_time=3)
+    arrays["bins"] = np.ones((5, 5))  # wrong (E,A)
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    out = particles.compute_particle_spectra(
+        str(path), str(tmp_path / "spec"), spectrum_types=["energy"]
+    )
+    assert out["status"] == "error"
+    assert "bins" in out["message"]
+
+
+# --------------------------------------------------------------------------
+# Opt-in real backend round-trips (skip unless exact functions are importable)
+# --------------------------------------------------------------------------
+
+def _have_moments_backend() -> bool:
+    try:
+        m = importlib.import_module("pyspedas.particles.moments.moments_3d")
+        return getattr(m, "moments_3d", None) is not None
+    except Exception:
+        return False
+
+
+def _have_spectra_backends() -> bool:
+    try:
+        for mod, attr in (
+            ("pyspedas.particles.spd_part_products.spd_pgs_make_e_spec", "spd_pgs_make_e_spec"),
+            ("pyspedas.particles.spd_part_products.spd_pgs_make_phi_spec", "spd_pgs_make_phi_spec"),
+            ("pyspedas.particles.spd_part_products.spd_pgs_make_theta_spec", "spd_pgs_make_theta_spec"),
+        ):
+            if getattr(importlib.import_module(mod), attr, None) is None:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _have_moments_backend(), reason="requires pyspedas moments_3d")
+def test_real_moments_roundtrip(tmp_path):
+    arrays = _make_dist_arrays()
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    out = particles.compute_particle_moments(
+        str(path), str(tmp_path / "mom"), output_format="json"
+    )
+    assert out["status"] == "success"
+    assert out["density_summary"] is not None
+    payload = json.loads(Path(out["moments_file"]).read_text())
+    assert len(payload["density"]) == arrays["data"].shape[0]
+    assert all(np.isfinite(payload["density"]))
+
+
+@pytest.mark.skipif(not _have_spectra_backends(), reason="requires pyspedas spd_pgs_make_*_spec")
+def test_real_spectra_roundtrip(tmp_path):
+    arrays = _make_dist_arrays()
+    path = tmp_path / "dist.npz"
+    np.savez(path, **arrays)
+    out = particles.compute_particle_spectra(
+        str(path),
+        str(tmp_path / "spec"),
+        spectrum_types=["energy", "phi", "theta"],
+    )
+    assert out["status"] == "success"
+    assert set(out["succeeded"]) == {"energy", "phi", "theta"}
+    espec = np.load(out["spectra"]["energy"]["spectrogram_file"])
+    assert espec["spectrogram"].shape[0] == arrays["data"].shape[0]
