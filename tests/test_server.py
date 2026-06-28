@@ -368,6 +368,112 @@ def test_cdaweb_fetch_product_limit_and_quality_stats(monkeypatch, tmp_path: Pat
     assert flag_checks["quality_flags"]["QUALITY_FLAG"]["counts"]["1"] == 2
 
 
+
+
+def test_fetch_data_product_rejects_bad_times_before_cdaweb_backend(monkeypatch, tmp_path: Path):
+    import cdawebmcp.fetch as fetch_mod
+
+    called = False
+
+    def _fake_fetch_data(dataset_id: str, parameters: list[str], start: str, stop: str):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(fetch_mod, "fetch_data", _fake_fetch_data)
+    server = create_server()
+
+    malformed = json.loads(_call_tool(server, "fetch_data_product", {
+        "source_type": "cdaweb",
+        "dataset_id": "PSP_FLD_L2_MAG_RTN_1MIN",
+        "parameters": ["psp_fld_l2_mag_RTN_1min"],
+        "start": "not-a-date",
+        "stop": "2025-06-19T09:00:00Z",
+        "output_dir": str(tmp_path),
+    }))
+    _assert_uniform_error(malformed)
+    assert malformed["code"] == "invalid_argument"
+    assert malformed["invalid_argument"] == "start"
+    assert "parse" in malformed["message"]
+
+    reversed_range = json.loads(_call_tool(server, "fetch_data_product", {
+        "source_type": "cdaweb",
+        "dataset_id": "PSP_FLD_L2_MAG_RTN_1MIN",
+        "parameters": ["psp_fld_l2_mag_RTN_1min"],
+        "start": "2025-06-19T10:00:00Z",
+        "stop": "2025-06-19T08:00:00Z",
+        "output_dir": str(tmp_path),
+    }))
+    _assert_uniform_error(reversed_range)
+    assert reversed_range["code"] == "invalid_argument"
+    assert reversed_range["invalid_argument"] == "stop"
+    assert "after start" in reversed_range["message"]
+    assert called is False
+
+
+def test_fetch_data_product_shapes_cdaweb_no_data_codes(monkeypatch, tmp_path: Path):
+    import cdawebmcp.fetch as fetch_mod
+
+    def _fake_fetch_data(dataset_id: str, parameters: list[str], start: str, stop: str):
+        if dataset_id == "PSP_TOTALLY_FAKE_DATASET":
+            return {parameters[0]: {"error": "Master CDF download failed with 404 Not Found"}}
+        if parameters == ["this_param_does_not_exist"]:
+            return {parameters[0]: {"error": "Parameter this_param_does_not_exist not in dataset"}}
+        return {parameters[0]: {"error": "No CDF files found for requested time range"}}
+
+    monkeypatch.setattr(fetch_mod, "fetch_data", _fake_fetch_data)
+    server = create_server()
+    base = {
+        "source_type": "cdaweb",
+        "dataset_id": "PSP_FLD_L2_MAG_RTN_1MIN",
+        "parameters": ["psp_fld_l2_mag_RTN_1min"],
+        "start": "2025-06-19T08:00:00Z",
+        "stop": "2025-06-19T09:00:00Z",
+        "output_dir": str(tmp_path),
+    }
+
+    bad_dataset = json.loads(_call_tool(server, "fetch_data_product", {**base, "dataset_id": "PSP_TOTALLY_FAKE_DATASET"}))
+    _assert_uniform_error(bad_dataset)
+    assert bad_dataset["code"] == "unknown_dataset"
+    assert bad_dataset["parameters"]
+
+    bad_parameter = json.loads(_call_tool(server, "fetch_data_product", {**base, "parameters": ["this_param_does_not_exist"]}))
+    _assert_uniform_error(bad_parameter)
+    assert bad_parameter["code"] == "unknown_parameter"
+    assert bad_parameter["requested_parameters"] == ["this_param_does_not_exist"]
+
+    empty_range = json.loads(_call_tool(server, "fetch_data_product", {**base, "start": "2030-01-01T00:00:00Z", "stop": "2030-01-01T01:00:00Z"}))
+    _assert_uniform_error(empty_range)
+    assert empty_range["code"] == "no_data_in_range"
+    assert empty_range["time_range"]["start"].startswith("2030")
+
+
+def test_fetch_data_product_rejects_bad_times_before_pds_backend(monkeypatch, tmp_path: Path):
+    import pdsmcp.fetch as fetch_mod
+
+    called = False
+
+    def _fake_fetch_data(dataset_id: str, parameters: list[str], start: str, stop: str):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(fetch_mod, "fetch_data", _fake_fetch_data)
+    server = create_server()
+    data = json.loads(_call_tool(server, "fetch_data_product", {
+        "source_type": "pds",
+        "dataset_id": "urn:nasa:pds:test",
+        "parameters": ["B_RTN"],
+        "start": "2025-06-19T10:00:00Z",
+        "stop": "2025-06-19T08:00:00Z",
+        "output_dir": str(tmp_path),
+    }))
+    _assert_uniform_error(data)
+    assert data["code"] == "invalid_argument"
+    assert data["source_type"] == "pds"
+    assert called is False
+
+
 def test_unified_cache_manager_does_not_forward_cache_dir_kwarg():
     server = create_server()
     data = json.loads(_call_tool(server, "manage_data_cache", {"source_type": "spice", "action": "status", "cache_dir": "/tmp/ignored"}))

@@ -232,6 +232,101 @@ def _error_response(
     return _json(payload)
 
 
+
+
+def _validate_fetch_time_range(start: str, stop: str, *, source_type: str) -> str | None:
+    """Return a structured invalid_argument response for malformed fetch times.
+
+    CDAWeb/PDS REST backends otherwise turn caller mistakes (unparseable dates or
+    reversed intervals) into opaque HTTP 400/404 backend errors. Validate locally
+    so agents can repair their own arguments without a network round-trip.
+    """
+    try:
+        import pandas as pd
+    except Exception:  # pragma: no cover - pandas is a data-fetch dependency
+        return None
+
+    parsed: dict[str, Any] = {}
+    for name, value in (("start", start), ("stop", stop)):
+        try:
+            timestamp = pd.to_datetime(value, utc=True, errors="coerce")
+        except Exception:
+            timestamp = pd.NaT
+        if pd.isna(timestamp):
+            return _error_response(
+                "invalid_argument",
+                f"could not parse {name} time {value!r}; use ISO-8601 (for example 2025-06-19T08:00:00Z).",
+                hint="Pass parseable ISO-8601 start/stop values before fetching data.",
+                sanitize=False,
+                source_type=source_type,
+                invalid_argument=name,
+            )
+        parsed[name] = timestamp
+    if parsed["stop"] <= parsed["start"]:
+        return _error_response(
+            "invalid_argument",
+            "stop must be after start for data fetches.",
+            hint="Use a positive time interval (stop > start), or swap the supplied start/stop values.",
+            sanitize=False,
+            source_type=source_type,
+            invalid_argument="stop",
+        )
+    return None
+
+
+def _no_data_response(
+    *,
+    source_type: str,
+    dataset_id: str,
+    parameters: list[str],
+    start: str,
+    stop: str,
+    parameter_metadata: dict[str, dict],
+) -> str:
+    """Return a structured, classified no-data response for CDAWeb/PDS fetches.
+
+    Backends currently expose failed fetches primarily as per-parameter messages.
+    Keep those messages in ``parameters`` for evidence, but provide a stable
+    top-level ``code`` so callers never have to parse free text. Classification is
+    intentionally conservative: use specific codes only for common, high-signal
+    backend wording, otherwise fall back to ``no_data``.
+    """
+    messages = [str(meta.get("message", "")) for meta in parameter_metadata.values() if isinstance(meta, dict)]
+    combined = " ".join(messages).casefold()
+    code = "no_data"
+    message = (
+        f"No data fetched for dataset {dataset_id!r} in the requested time range "
+        f"with {len(parameters)} requested parameter(s)."
+    )
+    hint = "Check dataset_id, parameter names, and the requested start/stop interval; use discovery tools before retrying."
+
+    if combined and any(token in combined for token in ("parameter", "variable", "not in dataset", "unknown parameter", "unknown variable")):
+        code = "unknown_parameter"
+        message = f"One or more requested parameters were not found for dataset {dataset_id!r}."
+        hint = "Call browse_data_parameters for this dataset_id and retry with valid parameter names."
+    if combined and any(token in combined for token in ("master cdf", "404", "unknown dataset", "dataset not", "not in catalog")):
+        # Dataset-level failures are more fundamental than per-parameter misses.
+        code = "unknown_dataset"
+        message = f"Dataset {dataset_id!r} could not be fetched or was not found by the {source_type.upper()} backend."
+        hint = "Call browse_data_sources/load_data_source to discover a valid dataset_id before retrying."
+    if combined and any(token in combined for token in ("no cdf files", "no files", "no data", "outside", "coverage", "time range")):
+        code = "no_data_in_range"
+        message = f"No data were available for dataset {dataset_id!r} in the requested time range."
+        hint = "Try a time range inside the dataset coverage window, or inspect source metadata before retrying."
+
+    return _error_response(
+        code,
+        message,
+        hint=hint,
+        sanitize=False,
+        source_type=source_type,
+        dataset_id=dataset_id,
+        time_range={"start": start, "stop": stop},
+        requested_parameters=parameters,
+        parameters=parameter_metadata,
+    )
+
+
 def _unknown_source_type_error(source_type: str, allowed: list[str]) -> str:
     """Uniform structured error for an unrecognized ``source_type`` routing arg.
 
@@ -915,6 +1010,9 @@ def create_server() -> FastMCP:
         import pandas as pd
         from cdawebmcp.fetch import fetch_data as _fetch_data
 
+        time_error = _validate_fetch_time_range(start, stop, source_type="cdaweb")
+        if time_error is not None:
+            return time_error
         lib_result = _fetch_data(dataset_id=dataset_id, parameters=parameters, start=start, stop=stop)
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -951,7 +1049,14 @@ def create_server() -> FastMCP:
                 "stats": augmented_stats,
             }
         if not frames:
-            return _json({"status": "error", "message": "No data fetched", "parameters": param_meta})
+            return _no_data_response(
+                source_type="cdaweb",
+                dataset_id=dataset_id,
+                parameters=parameters,
+                start=start,
+                stop=stop,
+                parameter_metadata=param_meta,
+            )
         merged = frames[0]
         for frame in frames[1:]:
             merged = merged.join(frame, how="outer")
@@ -1038,6 +1143,9 @@ def create_server() -> FastMCP:
         import pandas as pd
         from pdsmcp.fetch import fetch_data as _fetch_data
 
+        time_error = _validate_fetch_time_range(start, stop, source_type="pds")
+        if time_error is not None:
+            return time_error
         lib_result = _fetch_data(dataset_id=dataset_id, parameters=parameters, start=start, stop=stop)
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -1061,7 +1169,14 @@ def create_server() -> FastMCP:
                 "stats": entry.get("stats"),
             }
         if not frames:
-            return _json({"status": "error", "message": "No data fetched", "parameters": param_meta})
+            return _no_data_response(
+                source_type="pds",
+                dataset_id=dataset_id,
+                parameters=parameters,
+                start=start,
+                stop=stop,
+                parameter_metadata=param_meta,
+            )
         merged = frames[0]
         for frame in frames[1:]:
             merged = merged.join(frame, how="outer")
@@ -1442,6 +1557,14 @@ def create_server() -> FastMCP:
             # instead of forwarding raw filesystem paths to the client
             # (issues #25/#27).
             payload = _sanitize_message(raw)
+        if (
+            isinstance(payload, dict)
+            and str(payload.get("status", "")).lower() == "error"
+        ):
+            # If a compatibility fetch already returned the uniform structured
+            # envelope, keep code/message at the top level for fetch_data_product
+            # callers instead of burying them under payload (issues #75/#76).
+            return _size_guarded(_json({**payload, "source_type": source_type, **extra}), source_type=source_type)
         status = "error" if _payload_has_error(payload) else "success"
         return _size_guarded(
             _json({"status": status, "source_type": source_type, "payload": payload, **extra}),
