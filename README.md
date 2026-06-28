@@ -14,7 +14,133 @@ The `xhelio-*` packages are implementation backends. They should stay visible to
 - Official repo: <https://github.com/spedas/spedas_mcp>
 - Python package name: `spedas-mcp`
 - Python module / CLI module: `spedas_mcp`
-- Current MCP tool count: 36
+- Current MCP tool count: 40
+
+## Practical guide: run a SPEDAS MCP study
+
+Use this section as the README-level operating guide for researchers and agents.
+The detailed capability map below is the reference; this guide is the shortest
+safe path from a science question to reproducible artifacts.
+
+### The default loop
+
+1. **Restate the science question and constraints.** Capture the target, mission,
+   instrument or observable, time range, and whether the request is heliophysics,
+   planetary, geometry-only, or local-analysis oriented.
+2. **Ask SPEDAS MCP to choose the data-source family before fetching data.** Start
+   with `spedas_overview()`, then call `search_spedas_data_sources(...)` or
+   `plan_spedas_observation(...)`. Do not jump directly to a low-level archive
+   tool just because a mission name matched a backend.
+3. **Create a run directory.** For work that may fetch, transform, render, or be
+   cited later, call `create_spedas_analysis_bundle(...)` first and keep data,
+   plots, provenance, and notes under that bundle.
+4. **Browse narrowly, then fetch narrowly.** Use the data-layer tools to browse
+   source categories and parameters. Keep public-archive requests to small,
+   reproducible intervals and explicit parameters.
+5. **Use geometry and analysis as follow-on steps.** SPICE geometry, coordinate
+   transforms, spectra, field models, particle moments, and rendering tools should
+   consume explicit files/artifacts. They should not hide large downloads or return
+   bulk arrays inline.
+6. **Return paths, provenance, and caveats.** A good answer names the source,
+   dataset/product, variables, time window, output files, validation/caveats, and
+   the next reproducible command. It does not paste CDF contents or giant arrays
+   into chat.
+
+### Choose the leading source family
+
+| User request pattern | Lead with | Then use | Common caveat |
+|---|---|---|---|
+| Near-Earth magnetosphere, solar wind, MMS, THEMIS, Cluster, Geotail, Van Allen / RBSP, STEREO, PSP, Solar Orbiter, Ulysses, Voyager heliosphere | `source_type="cdaweb"` | CDAWeb browse/load/fetch tools; SPICE only if geometry is part of the question | Mission names may also appear in planetary archives; keep the science context in the plan. |
+| Planetary mission fields/particles at a planet, e.g. Juno/Jupiter, Cassini/Saturn, MAVEN/Mars, New Horizons/Pluto | `source_type="pds"` | PDS discovery/fetch, plus SPICE geometry when trajectory or observation geometry matters | Generic words like "bow shock", "magnetosphere", "plasma", or "energetic particle" are not enough to choose CDAWeb if the target is planetary. |
+| Ephemeris, distance, trajectory, frame transforms, observer-target geometry | `source_type="spice"` | `list_spice_missions`, `get_ephemeris`, `compute_distance`, `transform_coordinates`, `list_coordinate_frames` | SPICE is geometry, not measurement data. Pair it with CDAWeb/PDS when you also need fields or particles. |
+| Any HAPI-compliant server outside the bundled categories | `source_type="hapi"` | `browse_hapi_catalog`, `fetch_hapi_data` | Requires the optional `hapi` extra and an explicit HAPI server URL. |
+| Ground magnetotelluric / FDSN station magnetic data | `source_type="fdsn"` | `browse_fdsn_datasets`, `fetch_fdsn_data` | Requires the optional `fdsn` extra and a time range. |
+| Local file analysis after data already exists | Analysis tools | Coordinate transforms, FAC/minvar, spectra, field/L-shell, particle moments/spectra, `render_tplot` | Inputs are files; install `spedas-mcp[analysis]` for the optional backend. |
+
+### Minimal MCP call sequence
+
+For an open-ended question, the safe skeleton is:
+
+```text
+spedas_overview()
+search_spedas_data_sources(question="...", target="...", observables=[...])
+plan_spedas_observation(science_goal="...", start="...", stop="...", target="...", observables=[...])
+create_spedas_analysis_bundle(study_name="...", output_dir="...")
+browse_data_sources(source_type="cdaweb|pds|spice|hapi|fdsn")
+load_data_source(source_type="...", source_id="...")
+browse_data_parameters(source_type="...", dataset_id="...")
+fetch_data_product(source_type="...", dataset_id="...", parameters=[...], start="...", stop="...", output_dir="...")
+```
+
+Add geometry or local analysis only when the plan calls for it:
+
+```text
+get_ephemeris(...)
+compute_distance(...)
+transform_timeseries_coordinates(input_file="...", output_file="...")
+dynamic_power_spectrum(input_file="...", output_dir="...")
+render_tplot(input_files=[...], output_file="...")
+```
+
+### Practical recipes
+
+- **PSP perihelion solar wind**: route the science question first, let CDAWeb lead
+  measurement discovery, then add SPICE only for spacecraft-Sun geometry. See
+  `docs/examples/psp_perihelion_solar_wind.md`.
+- **MMS magnetopause interval**: use `plan_spedas_observation` to keep mission,
+  observable, and interval explicit; fetch selected CDAWeb variables into an
+  analysis bundle before plotting or transforming. See
+  `docs/examples/mms_magnetopause_workflow.md`.
+- **Juno / planetary plasma interactions**: let PDS lead MAG/plasma archive
+  discovery and use SPICE as a geometry companion. See
+  `docs/examples/juno_pds_spice_workflow.md`.
+- **Radiation-belt or field-model analysis**: fetch or prepare a position artifact
+  first, then call `evaluate_magnetic_field(...)`, `calculate_lshell(...)`, or
+  related analysis tools. Record the model parameters; distorted field models
+  intentionally require explicit geomagnetic inputs.
+- **Spectrogram or particle moments**: build local input artifacts, then run the
+  analysis tools into an output directory. Return the `.npz`/CSV/PNG paths and
+  summary ranges, not the bulk matrices.
+
+### Artifact and provenance contract
+
+Every non-trivial run should leave a directory that another researcher can audit:
+
+```text
+<run>/
+  requests/      original prompt, plan, or recipe
+  data/          fetched or prepared measurement files
+  plots/         PNG/SVG/PDF renderings
+  provenance/    source IDs, parameters, cache notes, tool versions, hashes
+  notes/         interpretation, caveats, and next steps
+```
+
+When reporting results, include at least:
+
+- science goal and time range;
+- selected source family (`cdaweb`, `pds`, `spice`, `hapi`, `fdsn`, or local analysis);
+- dataset/product IDs and parameters/variables;
+- output files and hashes when available;
+- dependency or data-access caveats (`missing_dependency`, archive rate limits,
+  cache-only validation, unavailable kernels, no matching station, etc.);
+- the next command or MCP call needed to reproduce or extend the run.
+
+### Agent safety checklist
+
+- Prefer the unified data-layer and science-workflow tools over compatibility
+  low-level tools for new work.
+- Do not infer a source from one keyword. Use target + mission + observable + time
+  context, especially for planetary versus near-Earth uses of generic words such
+  as "magnetosphere", "bow shock", "radiation belt", "solar wind", and
+  "energetic particle".
+- Keep fetches narrow. Public archives can rate-limit or be cold; long intervals
+  should be split deliberately and recorded in provenance.
+- Treat optional extras as optional. A clear `missing_dependency` response is a
+  valid outcome for base installs; install `analysis`, `hapi`, or `fdsn` only
+  when the workflow needs that backend.
+- Validate generated artifacts before interpreting them. Check file existence,
+  row/sample counts, time coverage, coordinate frame, and whether the tool returned
+  warnings or caveats.
 
 ## Layered capability map
 
