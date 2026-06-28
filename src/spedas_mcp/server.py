@@ -1115,6 +1115,49 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
             ],
+            "guided_recipes": {
+                "overview_skill": "overview-geomagnetic-indices",
+                "geomagnetic_indices": [
+                    {
+                        "intent": "Dst / ring-current context",
+                        "preferred_source": "PySPEDAS Kyoto loader",
+                        "dataset_or_loader": "pyspedas.projects.kyoto.dst",
+                        "variables": ["kyoto_dst"],
+                        "notes": "Kyoto WDC Dst; useful for Tsyganenko dst inputs when the runtime can call PySPEDAS directly.",
+                    },
+                    {
+                        "intent": "AE/AL/AU electrojet context",
+                        "preferred_source": "CDAWeb HAPI OMNI or PySPEDAS Kyoto AE",
+                        "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN or pyspedas.projects.kyoto.load_ae",
+                        "variables": ["AE_INDEX", "AL_INDEX", "AU_INDEX"],
+                    },
+                    {
+                        "intent": "Kp activity index",
+                        "preferred_source": "PySPEDAS NOAA/GFZ loader",
+                        "dataset_or_loader": "pyspedas.projects.noaa.noaa_load_kp",
+                        "variables": ["Kp", "ap"],
+                        "notes": "Use pyspedas.geopack.kp2iopt to convert Kp for T89 iopt in PySPEDAS workflows.",
+                    },
+                    {
+                        "intent": "SYM-H / high-cadence storm context",
+                        "preferred_source": "CDAWeb HAPI OMNI",
+                        "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN",
+                        "variables": ["SYM_H", "SYM_D", "ASY_H", "ASY_D"],
+                    },
+                ],
+                "mission_overview_starting_points": {
+                    "THEMIS": ["THA_L2_FGM", "THA_L2_ESA", "THA_L2_SST", "THA_OR_SSC"],
+                    "MMS": [
+                        "MMS1_FGM_SRVY_L2",
+                        "MMS1_FPI_FAST_L2_DIS-MOMS",
+                        "MMS1_EDP_SRVY_L2_DCE",
+                        "MMS1_MEC_SRVY_L2_EPHT89D",
+                    ],
+                    "Van Allen Probes/RBSP": [
+                        "query CDAWeb for RBSP/Van Allen Probes EMFISIS, MagEIS, REPT, HOPE, EFW, RBSPICE, and magnephem products"
+                    ],
+                },
+            },
         })
 
     @mcp.tool()

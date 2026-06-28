@@ -94,6 +94,10 @@ render_tplot(input_files=[...], output_file="...")
 - **Juno / planetary plasma interactions**: let PDS lead MAG/plasma archive
   discovery and use SPICE as a geometry companion. See
   `docs/examples/juno_pds_spice_workflow.md`.
+- **Overview + geomagnetic-index context**: for IDL-SPEDAS-style summary plots
+  or Dst/AE/Kp/SYM-H context, load the Claude skill
+  `overview-geomagnetic-indices` and use `spedas_overview()["guided_recipes"]`
+  to map the intent to CDAWeb/HAPI OMNI datasets or PySPEDAS Kyoto/NOAA loaders.
 - **Radiation-belt or field-model analysis**: fetch or prepare a position artifact
   first, then call `evaluate_magnetic_field(...)`, `calculate_lshell(...)`, or
   related analysis tools. Record the model parameters; distorted field models

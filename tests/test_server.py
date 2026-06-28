@@ -122,6 +122,20 @@ def test_overview_is_compact_json(monkeypatch):
     assert compat["available_for_existing_clients"] == []
 
 
+def test_overview_advertises_geomagnetic_index_recipe(monkeypatch):
+    monkeypatch.delenv("SPEDAS_MCP_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    data = json.loads(_call_tool(server, "spedas_overview"))
+    recipes = data["guided_recipes"]
+    assert recipes["overview_skill"] == "overview-geomagnetic-indices"
+    geomag = {entry["intent"]: entry for entry in recipes["geomagnetic_indices"]}
+    assert any("Dst" in intent for intent in geomag)
+    assert any("Kp" in entry["variables"] for entry in geomag.values())
+    assert any("SYM_H" in entry["variables"] for entry in geomag.values())
+    assert "MMS1_FGM_SRVY_L2" in recipes["mission_overview_starting_points"]["MMS"]
+    assert "THA_L2_FGM" in recipes["mission_overview_starting_points"]["THEMIS"]
+
+
 def test_tool_descriptions_mark_primary_and_compatibility_surfaces(monkeypatch):
     monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
     server = create_server()
