@@ -417,8 +417,12 @@ def test_fetch_data_product_shapes_cdaweb_no_data_codes(monkeypatch, tmp_path: P
     def _fake_fetch_data(dataset_id: str, parameters: list[str], start: str, stop: str):
         if dataset_id == "PSP_TOTALLY_FAKE_DATASET":
             return {parameters[0]: {"error": "Master CDF download failed with 404 Not Found"}}
+        if dataset_id == "PSP_FAKE_MIXED_DATASET":
+            return {parameters[0]: {"error": "Unknown dataset not in catalog; no CDF files found for requested time range"}}
         if parameters == ["this_param_does_not_exist"]:
             return {parameters[0]: {"error": "Parameter this_param_does_not_exist not in dataset"}}
+        if parameters == ["mixed_missing_param"]:
+            return {parameters[0]: {"error": "Unknown parameter mixed_missing_param; no data files found for requested time range"}}
         return {parameters[0]: {"error": "No CDF files found for requested time range"}}
 
     monkeypatch.setattr(fetch_mod, "fetch_data", _fake_fetch_data)
@@ -441,6 +445,14 @@ def test_fetch_data_product_shapes_cdaweb_no_data_codes(monkeypatch, tmp_path: P
     _assert_uniform_error(bad_parameter)
     assert bad_parameter["code"] == "unknown_parameter"
     assert bad_parameter["requested_parameters"] == ["this_param_does_not_exist"]
+
+    mixed_dataset = json.loads(_call_tool(server, "fetch_data_product", {**base, "dataset_id": "PSP_FAKE_MIXED_DATASET"}))
+    _assert_uniform_error(mixed_dataset)
+    assert mixed_dataset["code"] == "unknown_dataset"
+
+    mixed_parameter = json.loads(_call_tool(server, "fetch_data_product", {**base, "parameters": ["mixed_missing_param"]}))
+    _assert_uniform_error(mixed_parameter)
+    assert mixed_parameter["code"] == "unknown_parameter"
 
     empty_range = json.loads(_call_tool(server, "fetch_data_product", {**base, "start": "2030-01-01T00:00:00Z", "stop": "2030-01-01T01:00:00Z"}))
     _assert_uniform_error(empty_range)

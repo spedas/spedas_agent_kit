@@ -350,16 +350,30 @@ def _no_data_response(
     )
     hint = "Check dataset_id, parameter names, and the requested start/stop interval; use discovery tools before retrying."
 
-    if combined and any(token in combined for token in ("parameter", "variable", "not in dataset", "unknown parameter", "unknown variable")):
-        code = "unknown_parameter"
-        message = f"One or more requested parameters were not found for dataset {dataset_id!r}."
-        hint = "Call browse_data_parameters for this dataset_id and retry with valid parameter names."
-    if combined and any(token in combined for token in ("master cdf", "404", "unknown dataset", "dataset not", "not in catalog")):
-        # Dataset-level failures are more fundamental than per-parameter misses.
+    has_unknown_dataset = bool(
+        combined
+        and any(token in combined for token in ("master cdf", "404", "unknown dataset", "dataset not", "not in catalog"))
+    )
+    has_unknown_parameter = bool(
+        combined
+        and any(token in combined for token in ("parameter", "variable", "not in dataset", "unknown parameter", "unknown variable"))
+    )
+    has_no_data_in_range = bool(
+        combined
+        and any(token in combined for token in ("no cdf files", "no files", "no data", "outside", "coverage", "time range"))
+    )
+
+    if has_unknown_dataset:
+        # Dataset-level failures are more fundamental than per-parameter misses or
+        # generic no-data-in-range wording that may be appended by a backend.
         code = "unknown_dataset"
         message = f"Dataset {dataset_id!r} could not be fetched or was not found by the {source_type.upper()} backend."
         hint = "Call browse_data_sources/load_data_source to discover a valid dataset_id before retrying."
-    if combined and any(token in combined for token in ("no cdf files", "no files", "no data", "outside", "coverage", "time range")):
+    elif has_unknown_parameter:
+        code = "unknown_parameter"
+        message = f"One or more requested parameters were not found for dataset {dataset_id!r}."
+        hint = "Call browse_data_parameters for this dataset_id and retry with valid parameter names."
+    elif has_no_data_in_range:
         code = "no_data_in_range"
         message = f"No data were available for dataset {dataset_id!r} in the requested time range."
         hint = "Try a time range inside the dataset coverage window, or inspect source metadata before retrying."
