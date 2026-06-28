@@ -36,10 +36,11 @@ mcp = ["mcp>=1.26.0"]
 # Optional pyspedas-backed analysis layer (coordinate transforms, spectral/field/
 # particle analysis, and PNG rendering). Not part of the base install; analysis
 # tools import their backends lazily and return a clear "install
-# spedas-mcp[analysis]" error when this extra is absent. matplotlib is declared
-# explicitly because render_tplot (#20) imports it directly rather than relying
-# on it being a transitive pyspedas dependency.
-analysis = ["pyspedas>=2.0", "matplotlib>=3.5"]
+# spedas-mcp[analysis]" error when this extra is absent. matplotlib and
+# PyWavelets are declared explicitly because render_tplot (#20) and
+# wavelet_transform (#15) import them directly rather than relying on transitive
+# pyspedas dependencies.
+analysis = ["pyspedas>=2.0", "matplotlib>=3.5", "PyWavelets>=1.4"]
 # Optional HAPI data-source backend (issue #21). browse_hapi_catalog /
 # fetch_hapi_data reach any HAPI-compliant server through hapiclient; it is
 # imported lazily and the tools return a clear "install spedas-mcp[hapi]" error

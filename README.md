@@ -135,8 +135,9 @@ When reporting results, include at least:
   "energetic particle".
 - Keep fetches narrow. Public archives can rate-limit or be cold; long intervals
   should be split deliberately and recorded in provenance.
-- Treat optional extras as optional. A clear `missing_dependency` response is a
-  valid outcome for base installs; install `analysis`, `hapi`, or `fdsn` only
+- Treat optional extras as optional. Analysis tools are not registered or
+  advertised in base installs; HAPI/FDSN tools can return a clear
+  `missing_dependency` response. Install `analysis`, `hapi`, or `fdsn` only
   when the workflow needs that backend.
 - Validate generated artifacts before interpreting them. Check file existence,
   row/sample counts, time coverage, coordinate frame, and whether the tool returned
@@ -152,7 +153,7 @@ Start here when the user asks for data, datasets, parameters, products, archives
 - `load_data_source(source_type, source_id)` — load source context, e.g. a CDAWeb observatory, PDS mission, or SPICE mission/frame context.
 - `browse_data_parameters(source_type, dataset_id, dataset_ids=None)` — browse parameters/metadata for CDAWeb or PDS datasets; for SPICE, returns geometry/frame context.
 - `fetch_data_product(source_type, dataset_id, parameters, start=None, stop=None, output_dir=None, format="csv", limit=None)` — unified measurement/archive data fetch for CDAWeb/PDS. SPICE requests are routed to geometry tools instead. `limit` is currently a CDAWeb-oriented safety control; PDS fetches should be narrowed by time/parameters.
-- `manage_data_cache(source_type="all", action="status", cache_dir=None, mission=None)` — unified cache status/maintenance for the source categories. Per-call `cache_dir` is reported as guidance only; backend cache roots are configured by the MCP server environment.
+- `manage_data_cache(source_type="all", action="status", cache_dir=None, mission=None, ...)` — unified cache status/maintenance for the source categories. It passes source-specific cache options through one advertised tool: CDAWeb (`category`, `observatory`, `dataset_ids`, `older_than_days`, `dry_run`, `detail`), PDS (`category`, `mission`, `dataset_ids`, `older_than_days`, `dry_run`, `detail`, `force`), and SPICE (`mission`, `filenames`). Per-call `cache_dir` is reported as guidance only; backend cache roots are configured by the MCP server environment.
 
 Supported `source_type` values:
 
@@ -185,16 +186,19 @@ SPICE is exposed as a data source category, but geometry operations are clearer 
 - `compute_distance(mission, target, observer, start, stop, step="1h")`
 - `transform_coordinates(mission, coordinates, from_frame, to_frame, epoch=None)`
 - `list_coordinate_frames(mission=None)`
-- `manage_spice_kernels(action, mission=None, cache_dir=None)`
+
+SPICE kernel cache status/load/clean/check/purge actions are exposed through `manage_data_cache(source_type="spice", action=..., mission=..., filenames=...)`.
 
 ### 4. Analysis tools (optional `pyspedas` backend)
 
 Phase-1 coordinate transforms and Phase-2 time-frequency analysis over fetched
 artifacts. These tools require the optional `analysis` extra
-(`pip install 'spedas-mcp[analysis]'`, which installs `pyspedas>=2.0` and, through it,
-`PyWavelets` and `matplotlib`). `pyspedas`/`matplotlib` are **not** part of the base install; the tools import them
-lazily and return a clear `status="error"` with an install hint when the extra is
-missing. They are file-in / file-out: inputs are paths to fetched CSV/JSON
+(`pip install 'spedas-mcp[analysis]'`, which installs `pyspedas>=2.0` and
+`matplotlib`, and `PyWavelets`). `pyspedas`/`matplotlib`/`PyWavelets` are **not** part of the base install, and
+the ten analysis tools are registered with MCP only when those optional
+dependencies are importable. In a base install they are absent from `list_tools`;
+install `spedas-mcp[analysis]` before asking an MCP client to call them. They are
+file-in / file-out: inputs are paths to fetched CSV/JSON
 products, bulk outputs are written to disk, and only paths plus compact summaries
 are returned (never raw arrays).
 
@@ -281,13 +285,13 @@ FDSN/MTH5 (issue #22, optional `spedas-mcp[fdsn]`, installs `pyspedas` + `mth5` 
 
 ### 6. Compatibility low-level tools
 
-These remain available for clients that already know the source-specific operations:
+These remain available for clients that already know the source-specific browse/fetch operations:
 
-- CDAWeb: `browse_observatories`, `load_observatory`, `browse_parameters`, `fetch_data`, `manage_cdaweb_cache`
-- PDS: `browse_pds_missions`, `load_pds_mission`, `browse_pds_parameters`, `fetch_pds_data`, `manage_pds_cache`
-- SPICE: the geometry tools above plus `manage_spice_kernels`
+- CDAWeb: `browse_observatories`, `load_observatory`, `browse_parameters`, `fetch_data`
+- PDS: `browse_pds_missions`, `load_pds_mission`, `browse_pds_parameters`, `fetch_pds_data`
+- SPICE: the geometry tools above
 
-Compatibility tools are supported for existing clients, but their MCP descriptions now mark them as compatibility entries and point to the unified alternatives. Hiding, renaming, or moving them would be a breaking API pass and should not happen without maintainer review. See `docs/public_api_strategy.md` for the compatibility map and deprecation guidance.
+The former dedicated cache tools (`manage_cdaweb_cache`, `manage_pds_cache`, `manage_spice_kernels`) are no longer advertised as MCP tools because their actions and kwargs are covered by `manage_data_cache`. See `docs/public_api_strategy.md` for the compatibility map and deprecation guidance.
 
 ## Recommended agent workflow
 
@@ -323,10 +327,12 @@ uv run --extra dev --extra mcp python scripts/validate_plugin_packages.py
 The list-tools smoke starts the stdio MCP server with isolated temporary cache directories, performs MCP `initialize` + `list_tools`, and verifies the expected advertised tool names. It does not fetch CDAWeb/PDS data or download SPICE kernels.
 
 Optional backends are installed via extras and are not required for the base
-install or `list_tools`:
+install. The `analysis` extra also controls MCP registration of the ten local
+analysis tools, so a base `list_tools` response stays focused on data/workflow
+and geometry surfaces:
 
 ```bash
-uv sync --extra analysis   # pyspedas + matplotlib (coordinate/spectral/field/particle analysis, rendering)
+uv sync --extra analysis   # pyspedas + matplotlib + PyWavelets (coordinate/spectral/field/particle analysis, rendering)
 uv sync --extra hapi       # hapiclient (browse_hapi_catalog / fetch_hapi_data, issue #21)
 uv sync --extra fdsn       # pyspedas + mth5 + obspy (browse_fdsn_datasets / fetch_fdsn_data, issue #22)
 ```

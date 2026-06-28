@@ -14,9 +14,11 @@ CDAWeb, PDS, and SPICE/geometry.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import logging
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -27,6 +29,69 @@ except ImportError as exc:  # pragma: no cover - exercised by entrypoint guard
     raise ImportError("Install MCP support with: pip install 'spedas-mcp[mcp]'") from exc
 
 logger = logging.getLogger(__name__)
+
+
+ANALYSIS_TOOL_NAMES = (
+    "transform_timeseries_coordinates",
+    "generate_fac_matrix",
+    "analyze_minvar_coordinates",
+    "dynamic_power_spectrum",
+    "wavelet_transform",
+    "evaluate_magnetic_field",
+    "calculate_lshell",
+    "compute_particle_moments",
+    "compute_particle_spectra",
+    "render_tplot",
+)
+
+# Modules/attributes exercised by the ten optional analysis tools. This is more
+# precise than checking only ``import pyspedas``: several pyspedas builds expose
+# mission loaders but not the legacy tplot/cotrans/wavelet/particle helpers that
+# these tools call. If any required backend is missing, the server omits the
+# whole analysis registration group from MCP ``list_tools``.
+_ANALYSIS_REQUIRED_IMPORTS = (
+    ("pyspedas", None),
+    ("matplotlib", None),
+    ("pywt", None),
+    ("pyspedas.cotrans_tools.cotrans", "cotrans"),
+    ("pyspedas.cotrans_tools.fac_matrix_make", "fac_matrix_make"),
+    ("pyspedas.cotrans_tools.minvar", "minvar"),
+    ("pyspedas.cotrans_tools.minvar_matrix_make", "minvar_matrix_make"),
+    ("pyspedas.tplot_tools", "store_data"),
+    ("pyspedas.tplot_tools.tplot_math.dpwrspc", "dpwrspc"),
+    ("pyspedas.analysis.wavelet", "idl_wavelet_scales"),
+    ("pyspedas.analysis.wave_signif", "wave_signif"),
+    ("pyspedas.geopack", None),
+    ("pyspedas.particles.moments", "moments_3d"),
+    ("pyspedas.particles.spd_part_products", "spd_pgs_make_e_spec"),
+    ("pyspedas.particles.spd_part_products", "spd_pgs_make_phi_spec"),
+    ("pyspedas.particles.spd_part_products", "spd_pgs_make_theta_spec"),
+    ("pyspedas.particles.spd_part_products", "spd_pgs_do_fac"),
+)
+
+
+def _analysis_dependencies_available() -> bool:
+    """Return whether the optional ``spedas-mcp[analysis]`` backend is usable.
+
+    The analysis tools are intentionally not registered unless the optional
+    backend APIs are present, which keeps a base ``spedas-mcp[mcp]`` install from
+    advertising ten pyspedas/matplotlib-backed tools that can only return
+    dependency errors. Use ``create_server(include_analysis_tools=True)`` in
+    tests to exercise the registration path without requiring those backends.
+    """
+    for module_name, attr_name in _ANALYSIS_REQUIRED_IMPORTS:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            return False
+        if attr_name is not None and not hasattr(module, attr_name):
+            return False
+    return True
+
+
+def _compat_tools_enabled() -> bool:
+    """Return true when legacy CDAWeb/PDS compatibility tools should be advertised."""
+    return os.environ.get("SPEDAS_MCP_COMPAT_TOOLS") == "1"
 
 
 def _json(data: object) -> str:
@@ -597,7 +662,7 @@ def _find_validation_error(exc: BaseException) -> BaseException | None:
 #     touching the backend, with no recovery path.
 #   * #29: a supported-but-uncached target silently triggers a large download
 #     with no warning or confirmation, bypassing the explicit
-#     manage_spice_kernels(action='load') gate.
+#     manage_data_cache(source_type='spice', action='load') gate.
 #
 # Both are solved by a pure, network-free preflight that runs entirely in this
 # process *before* any xhelio_spice call: resolve_mission() is an in-memory
@@ -762,7 +827,7 @@ def _spice_missing_kernels(mission_keys: list[str]) -> dict[str, Any]:
           "cached": True/False,           # all required files present?
           "missing_files": [...],         # filenames not on disk
           "missing_missions": [...],      # mission keys needing a download
-          "segmented_missions": [...],    # need a time range via manage_spice_kernels
+          "segmented_missions": [...],    # need a time range via manage_data_cache(source_type="spice")
           "cache_dir": "<redacted>",      # cache root (path-redacted for clients)
           "cache_size_mb": 12.3,
         }
@@ -849,7 +914,7 @@ def _kernel_download_required_error(
         blocked = sorted(set(mission_keys))
 
     next_steps = [
-        f"manage_spice_kernels(action='load', mission='{m}')" for m in load_missions
+        f"manage_data_cache(source_type='spice', action='load', mission='{m}')" for m in load_missions
     ]
     next_steps.append(f"re-call {tool}(..., allow_kernel_download=True) to download and proceed")
 
@@ -869,10 +934,10 @@ def _kernel_download_required_error(
         "cache_size_mb": preflight["cache_size_mb"],
         "next_steps": next_steps,
         "hint": (
-            "Load the missions explicitly with manage_spice_kernels(action='load', "
-            "mission=...), or pass allow_kernel_download=True to this tool to "
-            "download now. Use manage_spice_kernels(action='check_remote', "
-            "mission=...) to preview available kernel files first."
+            "Load the missions explicitly with manage_data_cache(source_type='spice', "
+            "action='load', mission=...), or pass allow_kernel_download=True to "
+            "this tool to download now. Use manage_data_cache(source_type='spice', "
+            "action='check_remote', mission=...) to preview kernel files first."
         ),
     }
     return _size_guarded(_json(payload), tool=tool)
@@ -920,8 +985,16 @@ def _spice_geometry_preflight(
     return _kernel_download_required_error(mission_keys, preflight, tool=tool)
 
 
-def create_server() -> FastMCP:
-    """Create and configure the unified SPEDAS MCP server."""
+def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
+    """Create and configure the unified SPEDAS MCP server.
+
+    Analysis tools are registered only when the optional ``analysis`` extra
+    dependencies are importable, unless ``include_analysis_tools`` explicitly
+    overrides that auto-detection (primarily for tests).
+    """
+    if include_analysis_tools is None:
+        include_analysis_tools = _analysis_dependencies_available()
+
     mcp = FastMCP(
         "spedas-mcp",
         instructions=(
@@ -934,6 +1007,16 @@ def create_server() -> FastMCP:
             "return compact metadata and paths."
         ),
     )
+
+    compat_tools_enabled = _compat_tools_enabled()
+
+    def _compat_tool(func):
+        # Keep the function defined for internal unified-layer calls, but only
+        # register/advertise the legacy CDAWeb/PDS entry point when explicitly
+        # requested by existing clients.
+        if compat_tools_enabled:
+            return mcp.tool()(func)
+        return func
 
     @mcp.tool()
     def spedas_overview() -> str:
@@ -963,22 +1046,23 @@ def create_server() -> FastMCP:
                     "list_coordinate_frames",
                 ],
                 "analysis": {
-                    "status": "optional pyspedas backend; install with spedas-mcp[analysis]",
-                    "tools": [
-                        "transform_timeseries_coordinates",
-                        "generate_fac_matrix",
-                        "analyze_minvar_coordinates",
-                        "dynamic_power_spectrum",
-                        "wavelet_transform",
-                        "evaluate_magnetic_field",
-                        "calculate_lshell",
-                        "compute_particle_moments",
-                        "compute_particle_spectra",
-                        "render_tplot",
-                    ],
+                    "status": (
+                        "available; optional pyspedas/matplotlib backend installed"
+                        if include_analysis_tools
+                        else "not registered; install with spedas-mcp[analysis]"
+                    ),
+                    "tools": list(ANALYSIS_TOOL_NAMES) if include_analysis_tools else [],
+                    "install_hint": "pip install 'spedas-mcp[analysis]'",
                 },
                 "compatibility_low_level": {
-                    "status": "supported compatibility surface; not the preferred starting point",
+                    "status": (
+                        "CDAWeb/PDS compatibility tools advertised because "
+                        "SPEDAS_MCP_COMPAT_TOOLS=1"
+                        if compat_tools_enabled
+                        else "CDAWeb/PDS compatibility tools hidden by default; set "
+                        "SPEDAS_MCP_COMPAT_TOOLS=1 for existing clients"
+                    ),
+                    "env_flag": "SPEDAS_MCP_COMPAT_TOOLS=1",
                     "prefer": [
                         "browse_data_sources",
                         "load_data_source",
@@ -986,7 +1070,7 @@ def create_server() -> FastMCP:
                         "fetch_data_product",
                         "manage_data_cache",
                     ],
-                    "available_for_existing_clients": [
+                    "hidden_by_default": [
                         "browse_observatories",
                         "load_observatory",
                         "browse_parameters",
@@ -995,10 +1079,21 @@ def create_server() -> FastMCP:
                         "load_pds_mission",
                         "browse_pds_parameters",
                         "fetch_pds_data",
-                        "manage_cdaweb_cache",
-                        "manage_pds_cache",
-                        "manage_spice_kernels",
                     ],
+                    "available_for_existing_clients": (
+                        [
+                            "browse_observatories",
+                            "load_observatory",
+                            "browse_parameters",
+                            "fetch_data",
+                            "browse_pds_missions",
+                            "load_pds_mission",
+                            "browse_pds_parameters",
+                            "fetch_pds_data",
+                        ]
+                        if compat_tools_enabled
+                        else []
+                    ),
                 },
             },
             "workflow": [
@@ -1006,7 +1101,7 @@ def create_server() -> FastMCP:
                 "Use browse_data_sources(source_type='all') to inspect SPEDAS data-source categories.",
                 "Use load_data_source, browse_data_parameters, fetch_data_product, and manage_data_cache for the unified data layer.",
                 "load_data_source(source_type='cdaweb', ...) enumerates dataset_ids so you can call browse_data_parameters without guessing; pass the science goal to search_spedas_data_sources via question= (query= is accepted as an alias).",
-                "Treat source-specific CDAWeb/PDS cache/fetch/browse tools as compatibility tools for existing clients; do not choose them first for new agent workflows.",
+                "Use unified data-layer tools for new workflows; set SPEDAS_MCP_COMPAT_TOOLS=1 only when an existing client requires legacy CDAWeb/PDS browse/load/parameter/fetch tool names; use manage_data_cache for all cache status and maintenance actions.",
                 "Use geometry tools directly when the request is SPICE-specific ephemeris, frame, distance, or transform work.",
                 "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
@@ -1095,14 +1190,14 @@ def create_server() -> FastMCP:
             data_sources=data_sources,
         ))
 
-    @mcp.tool()
+    @_compat_tool
     def browse_observatories() -> str:
         """Compatibility: list CDAWeb observatories. Prefer browse_data_sources(source_type="cdaweb") for new workflows."""
         from cdawebmcp.catalog import browse_observatories as _browse_observatories
 
         return _json(_browse_observatories())
 
-    @mcp.tool()
+    @_compat_tool
     @_safe_tool
     def load_observatory(observatory_id: str) -> str:
         """Compatibility: load CDAWeb observatory context. Prefer load_data_source(source_type="cdaweb", source_id=...)."""
@@ -1110,14 +1205,14 @@ def create_server() -> FastMCP:
 
         return build_observatory_prompt(observatory_id)
 
-    @mcp.tool()
+    @_compat_tool
     def browse_parameters(dataset_id: str, dataset_ids: list[str] | None = None) -> str:
         """Compatibility: browse CDAWeb variables. Prefer browse_data_parameters(source_type="cdaweb", ...)."""
         from cdawebmcp.metadata import browse_parameters as _browse_parameters
 
         return _json(_browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids))
 
-    @mcp.tool()
+    @_compat_tool
     @_safe_tool
     def fetch_data(
         dataset_id: str,
@@ -1239,14 +1334,14 @@ def create_server() -> FastMCP:
             "parameters": param_meta,
         })
 
-    @mcp.tool()
+    @_compat_tool
     def browse_pds_missions(query: str | None = None) -> str:
         """Compatibility: list PDS PPI missions. Prefer browse_data_sources(source_type="pds") for new workflows."""
         from pdsmcp.catalog import browse_missions as _browse_missions
 
         return _json(_browse_missions(query=query))
 
-    @mcp.tool()
+    @_compat_tool
     @_safe_tool
     def load_pds_mission(mission_id: str) -> str:
         """Compatibility: load PDS mission context. Prefer load_data_source(source_type="pds", source_id=...)."""
@@ -1254,14 +1349,14 @@ def create_server() -> FastMCP:
 
         return build_mission_prompt(mission_id)
 
-    @mcp.tool()
+    @_compat_tool
     def browse_pds_parameters(dataset_id: str | None = None, dataset_ids: list[str] | None = None) -> str:
         """Compatibility: browse PDS variables. Prefer browse_data_parameters(source_type="pds", ...)."""
         from pdsmcp.metadata import browse_parameters as _browse_parameters
 
         return _json(_browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids))
 
-    @mcp.tool()
+    @_compat_tool
     @_safe_tool
     def fetch_pds_data(
         dataset_id: str,
@@ -1379,7 +1474,7 @@ def create_server() -> FastMCP:
         kernels are not already cached, the call returns a ``needs_confirmation``
         ``kernel_download_required`` response rather than silently downloading
         100 MB-1 GB of kernels; pass ``allow_kernel_download=True`` (or pre-load
-        with ``manage_spice_kernels(action='load', mission=...)``) to proceed
+        with ``manage_data_cache(source_type='spice', action='load', mission=...)``) to proceed
         (issue #29).
         """
         from xhelio_spice import get_state, get_trajectory
@@ -1544,7 +1639,6 @@ def create_server() -> FastMCP:
 
         return _json(list_frames_with_descriptions())
 
-    @mcp.tool()
     def manage_cdaweb_cache(
         action: Literal["status", "clean", "refresh_metadata", "refresh_time_ranges", "rebuild_catalog"],
         category: Literal["metadata", "cdf_cache", "all"] = "all",
@@ -1569,7 +1663,6 @@ def create_server() -> FastMCP:
             return _json(rebuild_catalog(observatory=observatory))
         return _json({"status": "error", "message": f"Unknown action: {action}"})
 
-    @mcp.tool()
     def manage_pds_cache(
         action: Literal["status", "clean", "refresh_metadata", "build_metadata", "refresh_time_ranges", "rebuild_catalog"],
         category: Literal["metadata", "data_cache", "all"] = "all",
@@ -1598,7 +1691,6 @@ def create_server() -> FastMCP:
             return _json(rebuild_catalog(mission=mission))
         return _json({"status": "error", "message": f"Unknown action: {action}"})
 
-    @mcp.tool()
     def manage_spice_kernels(
         action: Literal["status", "load", "clean", "check_remote", "purge"],
         mission: str | None = None,
@@ -2224,441 +2316,479 @@ def create_server() -> FastMCP:
     @mcp.tool()
     def manage_data_cache(
         source_type: str = "all",
-        action: Literal["status", "clean"] = "status",
+        action: str = "status",
         cache_dir: str | None = None,
         mission: str | None = None,
+        category: str = "all",
+        observatory: str | None = None,
+        dataset_ids: list[str] | None = None,
+        older_than_days: int | None = None,
+        dry_run: bool = True,
+        detail: bool = False,
+        force: bool = False,
+        filenames: list[str] | None = None,
     ) -> str:
-        """Primary data layer: manage cache status/maintenance by source_type."""
+        """Primary data layer: manage cache status/maintenance by source_type.
+
+        This unified cache manager covers the source-specific cache-manager
+        kwargs: CDAWeb uses ``category``, ``observatory``, ``dataset_ids``,
+        ``older_than_days``, ``dry_run``, and ``detail``; PDS uses
+        ``category``, ``mission``, ``dataset_ids``, ``older_than_days``,
+        ``dry_run``, ``detail``, and ``force``; SPICE uses ``mission`` and
+        ``filenames``. Backend cache roots are still configured by the MCP
+        server environment, not per call.
+        """
         source = _normalize_source_type(source_type)
         cache_note = None
         if cache_dir:
             cache_note = "cache_dir is configured by the MCP server/environment; unified manage_data_cache does not override backend cache roots per call."
+
+        cdaweb_kwargs = {
+            "category": category,
+            "observatory": observatory,
+            "dataset_ids": dataset_ids,
+            "older_than_days": older_than_days,
+            "dry_run": dry_run,
+            "detail": detail,
+        }
+        pds_kwargs = {
+            "category": category,
+            "mission": mission,
+            "dataset_ids": dataset_ids,
+            "older_than_days": older_than_days,
+            "dry_run": dry_run,
+            "detail": detail,
+            "force": force,
+        }
+        spice_kwargs = {"mission": mission, "filenames": filenames}
+
         if source == "all":
             return _json({
                 "status": "success",
                 "source_type": "all",
                 "caches": {
-                    "cdaweb": json.loads(manage_cdaweb_cache(action=action)),
-                    "pds": json.loads(manage_pds_cache(action=action, mission=mission)),
-                    "spice": json.loads(manage_spice_kernels(action=action, mission=mission)),
+                    "cdaweb": json.loads(manage_cdaweb_cache(action=action, **cdaweb_kwargs)),
+                    "pds": json.loads(manage_pds_cache(action=action, **pds_kwargs)),
+                    "spice": json.loads(manage_spice_kernels(action=action, **spice_kwargs)),
                 },
                 "note": cache_note,
             })
         if source == "cdaweb":
-            return _wrap_data_payload(source, manage_cdaweb_cache(action=action), note=cache_note)
+            return _wrap_data_payload(source, manage_cdaweb_cache(action=action, **cdaweb_kwargs), note=cache_note)
         if source == "pds":
-            return _wrap_data_payload(source, manage_pds_cache(action=action, mission=mission), note=cache_note)
+            return _wrap_data_payload(source, manage_pds_cache(action=action, **pds_kwargs), note=cache_note)
         if source == "spice":
-            return _wrap_data_payload(source, manage_spice_kernels(action=action, mission=mission), note=cache_note)
+            return _wrap_data_payload(source, manage_spice_kernels(action=action, **spice_kwargs), note=cache_note)
         return _unknown_source_type_error(source_type, ["all", "cdaweb", "pds", "spice"])
 
-    # ------------------------------------------------------------------
-    # Analysis layer (Phase 1: coordinate transforms). Optional pyspedas
-    # backend via the spedas-mcp[analysis] extra; tools import it lazily and
-    # return a clear install error when the extra is missing.
-    # ------------------------------------------------------------------
+    if include_analysis_tools:
+        # ------------------------------------------------------------------
+        # Analysis layer (Phase 1: coordinate transforms). Optional pyspedas
+        # backend via the spedas-mcp[analysis] extra; tools import it lazily and
+        # return a clear install error when the extra is missing.
+        # ------------------------------------------------------------------
 
-    @mcp.tool()
-    @_safe_tool
-    def transform_timeseries_coordinates(
-        input_file: str,
-        coord_in: str,
-        coord_out: str,
-        output_file: str,
-        time_col: str = "time",
-        vector_cols: list[str] | None = None,
-    ) -> str:
-        """Analysis: transform an Nx3 vector time-series between GSE/GSM/SM/GEI/GEO/MAG/J2000.
+        @mcp.tool()
+        @_safe_tool
+        def transform_timeseries_coordinates(
+            input_file: str,
+            coord_in: str,
+            coord_out: str,
+            output_file: str,
+            time_col: str = "time",
+            vector_cols: list[str] | None = None,
+        ) -> str:
+            """Analysis: transform an Nx3 vector time-series between GSE/GSM/SM/GEI/GEO/MAG/J2000.
 
-        Reads a fetched CSV/JSON artifact, transforms with pyspedas cotrans,
-        writes the transformed series to output_file, and returns paths plus
-        per-component summary stats only. Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.coords import transform_timeseries_coordinates as _impl
+            Reads a fetched CSV/JSON artifact, transforms with pyspedas cotrans,
+            writes the transformed series to output_file, and returns paths plus
+            per-component summary stats only. Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.coords import transform_timeseries_coordinates as _impl
 
-        return _json(_impl(
-            input_file=input_file,
-            coord_in=coord_in,
-            coord_out=coord_out,
-            output_file=output_file,
-            time_col=time_col,
-            vector_cols=vector_cols,
-        ))
+            return _json(_impl(
+                input_file=input_file,
+                coord_in=coord_in,
+                coord_out=coord_out,
+                output_file=output_file,
+                time_col=time_col,
+                vector_cols=vector_cols,
+            ))
 
-    @mcp.tool()
-    @_safe_tool
-    def generate_fac_matrix(
-        mag_file: str,
-        output_file: str,
-        other_dim: str = "xgse",
-        pos_file: str | None = None,
-        time_col: str = "time",
-        vector_cols: list[str] | None = None,
-        mag_coord: str = "gse",
-    ) -> str:
-        """Analysis: build per-sample field-aligned-coordinate (FAC) 3x3 rotation matrices.
+        @mcp.tool()
+        @_safe_tool
+        def generate_fac_matrix(
+            mag_file: str,
+            output_file: str,
+            other_dim: str = "xgse",
+            pos_file: str | None = None,
+            time_col: str = "time",
+            vector_cols: list[str] | None = None,
+            mag_coord: str = "gse",
+        ) -> str:
+            """Analysis: build per-sample field-aligned-coordinate (FAC) 3x3 rotation matrices.
 
-        Backend: pyspedas fac_matrix_make. Writes the (N,3,3) matrix stack to
-        output_file (.npy/.npz) and returns shape + mode + path only. Position-
-        dependent modes (rgeo/mrgeo/phigeo/mphigeo/phism/mphism) require a GEI
-        position series via pos_file. Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.coords import generate_fac_matrix as _impl
+            Backend: pyspedas fac_matrix_make. Writes the (N,3,3) matrix stack to
+            output_file (.npy/.npz) and returns shape + mode + path only. Position-
+            dependent modes (rgeo/mrgeo/phigeo/mphigeo/phism/mphism) require a GEI
+            position series via pos_file. Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.coords import generate_fac_matrix as _impl
 
-        return _json(_impl(
-            mag_file=mag_file,
-            output_file=output_file,
-            other_dim=other_dim,
-            pos_file=pos_file,
-            time_col=time_col,
-            vector_cols=vector_cols,
-            mag_coord=mag_coord,
-        ))
+            return _json(_impl(
+                mag_file=mag_file,
+                output_file=output_file,
+                other_dim=other_dim,
+                pos_file=pos_file,
+                time_col=time_col,
+                vector_cols=vector_cols,
+                mag_coord=mag_coord,
+            ))
 
-    @mcp.tool()
-    @_safe_tool
-    def analyze_minvar_coordinates(
-        input_file: str,
-        output_dir: str,
-        twindow: float | None = None,
-        tslide: float | None = None,
-        time_col: str = "time",
-        vector_cols: list[str] | None = None,
-    ) -> str:
-        """Analysis: minimum-variance analysis (MVA) / LMN boundary-normal frame.
+        @mcp.tool()
+        @_safe_tool
+        def analyze_minvar_coordinates(
+            input_file: str,
+            output_dir: str,
+            twindow: float | None = None,
+            tslide: float | None = None,
+            time_col: str = "time",
+            vector_cols: list[str] | None = None,
+        ) -> str:
+            """Analysis: minimum-variance analysis (MVA) / LMN boundary-normal frame.
 
-        Backend: pyspedas minvar / minvar_matrix_make. Full-interval mode
-        (twindow=None) returns eigenvalues, eigenvectors, the normal vector, and
-        the intermediate/min ratio plus a rotated-series file path. Sliding-window
-        mode writes per-window rotation matrices. Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.coords import analyze_minvar_coordinates as _impl
+            Backend: pyspedas minvar / minvar_matrix_make. Full-interval mode
+            (twindow=None) returns eigenvalues, eigenvectors, the normal vector, and
+            the intermediate/min ratio plus a rotated-series file path. Sliding-window
+            mode writes per-window rotation matrices. Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.coords import analyze_minvar_coordinates as _impl
 
-        return _json(_impl(
-            input_file=input_file,
-            output_dir=output_dir,
-            twindow=twindow,
-            tslide=tslide,
-            time_col=time_col,
-            vector_cols=vector_cols,
-        ))
+            return _json(_impl(
+                input_file=input_file,
+                output_dir=output_dir,
+                twindow=twindow,
+                tslide=tslide,
+                time_col=time_col,
+                vector_cols=vector_cols,
+            ))
 
-    # ------------------------------------------------------------------
-    # Analysis layer (Phase 2: spectral & wave analysis, issue #15). Same
-    # optional pyspedas backend; the wavelet tool additionally needs PyWavelets
-    # (pulled in by spedas-mcp[analysis]). Both are file-in / file-out: the bulk
-    # time x frequency spectrogram is written to output_dir and only paths plus
-    # compact ranges/shape are returned (artifact-first).
-    # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Analysis layer (Phase 2: spectral & wave analysis, issue #15). Same
+        # optional pyspedas backend; the wavelet tool additionally needs PyWavelets
+        # (pulled in by spedas-mcp[analysis]). Both are file-in / file-out: the bulk
+        # time x frequency spectrogram is written to output_dir and only paths plus
+        # compact ranges/shape are returned (artifact-first).
+        # ------------------------------------------------------------------
 
-    @mcp.tool()
-    @_safe_tool
-    def dynamic_power_spectrum(
-        input_file: str,
-        output_dir: str,
-        data_col: str | None = None,
-        nboxpoints: int = 256,
-        nshiftpoints: int = 128,
-        bin: int = 3,
-        nohanning: bool = False,
-        time_col: str = "time",
-    ) -> str:
-        """Analysis: sliding-window Welch dynamic power spectrum of a scalar channel.
+        @mcp.tool()
+        @_safe_tool
+        def dynamic_power_spectrum(
+            input_file: str,
+            output_dir: str,
+            data_col: str | None = None,
+            nboxpoints: int = 256,
+            nshiftpoints: int = 128,
+            bin: int = 3,
+            nohanning: bool = False,
+            time_col: str = "time",
+        ) -> str:
+            """Analysis: sliding-window Welch dynamic power spectrum of a scalar channel.
 
-        Backend: pyspedas dpwrspc. Reads a fetched CSV/JSON artifact, computes a
-        time x frequency power matrix over the selected data_col, writes it to
-        output_dir/dynamic_power_spectrum.npz, and returns only paths plus
-        time/frequency ranges and shape. Pair with a renderer to view the
-        spectrogram. Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.spectral import dynamic_power_spectrum as _impl
+            Backend: pyspedas dpwrspc. Reads a fetched CSV/JSON artifact, computes a
+            time x frequency power matrix over the selected data_col, writes it to
+            output_dir/dynamic_power_spectrum.npz, and returns only paths plus
+            time/frequency ranges and shape. Pair with a renderer to view the
+            spectrogram. Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.spectral import dynamic_power_spectrum as _impl
 
-        return _json(_impl(
-            input_file=input_file,
-            output_dir=output_dir,
-            data_col=data_col,
-            nboxpoints=nboxpoints,
-            nshiftpoints=nshiftpoints,
-            bin=bin,
-            nohanning=nohanning,
-            time_col=time_col,
-        ))
+            return _json(_impl(
+                input_file=input_file,
+                output_dir=output_dir,
+                data_col=data_col,
+                nboxpoints=nboxpoints,
+                nshiftpoints=nshiftpoints,
+                bin=bin,
+                nohanning=nohanning,
+                time_col=time_col,
+            ))
 
-    @mcp.tool()
-    @_safe_tool
-    def wavelet_transform(
-        input_file: str,
-        output_dir: str,
-        data_col: str | None = None,
-        wavename: str = "morl",
-        min_period: float | None = None,
-        max_period: float | None = None,
-        compute_significance: bool = False,
-        siglvl: float = 0.95,
-        time_col: str = "time",
-    ) -> str:
-        """Analysis: continuous wavelet transform (Morlet/Paul/DOG) of a scalar channel.
+        @mcp.tool()
+        @_safe_tool
+        def wavelet_transform(
+            input_file: str,
+            output_dir: str,
+            data_col: str | None = None,
+            wavename: str = "morl",
+            min_period: float | None = None,
+            max_period: float | None = None,
+            compute_significance: bool = False,
+            siglvl: float = 0.95,
+            time_col: str = "time",
+        ) -> str:
+            """Analysis: continuous wavelet transform (Morlet/Paul/DOG) of a scalar channel.
 
-        Backend: PyWavelets cwt over Torrence & Compo scales, optionally limited
-        to [min_period, max_period]. With compute_significance=True, per-scale
-        95% red-noise significance (pyspedas wave_signif) is saved alongside the
-        power so a renderer can contour significant regions. The time x frequency
-        power matrix is written to output_dir/wavelet_transform.npz; only paths
-        plus frequency/period ranges and shape are returned. Significance and
-        wide scale ranges are compute-heavy, so significance is opt-in. Requires
-        spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.spectral import wavelet_transform as _impl
+            Backend: PyWavelets cwt over Torrence & Compo scales, optionally limited
+            to [min_period, max_period]. With compute_significance=True, per-scale
+            95% red-noise significance (pyspedas wave_signif) is saved alongside the
+            power so a renderer can contour significant regions. The time x frequency
+            power matrix is written to output_dir/wavelet_transform.npz; only paths
+            plus frequency/period ranges and shape are returned. Significance and
+            wide scale ranges are compute-heavy, so significance is opt-in. Requires
+            spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.spectral import wavelet_transform as _impl
 
-        return _json(_impl(
-            input_file=input_file,
-            output_dir=output_dir,
-            data_col=data_col,
-            wavename=wavename,
-            min_period=min_period,
-            max_period=max_period,
-            compute_significance=compute_significance,
-            siglvl=siglvl,
-            time_col=time_col,
-        ))
+            return _json(_impl(
+                input_file=input_file,
+                output_dir=output_dir,
+                data_col=data_col,
+                wavename=wavename,
+                min_period=min_period,
+                max_period=max_period,
+                compute_significance=compute_significance,
+                siglvl=siglvl,
+                time_col=time_col,
+            ))
 
-    # ------------------------------------------------------------------
-    # Analysis layer (Phase 2: magnetic field models & L-shell, issues #16/#17).
-    # Same optional pyspedas (geopack) backend. File-in / file-out: the input is
-    # an Nx3 geocentric GSM positions artifact (preferably .npz with 'positions'
-    # and optional 'times'); radii must be in the near-Earth 1..30 Re domain to
-    # catch heliocentric/planet-centered vectors before backend evaluation.
-    # Per-sample B vectors / footpoints / L series are written to output_file as a
-    # compressed .npz and only summary stats plus paths are returned
-    # (artifact-first). IGRF is cheap and parameter-free; distorted Tsyganenko
-    # models require explicit parameters rather than hidden network I/O.
-    # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Analysis layer (Phase 2: magnetic field models & L-shell, issues #16/#17).
+        # Same optional pyspedas (geopack) backend. File-in / file-out: the input is
+        # an Nx3 geocentric GSM positions artifact (preferably .npz with 'positions'
+        # and optional 'times'); radii must be in the near-Earth 1..30 Re domain to
+        # catch heliocentric/planet-centered vectors before backend evaluation.
+        # Per-sample B vectors / footpoints / L series are written to output_file as a
+        # compressed .npz and only summary stats plus paths are returned
+        # (artifact-first). IGRF is cheap and parameter-free; distorted Tsyganenko
+        # models require explicit parameters rather than hidden network I/O.
+        # ------------------------------------------------------------------
 
-    @mcp.tool()
-    @_safe_tool
-    def evaluate_magnetic_field(
-        positions_file: str,
-        output_file: str,
-        model: str = "igrf",
-        parameters: dict[str, Any] | None = None,
-        trace: str = "none",
-        time_col: str = "time",
-        position_cols: list[str] | None = None,
-    ) -> str:
-        """Analysis: evaluate IGRF/T89/T96/T01/TS04 B (nT) at Nx3 GSM positions, optional tracing.
+        @mcp.tool()
+        @_safe_tool
+        def evaluate_magnetic_field(
+            positions_file: str,
+            output_file: str,
+            model: str = "igrf",
+            parameters: dict[str, Any] | None = None,
+            trace: str = "none",
+            time_col: str = "time",
+            position_cols: list[str] | None = None,
+        ) -> str:
+            """Analysis: evaluate IGRF/T89/T96/T01/TS04 B (nT) at Nx3 GSM positions, optional tracing.
 
-        Backend: pyspedas geopack tigrf/tt89/tt96/tt01/tts04 (field) and
-        ttrace2endpoint (trace in {none, ionosphere, equator}). Reads a positions
-        artifact (.npz with 'positions' Nx3 geocentric GSM km and optional
-        'times'; .npy; or CSV/JSON). Radii must be within 1..30 Re; out-of-domain
-        inputs return position_domain_error with a coordinate-conversion hint
-        instead of backend junk. Writes per-sample B (and any footpoints/L series)
-        to output_file as .npz, and returns the model, field_strength_nT
-        min/max/mean, paths, and (for equator traces) an lshell_summary only.
-        IGRF is fast and parameter-free; distorted models require explicit
-        parameters (no hidden network I/O). Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.fieldmodels import evaluate_magnetic_field as _impl
+            Backend: pyspedas geopack tigrf/tt89/tt96/tt01/tts04 (field) and
+            ttrace2endpoint (trace in {none, ionosphere, equator}). Reads a positions
+            artifact (.npz with 'positions' Nx3 geocentric GSM km and optional
+            'times'; .npy; or CSV/JSON). Radii must be within 1..30 Re; out-of-domain
+            inputs return position_domain_error with a coordinate-conversion hint
+            instead of backend junk. Writes per-sample B (and any footpoints/L series)
+            to output_file as .npz, and returns the model, field_strength_nT
+            min/max/mean, paths, and (for equator traces) an lshell_summary only.
+            IGRF is fast and parameter-free; distorted models require explicit
+            parameters (no hidden network I/O). Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.fieldmodels import evaluate_magnetic_field as _impl
 
-        return _json(_impl(
-            positions_file=positions_file,
-            output_file=output_file,
-            model=model,
-            parameters=parameters,
-            trace=trace,
-            time_col=time_col,
-            position_cols=position_cols,
-        ))
+            return _json(_impl(
+                positions_file=positions_file,
+                output_file=output_file,
+                model=model,
+                parameters=parameters,
+                trace=trace,
+                time_col=time_col,
+                position_cols=position_cols,
+            ))
 
-    @mcp.tool()
-    @_safe_tool
-    def calculate_lshell(
-        positions_file: str,
-        output_file: str,
-        model: str = "igrf",
-        geomag_parameters: dict[str, Any] | None = None,
-        footprint: bool = False,
-        time_col: str = "time",
-        position_cols: list[str] | None = None,
-        parameters: dict[str, Any] | None = None,
-    ) -> str:
-        """Analysis: McIlwain L-shell (+ optional ionospheric footprint) for Nx3 GSM positions.
+        @mcp.tool()
+        @_safe_tool
+        def calculate_lshell(
+            positions_file: str,
+            output_file: str,
+            model: str = "igrf",
+            geomag_parameters: dict[str, Any] | None = None,
+            footprint: bool = False,
+            time_col: str = "time",
+            position_cols: list[str] | None = None,
+            parameters: dict[str, Any] | None = None,
+        ) -> str:
+            """Analysis: McIlwain L-shell (+ optional ionospheric footprint) for Nx3 GSM positions.
 
-        Backend: pyspedas geopack ttrace2endpoint (trace to the magnetic equator;
-        the equatorial foot radius in Re is L). Reads a positions artifact (.npz
-        with 'positions' Nx3 geocentric GSM km and optional 'times'; .npy; or
-        CSV/JSON). Radii must be within 1..30 Re; out-of-domain inputs return
-        position_domain_error with a coordinate-conversion hint instead of
-        meaningless large L values. Writes the per-sample L series (and any
-        ionospheric footprint when footprint=True) to output_file as .npz, and
-        returns the L summary {min_L, max_L, mean_L} plus paths only. IGRF
-        (default) is fast and
-        parameter-free; distorted models require geomag_parameters (no hidden
-        network I/O). 'parameters' is accepted as an alias for 'geomag_parameters'
-        (same name as evaluate_magnetic_field); supplying both with different
-        values is an invalid_argument error. Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.fieldmodels import calculate_lshell as _impl
+            Backend: pyspedas geopack ttrace2endpoint (trace to the magnetic equator;
+            the equatorial foot radius in Re is L). Reads a positions artifact (.npz
+            with 'positions' Nx3 geocentric GSM km and optional 'times'; .npy; or
+            CSV/JSON). Radii must be within 1..30 Re; out-of-domain inputs return
+            position_domain_error with a coordinate-conversion hint instead of
+            meaningless large L values. Writes the per-sample L series (and any
+            ionospheric footprint when footprint=True) to output_file as .npz, and
+            returns the L summary {min_L, max_L, mean_L} plus paths only. IGRF
+            (default) is fast and
+            parameter-free; distorted models require geomag_parameters (no hidden
+            network I/O). 'parameters' is accepted as an alias for 'geomag_parameters'
+            (same name as evaluate_magnetic_field); supplying both with different
+            values is an invalid_argument error. Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.fieldmodels import calculate_lshell as _impl
 
-        return _json(_impl(
-            positions_file=positions_file,
-            output_file=output_file,
-            model=model,
-            geomag_parameters=geomag_parameters,
-            footprint=footprint,
-            time_col=time_col,
-            position_cols=position_cols,
-            parameters=parameters,
-        ))
+            return _json(_impl(
+                positions_file=positions_file,
+                output_file=output_file,
+                model=model,
+                geomag_parameters=geomag_parameters,
+                footprint=footprint,
+                time_col=time_col,
+                position_cols=position_cols,
+                parameters=parameters,
+            ))
 
-    # ------------------------------------------------------------------
-    # Analysis layer (Phase 2: particle moments & spectra, issues #18/#19).
-    # Same optional pyspedas backend. File-in / file-out: the input is an explicit
-    # distribution artifact (.npz preferred, JSON accepted) holding per-slice
-    # energy/angle cubes; moment time series and spectrogram matrices are written
-    # to output_dir and only scalar summaries / paths / ranges are returned
-    # (artifact-first; never inline full cubes/tensors). Each pyspedas particle
-    # function is gated on exact availability before use (some builds lack e.g.
-    # spd_pgs_make_pad_spec), so a missing backend yields a structured
-    # unsupported/needs_input entry rather than a raw ImportError.
-    # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Analysis layer (Phase 2: particle moments & spectra, issues #18/#19).
+        # Same optional pyspedas backend. File-in / file-out: the input is an explicit
+        # distribution artifact (.npz preferred, JSON accepted) holding per-slice
+        # energy/angle cubes; moment time series and spectrogram matrices are written
+        # to output_dir and only scalar summaries / paths / ranges are returned
+        # (artifact-first; never inline full cubes/tensors). Each pyspedas particle
+        # function is gated on exact availability before use (some builds lack e.g.
+        # spd_pgs_make_pad_spec), so a missing backend yields a structured
+        # unsupported/needs_input entry rather than a raw ImportError.
+        # ------------------------------------------------------------------
 
-    @mcp.tool()
-    @_safe_tool
-    def compute_particle_moments(
-        dist_file: str,
-        output_dir: str,
-        sc_potential_v: float = 0.0,
-        energy_range_ev: list[float] | None = None,
-        output_format: str = "json",
-        no_unit_conversion: bool = False,
-    ) -> str:
-        """Analysis: plasma moments (density/velocity/temperature/pressure) from 3D distributions.
+        @mcp.tool()
+        @_safe_tool
+        def compute_particle_moments(
+            dist_file: str,
+            output_dir: str,
+            sc_potential_v: float = 0.0,
+            energy_range_ev: list[float] | None = None,
+            output_format: str = "json",
+            no_unit_conversion: bool = False,
+        ) -> str:
+            """Analysis: plasma moments (density/velocity/temperature/pressure) from 3D distributions.
 
-        Backend: pyspedas moments_3d applied per time slice. Reads an explicit
-        distribution artifact (.npz preferred, or JSON) with per-slice energy/angle
-        cubes ('data','energy','denergy','theta','dtheta','phi','dphi','bins' plus
-        scalars 'charge','mass'); a single (E,A) slice is broadcast across time.
-        Optionally restricts to energy_range_ev=[min,max] eV and applies
-        sc_potential_v. Writes the full moment time series to
-        output_dir/particle_moments.{json,csv} and returns scalar density/velocity/
-        temperature summaries plus the pressure-trace summary and path only — full
-        pressure/temperature tensors and particle cubes are never returned inline.
-        Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.particles import compute_particle_moments as _impl
+            Backend: pyspedas moments_3d applied per time slice. Reads an explicit
+            distribution artifact (.npz preferred, or JSON) with per-slice energy/angle
+            cubes ('data','energy','denergy','theta','dtheta','phi','dphi','bins' plus
+            scalars 'charge','mass'); a single (E,A) slice is broadcast across time.
+            Optionally restricts to energy_range_ev=[min,max] eV and applies
+            sc_potential_v. Writes the full moment time series to
+            output_dir/particle_moments.{json,csv} and returns scalar density/velocity/
+            temperature summaries plus the pressure-trace summary and path only — full
+            pressure/temperature tensors and particle cubes are never returned inline.
+            Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.particles import compute_particle_moments as _impl
 
-        return _json(_impl(
-            dist_file=dist_file,
-            output_dir=output_dir,
-            sc_potential_v=sc_potential_v,
-            energy_range_ev=energy_range_ev,
-            output_format=output_format,
-            no_unit_conversion=no_unit_conversion,
-        ))
+            return _json(_impl(
+                dist_file=dist_file,
+                output_dir=output_dir,
+                sc_potential_v=sc_potential_v,
+                energy_range_ev=energy_range_ev,
+                output_format=output_format,
+                no_unit_conversion=no_unit_conversion,
+            ))
 
-    @mcp.tool()
-    @_safe_tool
-    def compute_particle_spectra(
-        dist_file: str,
-        output_dir: str,
-        spectrum_types: list[str] | None = None,
-        mag_file: str | None = None,
-        resolution: int | None = None,
-    ) -> str:
-        """Analysis: energy / azimuth / elevation / pitch-angle spectrograms from 3D distributions.
+        @mcp.tool()
+        @_safe_tool
+        def compute_particle_spectra(
+            dist_file: str,
+            output_dir: str,
+            spectrum_types: list[str] | None = None,
+            mag_file: str | None = None,
+            resolution: int | None = None,
+        ) -> str:
+            """Analysis: energy / azimuth / elevation / pitch-angle spectrograms from 3D distributions.
 
-        Backends: pyspedas spd_pgs_make_e_spec (energy), spd_pgs_make_phi_spec
-        (azimuth/phi), spd_pgs_make_theta_spec (elevation/theta), each averaging the
-        distribution over complementary dimensions per time slice into a
-        (n_time, n_bin) spectrogram. spectrum_types defaults to
-        ['energy','pitch_angle']; 'azimuth'->'phi' and 'elevation'->'theta' aliases
-        are accepted. Field-aligned 'pitch_angle' spectra need a mag_file (B-field
-        reference): each slice is rotated into field-aligned coordinates with
-        spd_pgs_do_fac (B as +z) and the polar (pitch) angle binned over 0-180 deg
-        via spd_pgs_make_theta_spec in colatitude mode (no optional pad backend
-        required). Without mag_file that entry reports needs_input while the other
-        requested spectra still compute. mag_file is an .npz/.json with 'b' as
-        (T,3) (one B vector per slice) or (3,) (broadcast), in the distribution's
-        coordinate frame. Each spectrogram is written to
-        output_dir/particle_spectra_<type>.npz; only paths/ranges/shapes are
-        returned (artifact-first). Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.particles import compute_particle_spectra as _impl
+            Backends: pyspedas spd_pgs_make_e_spec (energy), spd_pgs_make_phi_spec
+            (azimuth/phi), spd_pgs_make_theta_spec (elevation/theta), each averaging the
+            distribution over complementary dimensions per time slice into a
+            (n_time, n_bin) spectrogram. spectrum_types defaults to
+            ['energy','pitch_angle']; 'azimuth'->'phi' and 'elevation'->'theta' aliases
+            are accepted. Field-aligned 'pitch_angle' spectra need a mag_file (B-field
+            reference): each slice is rotated into field-aligned coordinates with
+            spd_pgs_do_fac (B as +z) and the polar (pitch) angle binned over 0-180 deg
+            via spd_pgs_make_theta_spec in colatitude mode (no optional pad backend
+            required). Without mag_file that entry reports needs_input while the other
+            requested spectra still compute. mag_file is an .npz/.json with 'b' as
+            (T,3) (one B vector per slice) or (3,) (broadcast), in the distribution's
+            coordinate frame. Each spectrogram is written to
+            output_dir/particle_spectra_<type>.npz; only paths/ranges/shapes are
+            returned (artifact-first). Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.particles import compute_particle_spectra as _impl
 
-        return _json(_impl(
-            dist_file=dist_file,
-            output_dir=output_dir,
-            spectrum_types=spectrum_types,
-            mag_file=mag_file,
-            resolution=resolution,
-        ))
+            return _json(_impl(
+                dist_file=dist_file,
+                output_dir=output_dir,
+                spectrum_types=spectrum_types,
+                mag_file=mag_file,
+                resolution=resolution,
+            ))
 
-    # ------------------------------------------------------------------
-    # Analysis layer (Phase 2: artifact rendering / visualization, issue #20,
-    # plotting epic #10). Optional matplotlib backend (installed via the same
-    # spedas-mcp[analysis] extra). File-in / file-out: inputs are paths to the
-    # spectral/particle/data artifacts above, the output is a PNG written to
-    # output_file, and only the path plus compact per-panel metadata is returned
-    # — never inline image bytes (artifact-first). Rendering is headless (Agg)
-    # and never fetches remote data.
-    # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Analysis layer (Phase 2: artifact rendering / visualization, issue #20,
+        # plotting epic #10). Optional matplotlib backend (installed via the same
+        # spedas-mcp[analysis] extra). File-in / file-out: inputs are paths to the
+        # spectral/particle/data artifacts above, the output is a PNG written to
+        # output_file, and only the path plus compact per-panel metadata is returned
+        # — never inline image bytes (artifact-first). Rendering is headless (Agg)
+        # and never fetches remote data.
+        # ------------------------------------------------------------------
 
-    @mcp.tool()
-    @_safe_tool
-    def render_tplot(
-        input_files: list[str],
-        output_file: str,
-        panel_types: list[str] | None = None,
-        trange: list[str] | None = None,
-        xsize: int = 12,
-        ysize: int | None = None,
-        dpi: int = 200,
-        ylog: list[bool] | None = None,
-        zlog: list[bool] | None = None,
-    ) -> str:
-        """Analysis: render a multi-panel tplot-style PNG from analysis artifacts.
+        @mcp.tool()
+        @_safe_tool
+        def render_tplot(
+            input_files: list[str],
+            output_file: str,
+            panel_types: list[str] | None = None,
+            trange: list[str] | None = None,
+            xsize: int = 12,
+            ysize: int | None = None,
+            dpi: int = 200,
+            ylog: list[bool] | None = None,
+            zlog: list[bool] | None = None,
+        ) -> str:
+            """Analysis: render a multi-panel tplot-style PNG from analysis artifacts.
 
-        Backend: matplotlib (headless Agg). Consumes the file artifacts written
-        by the data/spectral/particle tools — spectrogram .npz matrices (keys
-        'power'/'spectrogram' with 'time' + 'freq'/'axis' axes) and CSV/JSON or
-        .npz/.npy time-series — and stacks one panel per input_file (top to
-        bottom). Spectrogram artifacts render as pcolormesh panels with a
-        colorbar; time-series render as line panels. panel_types overrides the
-        per-file auto-detection (each of 'auto', 'line'/'timeseries',
-        'spectrogram'); it may be None (all auto), a single token (broadcast), or
-        a list matching input_files. trange (2-element ISO-8601 or Unix-second
-        bounds) filters samples; ylog/zlog (per-panel booleans or a scalar
-        broadcast) set log y / log color scales and are rejected when values are
-        non-positive. xsize/ysize are inches; dpi is bounded to avoid absurd
-        canvases. The PNG is written to output_file (parent dirs created) and
-        only {status, output_file, n_panels, trange, size_px, panels[...]} is
-        returned — image bytes are never inlined. Does not fetch remote data.
-        Requires spedas-mcp[analysis].
-        """
-        from spedas_mcp.analysis.plotting import render_tplot as _impl
+            Backend: matplotlib (headless Agg). Consumes the file artifacts written
+            by the data/spectral/particle tools — spectrogram .npz matrices (keys
+            'power'/'spectrogram' with 'time' + 'freq'/'axis' axes) and CSV/JSON or
+            .npz/.npy time-series — and stacks one panel per input_file (top to
+            bottom). Spectrogram artifacts render as pcolormesh panels with a
+            colorbar; time-series render as line panels. panel_types overrides the
+            per-file auto-detection (each of 'auto', 'line'/'timeseries',
+            'spectrogram'); it may be None (all auto), a single token (broadcast), or
+            a list matching input_files. trange (2-element ISO-8601 or Unix-second
+            bounds) filters samples; ylog/zlog (per-panel booleans or a scalar
+            broadcast) set log y / log color scales and are rejected when values are
+            non-positive. xsize/ysize are inches; dpi is bounded to avoid absurd
+            canvases. The PNG is written to output_file (parent dirs created) and
+            only {status, output_file, n_panels, trange, size_px, panels[...]} is
+            returned — image bytes are never inlined. Does not fetch remote data.
+            Requires spedas-mcp[analysis].
+            """
+            from spedas_mcp.analysis.plotting import render_tplot as _impl
 
-        return _json(_impl(
-            input_files=input_files,
-            output_file=output_file,
-            panel_types=panel_types,
-            trange=trange,
-            xsize=xsize,
-            ysize=ysize,
-            dpi=dpi,
-            ylog=ylog,
-            zlog=zlog,
-        ))
+            return _json(_impl(
+                input_files=input_files,
+                output_file=output_file,
+                panel_types=panel_types,
+                trange=trange,
+                xsize=xsize,
+                ysize=ysize,
+                dpi=dpi,
+                ylog=ylog,
+                zlog=zlog,
+            ))
 
-    # ------------------------------------------------------------------
-    # External data-source layer (issues #21, #22). Optional backends reached
-    # via the spedas-mcp[hapi] / spedas-mcp[fdsn] extras; tools import them
-    # lazily and return a structured missing_dependency error (with the extra to
-    # install) when absent, so base install and MCP list-tools work without them.
-    # Artifact-first: bulk time-series are written to output_dir and only paths +
-    # compact metadata are returned. source_type="hapi"/"fdsn" are recognized by
-    # the unified data layer, which routes here.
-    # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # External data-source layer (issues #21, #22). Optional backends reached
+        # via the spedas-mcp[hapi] / spedas-mcp[fdsn] extras; tools import them
+        # lazily and return a structured missing_dependency error (with the extra to
+        # install) when absent, so base install and MCP list-tools work without them.
+        # Artifact-first: bulk time-series are written to output_dir and only paths +
+        # compact metadata are returned. source_type="hapi"/"fdsn" are recognized by
+        # the unified data layer, which routes here.
+        # ------------------------------------------------------------------
 
     @mcp.tool()
     @_safe_tool

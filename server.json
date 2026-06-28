@@ -31,6 +31,11 @@
           "name": "XHELIO_SPICE_KERNEL_DIR",
           "description": "Override the default SPICE kernel cache directory (~/.xhelio_spice/kernels/)",
           "required": false
+        },
+        {
+          "name": "SPEDAS_MCP_COMPAT_TOOLS",
+          "description": "Set to 1 to advertise legacy CDAWeb/PDS compatibility browse/load/parameter/fetch tools; unset by default for the compact unified tool surface.",
+          "required": false
         }
       ]
     }

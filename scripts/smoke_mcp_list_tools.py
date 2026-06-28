@@ -9,6 +9,7 @@ tool names, and exits.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -19,7 +20,18 @@ import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-EXPECTED_TOOLS = [
+COMPAT_CDAWEB_PDS_TOOLS = [
+    "browse_observatories",
+    "load_observatory",
+    "browse_parameters",
+    "fetch_data",
+    "browse_pds_missions",
+    "load_pds_mission",
+    "browse_pds_parameters",
+    "fetch_pds_data",
+]
+
+BASE_EXPECTED_TOOLS = [
     "spedas_overview",
     "browse_data_sources",
     "load_data_source",
@@ -30,22 +42,18 @@ EXPECTED_TOOLS = [
     "plan_spedas_observation",
     "compare_cdaweb_pds_spice",
     "create_spedas_analysis_bundle",
-    "browse_observatories",
-    "load_observatory",
-    "browse_parameters",
-    "fetch_data",
-    "browse_pds_missions",
-    "load_pds_mission",
-    "browse_pds_parameters",
-    "fetch_pds_data",
     "list_spice_missions",
     "get_ephemeris",
     "compute_distance",
     "transform_coordinates",
     "list_coordinate_frames",
-    "manage_cdaweb_cache",
-    "manage_pds_cache",
-    "manage_spice_kernels",
+    "browse_hapi_catalog",
+    "fetch_hapi_data",
+    "browse_fdsn_datasets",
+    "fetch_fdsn_data",
+]
+
+ANALYSIS_EXPECTED_TOOLS = [
     "transform_timeseries_coordinates",
     "generate_fac_matrix",
     "analyze_minvar_coordinates",
@@ -56,11 +64,37 @@ EXPECTED_TOOLS = [
     "compute_particle_moments",
     "compute_particle_spectra",
     "render_tplot",
-    "browse_hapi_catalog",
-    "fetch_hapi_data",
-    "browse_fdsn_datasets",
-    "fetch_fdsn_data",
 ]
+
+
+def _analysis_dependencies_available() -> bool:
+    required = (
+        ("pyspedas", None),
+        ("matplotlib", None),
+        ("pywt", None),
+        ("pyspedas.cotrans_tools.cotrans", "cotrans"),
+        ("pyspedas.cotrans_tools.fac_matrix_make", "fac_matrix_make"),
+        ("pyspedas.cotrans_tools.minvar", "minvar"),
+        ("pyspedas.cotrans_tools.minvar_matrix_make", "minvar_matrix_make"),
+        ("pyspedas.tplot_tools", "store_data"),
+        ("pyspedas.tplot_tools.tplot_math.dpwrspc", "dpwrspc"),
+        ("pyspedas.analysis.wavelet", "idl_wavelet_scales"),
+        ("pyspedas.analysis.wave_signif", "wave_signif"),
+        ("pyspedas.geopack", None),
+        ("pyspedas.particles.moments", "moments_3d"),
+        ("pyspedas.particles.spd_part_products", "spd_pgs_make_e_spec"),
+        ("pyspedas.particles.spd_part_products", "spd_pgs_make_phi_spec"),
+        ("pyspedas.particles.spd_part_products", "spd_pgs_make_theta_spec"),
+        ("pyspedas.particles.spd_part_products", "spd_pgs_do_fac"),
+    )
+    for module_name, attr_name in required:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            return False
+        if attr_name is not None and not hasattr(module, attr_name):
+            return False
+    return True
 
 
 async def _list_tools(module: str, env: dict[str, str]) -> list[str]:
@@ -84,6 +118,11 @@ def main() -> int:
         default="spedas_mcp",
         help="Python module to run as the MCP server (default: spedas_mcp)",
     )
+    parser.add_argument(
+        "--compat-tools",
+        action="store_true",
+        help="Set SPEDAS_MCP_COMPAT_TOOLS=1 and expect legacy CDAWeb/PDS tools",
+    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix="spedas-mcp-smoke-") as tmp:
@@ -91,16 +130,30 @@ def main() -> int:
         env.setdefault("XHELIO_CDAWEB_CACHE_DIR", str(Path(tmp) / "cdaweb"))
         env.setdefault("XHELIO_SPICE_KERNEL_DIR", str(Path(tmp) / "spice"))
         env.setdefault("PDSMCP_CACHE_DIR", str(Path(tmp) / "pds"))
+        if args.compat_tools:
+            env["SPEDAS_MCP_COMPAT_TOOLS"] = "1"
+        else:
+            env.pop("SPEDAS_MCP_COMPAT_TOOLS", None)
         tools = anyio.run(_list_tools, args.module, env)
 
-    missing = [name for name in EXPECTED_TOOLS if name not in tools]
-    unexpected = [name for name in tools if name not in EXPECTED_TOOLS]
+    expected_tools = list(BASE_EXPECTED_TOOLS)
+    if args.compat_tools:
+        expected_tools.extend(COMPAT_CDAWEB_PDS_TOOLS)
+    analysis_available = _analysis_dependencies_available()
+    if analysis_available:
+        expected_tools.extend(ANALYSIS_EXPECTED_TOOLS)
+
+    missing = [name for name in expected_tools if name not in tools]
+    unexpected = [name for name in tools if name not in expected_tools]
     ok = not missing and not unexpected
     payload = {
         "ok": ok,
         "tool_count": len(tools),
         "tools": tools,
-        "expected_tools": EXPECTED_TOOLS,
+        "expected_tools": expected_tools,
+        "analysis_extra_detected": analysis_available,
+        "compat_tools_enabled": args.compat_tools,
+        "compat_env_flag": "SPEDAS_MCP_COMPAT_TOOLS=1",
         "missing": missing,
         "unexpected": unexpected,
         "note": "list_tools only; no CDAWeb/PDS data fetch or SPICE kernel download requested",

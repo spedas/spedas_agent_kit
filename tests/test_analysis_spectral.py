@@ -566,12 +566,21 @@ def test_loader_missing_file(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 
 def _have_backends() -> bool:
-    try:
-        importlib.import_module("pyspedas")
-        importlib.import_module("pywt")
-        return True
-    except Exception:
-        return False
+    required = (
+        ("pyspedas", None),
+        ("pywt", None),
+        ("pyspedas.tplot_tools.tplot_math.dpwrspc", "dpwrspc"),
+        ("pyspedas.analysis.wavelet", "idl_wavelet_scales"),
+        ("pyspedas.analysis.wave_signif", "wave_signif"),
+    )
+    for module_name, attr_name in required:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            return False
+        if attr_name is not None and not hasattr(module, attr_name):
+            return False
+    return True
 
 
 @pytest.mark.skipif(not _have_backends(), reason="requires spedas-mcp[analysis] (pyspedas + pywt)")

@@ -1,10 +1,23 @@
 """Tests for the unified SPEDAS MCP facade."""
 import asyncio
 import json
+import sys
+import types
 from pathlib import Path
 
 from spedas_mcp import __version__
-from spedas_mcp.server import create_server
+from spedas_mcp.server import ANALYSIS_TOOL_NAMES, create_server
+
+COMPAT_CDAWEB_PDS_TOOLS = {
+    "browse_observatories",
+    "load_observatory",
+    "browse_parameters",
+    "fetch_data",
+    "browse_pds_missions",
+    "load_pds_mission",
+    "browse_pds_parameters",
+    "fetch_pds_data",
+}
 
 
 def _call_tool(server, name, args=None):
@@ -18,8 +31,9 @@ def test_version():
     assert __version__ == "0.1.0"
 
 
-def test_server_has_expected_tools():
-    server = create_server()
+def test_server_has_expected_tools(monkeypatch):
+    monkeypatch.delenv("SPEDAS_MCP_COMPAT_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=True)
     tools = asyncio.run(server.list_tools())
     names = {tool.name for tool in tools}
     assert {
@@ -33,22 +47,11 @@ def test_server_has_expected_tools():
         "plan_spedas_observation",
         "compare_cdaweb_pds_spice",
         "create_spedas_analysis_bundle",
-        "browse_observatories",
-        "load_observatory",
-        "browse_parameters",
-        "fetch_data",
-        "manage_cdaweb_cache",
-        "browse_pds_missions",
-        "load_pds_mission",
-        "browse_pds_parameters",
-        "fetch_pds_data",
-        "manage_pds_cache",
         "list_spice_missions",
         "get_ephemeris",
         "compute_distance",
         "transform_coordinates",
         "list_coordinate_frames",
-        "manage_spice_kernels",
         "transform_timeseries_coordinates",
         "generate_fac_matrix",
         "analyze_minvar_coordinates",
@@ -64,9 +67,46 @@ def test_server_has_expected_tools():
         "browse_fdsn_datasets",
         "fetch_fdsn_data",
     } <= names
+    assert {"manage_cdaweb_cache", "manage_pds_cache", "manage_spice_kernels"}.isdisjoint(names)
+    assert names.isdisjoint(COMPAT_CDAWEB_PDS_TOOLS)
 
 
-def test_overview_is_compact_json():
+def test_server_advertises_cdaweb_pds_compat_tools_when_flag_set(monkeypatch):
+    monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
+    names = {tool.name for tool in tools}
+    assert COMPAT_CDAWEB_PDS_TOOLS <= names
+
+
+def test_analysis_tools_are_gated_when_analysis_extra_is_absent(monkeypatch):
+    from spedas_mcp import server as server_mod
+
+    monkeypatch.setattr(server_mod, "_analysis_dependencies_available", lambda: False)
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
+    names = {tool.name for tool in tools}
+    assert set(ANALYSIS_TOOL_NAMES).isdisjoint(names)
+
+    data = json.loads(_call_tool(server, "spedas_overview"))
+    assert data["capability_groups"]["analysis"]["tools"] == []
+    assert "install with spedas-mcp[analysis]" in data["capability_groups"]["analysis"]["status"]
+
+
+def test_analysis_tools_register_when_analysis_extra_is_available(monkeypatch):
+    from spedas_mcp import server as server_mod
+
+    monkeypatch.setattr(server_mod, "_analysis_dependencies_available", lambda: True)
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
+    names = {tool.name for tool in tools}
+    assert set(ANALYSIS_TOOL_NAMES) <= names
+
+    data = json.loads(_call_tool(server, "spedas_overview"))
+    assert data["capability_groups"]["analysis"]["tools"] == list(ANALYSIS_TOOL_NAMES)
+
+def test_overview_is_compact_json(monkeypatch):
+    monkeypatch.delenv("SPEDAS_MCP_COMPAT_TOOLS", raising=False)
     server = create_server()
     data = json.loads(_call_tool(server, "spedas_overview"))
     assert data["status"] == "success"
@@ -74,10 +114,14 @@ def test_overview_is_compact_json():
     assert "science_workflows" in data["capability_groups"]
     assert "geometry" in data["capability_groups"]
     assert "compatibility_low_level" in data["capability_groups"]
+    compat = data["capability_groups"]["compatibility_low_level"]
+    assert compat["env_flag"] == "SPEDAS_MCP_COMPAT_TOOLS=1"
+    assert set(compat["hidden_by_default"]) == COMPAT_CDAWEB_PDS_TOOLS
+    assert compat["available_for_existing_clients"] == []
 
 
-
-def test_tool_descriptions_mark_primary_and_compatibility_surfaces():
+def test_tool_descriptions_mark_primary_and_compatibility_surfaces(monkeypatch):
+    monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
     server = create_server()
     tools = asyncio.run(server.list_tools())
     descriptions = {tool.name: tool.description for tool in tools}
@@ -182,7 +226,8 @@ def test_create_spedas_analysis_bundle_writes_plan_files(tmp_path: Path):
     assert data["recommended_sources"] == ["pds", "spice"]
 
 
-def test_browse_observatories_uses_cdaweb_catalog():
+def test_browse_observatories_uses_cdaweb_catalog(monkeypatch):
+    monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
     server = create_server()
     data = json.loads(_call_tool(server, "browse_observatories"))
     assert isinstance(data, list)
@@ -196,14 +241,16 @@ def test_list_spice_missions_uses_xhelio_spice_registry():
     assert any(mission.get("mission_key") == "PSP" for mission in data)
 
 
-def test_browse_pds_missions_uses_xhelio_pds_catalog():
+def test_browse_pds_missions_uses_xhelio_pds_catalog(monkeypatch):
+    monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
     server = create_server()
     data = json.loads(_call_tool(server, "browse_pds_missions"))
     assert isinstance(data, list)
     assert any(mission.get("id") == "JUNO_PPI" for mission in data)
 
 
-def test_browse_pds_parameters_uses_bundled_metadata():
+def test_browse_pds_parameters_uses_bundled_metadata(monkeypatch):
+    monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
     server = create_server()
     data = json.loads(_call_tool(server, "browse_pds_parameters", {"dataset_id": "pds3:JNO-J-3-FGM-CAL-V1.0:DATA"}))
     assert data["status"] == "success"
@@ -491,6 +538,85 @@ def test_unified_cache_manager_does_not_forward_cache_dir_kwarg():
     data = json.loads(_call_tool(server, "manage_data_cache", {"source_type": "spice", "action": "status", "cache_dir": "/tmp/ignored"}))
     assert data["status"] == "success"
     assert data["note"]
+
+
+def test_unified_cache_manager_passes_cdaweb_kwargs(monkeypatch):
+    seen = {}
+
+    def _cache_clean(**kwargs):
+        seen.update(kwargs)
+        return {"status": "success", "seen": kwargs}
+
+    cache_mod = types.SimpleNamespace(
+        cache_status=lambda detail=False: {"status": "success", "detail": detail},
+        cache_clean=_cache_clean,
+        rebuild_catalog=lambda observatory=None: {"status": "success"},
+        refresh_metadata=lambda dataset_ids=None, observatory=None: {"status": "success"},
+        refresh_time_ranges=lambda observatory=None: {"status": "success"},
+    )
+    monkeypatch.setitem(sys.modules, "cdawebmcp.cache", cache_mod)
+
+    server = create_server()
+    data = json.loads(_call_tool(server, "manage_data_cache", {
+        "source_type": "cdaweb",
+        "action": "clean",
+        "category": "cdf_cache",
+        "observatory": "MMS",
+        "older_than_days": 7,
+        "dry_run": False,
+    }))
+    assert data["status"] == "success"
+    assert seen == {
+        "category": "cdf_cache",
+        "observatory": "MMS",
+        "older_than_days": 7,
+        "dry_run": False,
+    }
+
+
+def test_unified_cache_manager_passes_pds_and_spice_kwargs(monkeypatch):
+    pds_seen = {}
+    spice_seen = {}
+
+    pds_cache_mod = types.SimpleNamespace(
+        cache_status=lambda detail=False: {"status": "success", "detail": detail},
+        cache_clean=lambda **kwargs: {"status": "success", **kwargs},
+        refresh_metadata=lambda dataset_ids=None, mission=None: {"status": "success"},
+        build_metadata=lambda **kwargs: (pds_seen.update(kwargs) or {"status": "success", "seen": kwargs}),
+        refresh_time_ranges=lambda mission=None: {"status": "success"},
+        rebuild_catalog=lambda mission=None: {"status": "success"},
+    )
+    monkeypatch.setitem(sys.modules, "pdsmcp.cache", pds_cache_mod)
+
+    spice_mod = types.SimpleNamespace(
+        check_remote_kernels=lambda mission=None: {"status": "success"},
+        get_kernel_manager=lambda: types.SimpleNamespace(
+            get_cache_info=lambda: {"status": "success"},
+            ensure_mission_kernels=lambda mission: None,
+            delete_cached_files=lambda filenames: (spice_seen.update({"filenames": filenames}) or filenames),
+            delete_mission_cache=lambda mission: [mission],
+            purge_cache=lambda: [],
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "xhelio_spice.kernel_manager", spice_mod)
+
+    server = create_server()
+    pds_data = json.loads(_call_tool(server, "manage_data_cache", {
+        "source_type": "pds",
+        "action": "build_metadata",
+        "mission": "JUNO",
+        "force": True,
+    }))
+    assert pds_data["status"] == "success"
+    assert pds_seen == {"mission": "JUNO", "force": True}
+
+    spice_data = json.loads(_call_tool(server, "manage_data_cache", {
+        "source_type": "spice",
+        "action": "clean",
+        "filenames": ["a.bsp"],
+    }))
+    assert spice_data["status"] == "success"
+    assert spice_seen == {"filenames": ["a.bsp"]}
 
 
 def test_plan_spedas_observation_reports_invalid_sources_and_missing_time():
@@ -1239,7 +1365,7 @@ def test_no_legacy_status_error_returns_on_data_layer_and_analysis_surfaces():
 
 
 def test_analysis_tools_are_wrapped_in_safe_tool():
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     # Unexpected exceptions from pyspedas/OS/file-writes must surface as the
     # structured envelope, not a raw traceback. A non-existent input_file makes
     # the impl raise ValueError, which _safe_tool/_error must convert.
@@ -1261,7 +1387,7 @@ def test_analysis_tools_are_wrapped_in_safe_tool():
 
 
 def test_render_tplot_registered_and_validates(tmp_path: Path):
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     # Pure validation path (no matplotlib needed): non-PNG output is rejected
     # through the server with the uniform structured envelope.
     bad_ext = json.loads(_call_tool(server, "render_tplot", {
@@ -1280,7 +1406,7 @@ def test_render_tplot_registered_and_validates(tmp_path: Path):
 
 
 def test_render_tplot_missing_file_is_structured(tmp_path: Path):
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     missing = json.loads(_call_tool(server, "render_tplot", {
         "input_files": [str(tmp_path / "nope.npz")],
         "output_file": str(tmp_path / "out.png"),
@@ -1290,7 +1416,7 @@ def test_render_tplot_missing_file_is_structured(tmp_path: Path):
 
 
 def test_render_tplot_wrapped_in_safe_tool(monkeypatch):
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     import spedas_mcp.analysis.plotting as plotting_mod
 
     def _boom(*args, **kwargs):
@@ -1307,7 +1433,7 @@ def test_render_tplot_wrapped_in_safe_tool(monkeypatch):
 
 
 def test_analysis_safe_tool_converts_unexpected_exception(monkeypatch):
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     # Force an unexpected (non-ValueError) exception out of the impl to prove the
     # @_safe_tool decorator — not just the impl's own try/except — wraps it.
     import spedas_mcp.analysis.coords as coords_mod
@@ -1593,7 +1719,7 @@ def test_get_ephemeris_uncached_returns_needs_confirmation(empty_kernel_cache, n
     assert "PSP" in payload["missions"]
     assert payload["missing_kernel_files"]
     # Tells the agent exactly how to opt in.
-    assert any("manage_spice_kernels" in step for step in payload["next_steps"])
+    assert any("manage_data_cache" in step and "source_type='spice'" in step for step in payload["next_steps"])
     assert any("allow_kernel_download" in step for step in payload["next_steps"])
     # No path leak, single-line message, safely under the size limit.
     assert "/Users/" not in raw
@@ -2662,7 +2788,7 @@ def test_arg_validation_missing_required_is_structured_no_pydantic_leak():
     """The exact issue #57 scenario: calling analyze_minvar_coordinates with
     output_file (its sibling's name) instead of the required output_dir must
     return the structured contract, not a raw pydantic validation error."""
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     raw = _call_tool(server, "analyze_minvar_coordinates", {
         "input_file": "x.csv",
         "output_file": "out.csv",
@@ -2687,7 +2813,7 @@ def test_arg_validation_missing_required_is_structured_no_pydantic_leak():
 def test_arg_validation_wrong_type_is_structured():
     """Wrong-typed arguments are summarized per-field without leaking the
     pydantic URL or the offending input values."""
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     raw = _call_tool(server, "render_tplot", {
         "input_files": "not-a-list",
         "output_file": 123,
@@ -2710,7 +2836,7 @@ def test_valid_arguments_still_reach_tool_body():
     """A correctly-named/typed call must pass validation and reach the tool body
     (here surfacing the analysis dependency_missing error, never the
     invalid_arguments validation envelope)."""
-    server = create_server()
+    server = create_server(include_analysis_tools=True)
     raw = _call_tool(server, "analyze_minvar_coordinates", {
         "input_file": "x.csv",
         "output_dir": "/tmp/does-not-matter",

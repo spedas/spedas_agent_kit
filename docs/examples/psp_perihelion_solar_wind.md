@@ -109,7 +109,7 @@ file-backed calls, for example:
 PSP kernels are ~266 MB. If they are not already cached, `get_ephemeris` returns
 a `needs_confirmation` / `kernel_download_required` response rather than
 downloading silently (issue #29). Pass `allow_kernel_download: true` (as above) to
-opt in, or pre-load with `manage_spice_kernels(action="load", mission="PSP")`.
+opt in, or pre-load with `manage_data_cache(source_type="spice", action="load", mission="PSP")`.
 
 For a perihelion workflow, compute or derive heliocentric distance from the
 trajectory CSV and align it with the CDAWeb time series during analysis.

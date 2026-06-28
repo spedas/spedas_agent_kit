@@ -17,7 +17,7 @@ and judgment between steps.
 - "Is spacecraft X near planet Y during this interval?"
 
 ## Tool chain (all already exist)
-`list_spice_missions` → `list_coordinate_frames` → `manage_spice_kernels` (availability)
+`list_spice_missions` → `list_coordinate_frames` → `manage_data_cache(source_type="spice", action="status")` (availability)
 → `get_ephemeris(..., output_file=...)` for both objects → local separation CSV
 (coarse, then refined) → optional `render_tplot` (requires `spedas-mcp[analysis]`),
 wrapped in `create_spedas_analysis_bundle`.
@@ -32,7 +32,7 @@ the minimum or a sampled series. Do not use it as the source of candidate-minimu
 
 2. **Confirm both objects are supported.** `list_spice_missions()` — verify both targets resolve to SPICE bodies (unsupported names return a structured error with alternatives). Pick a common observer/frame from `list_coordinate_frames()` (e.g. `ECLIPJ2000` heliocentric, or `SUN`-centered).
 
-3. **Handle kernels deliberately.** Geometry calls gate large kernel downloads. Either pre-load with `manage_spice_kernels(action="load", mission=...)`, or pass `allow_kernel_download=true` once you accept the (possibly 100 MB+) download. Do this knowingly — don't let it surprise you mid-scan.
+3. **Handle kernels deliberately.** Geometry calls gate large kernel downloads. Either pre-load with `manage_data_cache(source_type="spice", action="load", mission=...)`, or pass `allow_kernel_download=true` once you accept the (possibly 100 MB+) download. Do this knowingly — don't let it surprise you mid-scan.
 
 4. **Coarse ephemeris scan.** For each object, call `get_ephemeris(target, time_start, time_end, step="1d", output_file=<bundle>/data/<target>_coarse.csv, ...)` (or `"6h"` for short windows) using the same observer/frame and time grid. If needed, use `compute_distance(...)` only as an aggregate sanity check that the separation range is plausible.
 

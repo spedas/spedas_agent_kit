@@ -14,7 +14,7 @@ Use the `spedas` MCP server for SPICE ephemeris, distance, or coordinate-frame w
    cached, these tools return a `needs_confirmation` /`kernel_download_required`
    response instead of silently downloading 100 MB–1 GB of kernels (PSP ~266 MB).
    To proceed, either load the mission explicitly with
-   `manage_spice_kernels(action="load", mission=...)` (preview first with
+   `manage_data_cache(source_type="spice", action="load", mission=...)` (preview first with
    `action="check_remote"`), or re-call the tool with `allow_kernel_download=True`.
    Mention the download size/cache cost to the user before opting in.
 

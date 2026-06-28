@@ -144,14 +144,14 @@ without downloading kernels:
 
 ```json
 {
-  "tool": "manage_spice_kernels",
-  "args": {"action": "check_remote", "mission": "juno"}
+  "tool": "manage_data_cache",
+  "args": {"source_type": "spice", "action": "check_remote", "mission": "juno"}
 }
 ```
 
 Expected result: configured file `juno_rec_orbit.bsp` and the NAIF JUNO kernel
 remote directory listing.  Only after the study owner accepts the download cost
-should the workflow call `manage_spice_kernels(action="load", mission="juno")` or
+should the workflow call `manage_data_cache(source_type="spice", action="load", mission="juno")` or
 `get_ephemeris` for a trajectory table.
 
 ### 7. Compute trajectory once kernels are available
@@ -159,7 +159,7 @@ should the workflow call `manage_spice_kernels(action="load", mission="juno")` o
 If the JUNO kernels are not yet cached, `get_ephemeris` returns a
 `needs_confirmation` / `kernel_download_required` response instead of downloading
 silently (issue #29). Load them first with
-`manage_spice_kernels(action="load", mission="JUNO")`, or add
+`manage_data_cache(source_type="spice", action="load", mission="JUNO")`, or add
 `"allow_kernel_download": true` to the call below to download and proceed.
 
 ```json

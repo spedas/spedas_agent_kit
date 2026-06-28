@@ -35,13 +35,13 @@ workflows.
 | `load_observatory` | `load_data_source(source_type="cdaweb", source_id=...)` |
 | `browse_parameters` | `browse_data_parameters(source_type="cdaweb", dataset_id=...)` |
 | `fetch_data` | `fetch_data_product(source_type="cdaweb", ...)` |
-| `manage_cdaweb_cache` | `manage_data_cache(source_type="cdaweb", ...)` |
+| `manage_cdaweb_cache` | `manage_data_cache(source_type="cdaweb", action=..., category=..., observatory=..., dataset_ids=..., older_than_days=..., dry_run=..., detail=...)` |
 | `browse_pds_missions` | `browse_data_sources(source_type="pds")` |
 | `load_pds_mission` | `load_data_source(source_type="pds", source_id=...)` |
 | `browse_pds_parameters` | `browse_data_parameters(source_type="pds", dataset_id=...)` |
 | `fetch_pds_data` | `fetch_data_product(source_type="pds", ...)` |
-| `manage_pds_cache` | `manage_data_cache(source_type="pds", ...)` |
-| `manage_spice_kernels` | `manage_data_cache(source_type="spice")` for status; explicit kernel management when requested |
+| `manage_pds_cache` | `manage_data_cache(source_type="pds", action=..., category=..., mission=..., dataset_ids=..., older_than_days=..., dry_run=..., detail=..., force=...)` |
+| `manage_spice_kernels` | `manage_data_cache(source_type="spice", action=..., mission=..., filenames=...)` |
 
 SPICE geometry operations (`get_ephemeris`, `compute_distance`,
 `transform_coordinates`, `list_coordinate_frames`, `list_spice_missions`) remain
