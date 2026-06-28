@@ -432,6 +432,48 @@ def generate_fac_matrix(
     except ValueError as exc:
         return _error(str(exc))
 
+    position_metadata: dict[str, Any] = {
+        "mag_rows": int(mag_vectors.shape[0]),
+        "position_interpolated": False,
+    }
+    position_warnings: list[str] = []
+    if pos_file and pos_time is not None and pos_vectors is not None:
+        pos_rows = int(pos_vectors.shape[0])
+        mag_rows = int(mag_vectors.shape[0])
+        same_grid = bool(
+            pos_rows == mag_rows
+            and np.allclose(pos_time, mag_time, rtol=0.0, atol=1e-9, equal_nan=True)
+        )
+        position_interpolated = not same_grid
+        position_metadata.update(
+            {
+                "pos_rows_in": pos_rows,
+                "position_time_grid_matches_mag": same_grid,
+                "position_interpolated": position_interpolated,
+            }
+        )
+        if pos_rows > 0:
+            position_metadata["position_upsample_ratio"] = float(mag_rows / pos_rows)
+        if position_interpolated:
+            detail = (
+                f"position time grid differs from magnetic-field time grid; "
+                f"pyspedas fac_matrix_make will align/interpolate position data "
+                f"from {pos_rows} samples to {mag_rows} magnetic samples"
+            )
+            position_metadata["position_alignment_note"] = detail
+            if pos_rows == 0:
+                position_warnings.append(
+                    "position file contains no rows; FAC position alignment cannot be validated"
+                )
+            elif mag_rows / pos_rows > 2.0:
+                position_warnings.append(
+                    f"position series is sparse relative to magnetic field "
+                    f"({pos_rows} position rows for {mag_rows} magnetic rows; "
+                    f"{mag_rows / pos_rows:.2f}x upsampling before FAC generation)"
+                )
+            else:
+                position_warnings.append(detail)
+
     from pyspedas.cotrans_tools.fac_matrix_make import fac_matrix_make
     from pyspedas.tplot_tools import del_data, get_data, set_coords, store_data
 
@@ -474,7 +516,7 @@ def generate_fac_matrix(
     else:
         np.save(out_path, matrices)
 
-    return {
+    response = {
         "status": "success",
         "tool": "generate_fac_matrix",
         "output_file": str(out_path),
@@ -489,6 +531,12 @@ def generate_fac_matrix(
             "x/y/z (perp1, perp2, parallel-to-B) FAC axes per sample."
         ),
     }
+    response.update(position_metadata)
+    if position_metadata.get("position_alignment_note"):
+        response["note"] = f"{response['note']} {position_metadata['position_alignment_note']}."
+    if position_warnings:
+        response["warnings"] = position_warnings
+    return response
 
 
 def analyze_minvar_coordinates(

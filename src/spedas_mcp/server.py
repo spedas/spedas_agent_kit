@@ -695,6 +695,64 @@ def _suggest_spice_targets(name: str, limit: int = 5) -> list[str]:
     return [norm_to_orig[c] for c in close if c in norm_to_orig][:limit]
 
 
+
+
+def _spice_supported_frames() -> list[str]:
+    """Return supported SPICE coordinate frame names for validation/errors.
+
+    Uses the same xhelio_spice frame catalog exposed by ``list_coordinate_frames``
+    so geometry tools can reject unknown frame arguments before SPICE emits a raw
+    multi-line CSPICE banner (issue #77).
+    """
+    try:
+        from xhelio_spice import list_frames_with_descriptions
+    except Exception:  # pragma: no cover - backend not installed
+        return []
+    frames: list[str] = []
+    for entry in list_frames_with_descriptions():
+        frame = entry.get("frame") if isinstance(entry, dict) else None
+        if frame:
+            frames.append(str(frame))
+    try:
+        from xhelio_spice.frames import FRAME_ALIASES
+    except Exception:  # pragma: no cover - backend internals changed
+        aliases: list[str] = []
+    else:
+        aliases = [str(frame) for frame in FRAME_ALIASES]
+    return list(dict.fromkeys(frames + aliases))
+
+
+def _unknown_spice_frame_error(frame: str, *, role: str, tool: str) -> str:
+    """Structured error for an unsupported coordinate frame (issue #77)."""
+    supported = _spice_supported_frames()
+    return _error_response(
+        "invalid_argument",
+        f"unknown frame '{frame}'",
+        hint=(
+            "Use one of supported_frames, or call list_coordinate_frames for "
+            "descriptions and usage notes."
+        ),
+        tool=tool,
+        frame=frame,
+        role=role,
+        supported_frames=supported,
+    )
+
+
+def _spice_frame_preflight(frames: list[tuple[str, str]], *, tool: str) -> str | None:
+    """Validate frame arguments before any SPICE backend call (issue #77)."""
+    supported = _spice_supported_frames()
+    if not supported:
+        # If the backend/catalog is unavailable, let the normal backend error path
+        # classify the failure rather than rejecting every frame blindly.
+        return None
+    supported_norm = {frame.upper() for frame in supported}
+    for frame, role in frames:
+        if frame and frame.upper() not in supported_norm:
+            return _unknown_spice_frame_error(frame, role=role, tool=tool)
+    return None
+
+
 def _spice_missing_kernels(mission_keys: list[str]) -> dict[str, Any]:
     """Report which required kernel files are not yet cached (issue #29).
 
@@ -1327,6 +1385,13 @@ def create_server() -> FastMCP:
         from xhelio_spice import get_state, get_trajectory
         from xhelio_spice.kernel_manager import get_kernel_manager
 
+        frame_preflight = _spice_frame_preflight(
+            [(frame, "frame")],
+            tool="get_ephemeris",
+        )
+        if frame_preflight is not None:
+            return frame_preflight
+
         preflight = _spice_geometry_preflight(
             [(target, "target"), (observer, "observer")],
             tool="get_ephemeris",
@@ -1441,9 +1506,16 @@ def create_server() -> FastMCP:
         import numpy as np
         from xhelio_spice import transform_vector
 
-        # Only ``spacecraft`` is a body name; from_frame/to_frame are frames and
-        # are validated by the backend. Generic kernels are required regardless,
-        # so the cache gate runs even when no spacecraft is given.
+        frame_preflight = _spice_frame_preflight(
+            [(from_frame, "from_frame"), (to_frame, "to_frame")],
+            tool="transform_coordinates",
+        )
+        if frame_preflight is not None:
+            return frame_preflight
+
+        # Only ``spacecraft`` is a body name; from_frame/to_frame are frames.
+        # Generic kernels are required regardless, so the cache gate runs even
+        # when no spacecraft is given.
         preflight = _spice_geometry_preflight(
             [(spacecraft, "spacecraft")] if spacecraft else [],
             tool="transform_coordinates",

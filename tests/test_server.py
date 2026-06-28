@@ -1393,6 +1393,7 @@ import pytest  # noqa: E402
 from spedas_mcp.server import (  # noqa: E402
     _spice_missing_kernels,
     _spice_resolve_target,
+    _spice_supported_frames,
 )
 
 
@@ -1510,6 +1511,64 @@ def test_transform_coordinates_unsupported_spacecraft_is_structured(no_backend_d
     assert payload["code"] == "unsupported_spice_target"
 
 
+
+
+def _assert_clean_unknown_frame_error(payload, raw, *, frame, role, tool):
+    assert payload["status"] == "error"
+    assert payload["code"] == "invalid_argument"
+    assert payload["tool"] == tool
+    assert payload["frame"] == frame
+    assert payload["role"] == role
+    assert payload["message"] == f"unknown frame '{frame}'"
+    assert "list_coordinate_frames" in payload["hint"]
+    assert "J2000" in payload["supported_frames"]
+    assert "GSE" in payload["supported_frames"]
+    assert "CSPICE" not in raw
+    assert "SPICE(UNKNOWNFRAME)" not in raw
+    assert "Toolkit version" not in raw
+    assert "-->" not in raw
+    assert "\n" not in payload["message"]
+
+
+def test_get_ephemeris_unknown_frame_is_clean_structured_error(no_backend_downloads):
+    server = create_server()
+    raw = _call_tool(server, "get_ephemeris", {
+        "target": "PSP",
+        "time": "2025-06-19T09:29:00",
+        "frame": "NOT_A_FRAME",
+        "allow_kernel_download": True,
+    })
+    payload = json.loads(raw)
+    _assert_clean_unknown_frame_error(
+        payload, raw, frame="NOT_A_FRAME", role="frame", tool="get_ephemeris"
+    )
+
+
+def test_transform_coordinates_unknown_frame_is_clean_structured_error(no_backend_downloads):
+    server = create_server()
+    raw = _call_tool(server, "transform_coordinates", {
+        "vector": [1.0, 0.0, 0.0],
+        "time": "2025-06-19T09:29:00",
+        "from_frame": "BOGUS",
+        "to_frame": "GSE",
+        "allow_kernel_download": True,
+    })
+    payload = json.loads(raw)
+    _assert_clean_unknown_frame_error(
+        payload, raw, frame="BOGUS", role="from_frame", tool="transform_coordinates"
+    )
+
+
+def test_supported_frame_catalog_for_errors_includes_coordinate_frames():
+    server = create_server()
+    listed = json.loads(_call_tool(server, "list_coordinate_frames"))
+    supported = _spice_supported_frames()
+    for entry in listed:
+        assert entry["frame"] in supported
+    # Backend aliases are also accepted/surfaced when available.
+    assert "ECLIPTIC" in supported
+
+
 # --- #29: pre-download confirmation gate -----------------------------------
 
 def test_missing_kernels_reports_uncached_mission(empty_kernel_cache):
@@ -1549,7 +1608,7 @@ def test_transform_coordinates_uncached_generic_kernels_gated(empty_kernel_cache
         "vector": [1.0, 2.0, 3.0],
         "time": "2024-01-01T00:00:00",
         "from_frame": "GSE",
-        "to_frame": "GSM",
+        "to_frame": "J2000",
     })
     payload = json.loads(raw)
     assert payload["status"] == "needs_confirmation"

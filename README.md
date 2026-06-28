@@ -201,7 +201,7 @@ are returned (never raw arrays).
 Phase 1 — coordinate transforms:
 
 - `transform_timeseries_coordinates(input_file, coord_in, coord_out, output_file, time_col="time", vector_cols=None)` — transform an Nx3 vector time-series between `gse`/`gsm`/`sm`/`gei`/`geo`/`mag`/`j2000` (`pyspedas` `cotrans`).
-- `generate_fac_matrix(mag_file, output_file, other_dim="xgse", pos_file=None, time_col="time", vector_cols=None, mag_coord="gse")` — build per-sample field-aligned-coordinate (FAC) 3×3 rotation matrices (`fac_matrix_make`). Position-dependent modes (`rgeo`/`mrgeo`/`phigeo`/`mphigeo`/`phism`/`mphism`) require a GEI `pos_file`.
+- `generate_fac_matrix(mag_file, output_file, other_dim="xgse", pos_file=None, time_col="time", vector_cols=None, mag_coord="gse")` — build per-sample field-aligned-coordinate (FAC) 3×3 rotation matrices (`fac_matrix_make`). Position-dependent modes (`rgeo`/`mrgeo`/`phigeo`/`mphigeo`/`phism`/`mphism`) require a GEI `pos_file`; if the position time grid differs from the magnetic-field time grid, the response reports `pos_rows_in`, `mag_rows`, `position_interpolated`, and warnings for sparse upsampling rather than silently hiding the alignment/interpolation.
 - `analyze_minvar_coordinates(input_file, output_dir, twindow=None, tslide=None, time_col="time", vector_cols=None)` — minimum-variance analysis / LMN boundary-normal frame (`minvar`/`minvar_matrix_make`). Full-interval mode returns eigenvalues, eigenvectors, the normal vector, and the intermediate/min ratio; sliding-window mode (set `twindow`) writes per-window rotation matrices.
 
 Phase 2 — time-frequency / wave analysis (issue #15). Each reads a single scalar

@@ -409,8 +409,60 @@ def test_fac_matrix_with_position_file(vector_csv, tmp_path, monkeypatch):
     )
     assert out["status"] == "success"
     assert out["used_position"] is True
+    assert out["mag_rows"] == 64
+    assert out["pos_rows_in"] == 64
+    assert out["position_time_grid_matches_mag"] is True
+    assert out["position_interpolated"] is False
+    assert "warnings" not in out
     data = np.load(out_file)
     assert data["fac_matrix"].shape == (64, 3, 3)
+
+
+def test_fac_matrix_discloses_sparse_position_interpolation(tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    mag_n = 20
+    pos_n = 5
+    t0 = 1_600_000_000.0
+    mag = pd.DataFrame(
+        {
+            "time": t0 + np.arange(mag_n, dtype="float64") * 60.0,
+            "bx": np.ones(mag_n),
+            "by": np.linspace(0.0, 1.0, mag_n),
+            "bz": np.linspace(1.0, 2.0, mag_n),
+        }
+    )
+    pos = pd.DataFrame(
+        {
+            "time": t0 + np.arange(pos_n, dtype="float64") * 60.0,
+            "x": np.linspace(1.0, 2.0, pos_n),
+            "y": np.linspace(2.0, 3.0, pos_n),
+            "z": np.linspace(3.0, 4.0, pos_n),
+        }
+    )
+    mag_path = tmp_path / "mag20.csv"
+    pos_path = tmp_path / "pos5.csv"
+    mag.to_csv(mag_path, index=False)
+    pos.to_csv(pos_path, index=False)
+
+    out = coords.generate_fac_matrix(
+        mag_file=str(mag_path),
+        output_file=str(tmp_path / "fac.npy"),
+        other_dim="rgeo",
+        pos_file=str(pos_path),
+        vector_cols=["bx", "by", "bz"],
+        mag_coord="gsm",
+    )
+
+    assert out["status"] == "success"
+    assert out["rows"] == mag_n
+    assert out["mag_rows"] == mag_n
+    assert out["pos_rows_in"] == pos_n
+    assert out["position_time_grid_matches_mag"] is False
+    assert out["position_interpolated"] is True
+    assert out["position_upsample_ratio"] == pytest.approx(4.0)
+    assert "position_alignment_note" in out
+    assert "5 samples to 20 magnetic samples" in out["position_alignment_note"]
+    assert any("5 position rows for 20 magnetic rows" in w for w in out["warnings"])
 
 
 def test_minvar_full_interval(vector_csv, tmp_path, monkeypatch):
