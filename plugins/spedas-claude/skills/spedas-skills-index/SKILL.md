@@ -27,6 +27,7 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 | A full magnetopause/bow-shock crossing study (B + plasma + position) | `magnetopause-lmn-analysis` | `search_spedas_data_sources` |
 | Times two spacecraft/bodies are close | `spice-conjunction-finder` | `list_spice_missions` |
 | Just fetch & plot a time series | `spedas-workflow` | `plan_spedas_observation` |
+| The standard overview/summary plot for a mission+date | `mission-overview` | `create_spedas_analysis_bundle` |
 | To know what data/sources exist at all | `spedas-workflow` | `spedas_overview` |
 
 ## Load order
