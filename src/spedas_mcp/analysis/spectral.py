@@ -340,8 +340,24 @@ def wavelet_transform(
     except ValueError as exc:
         return _error(str(exc))
 
-    if values.shape[0] < 2:
-        return _error("wavelet transform needs at least 2 samples")
+    finite_values = np.isfinite(values)
+    finite_count = int(finite_values.sum())
+    min_finite_samples = 2
+    if values.shape[0] < min_finite_samples or finite_count < min_finite_samples:
+        return _error(
+            f"data column '{resolved}' has {finite_count} finite samples out of "
+            f"{int(values.shape[0])}; wavelet transform needs at least "
+            f"{min_finite_samples} finite numeric samples",
+            code="invalid_argument",
+            data_col=resolved,
+            finite_samples=finite_count,
+            total_samples=int(values.shape[0]),
+            min_finite_samples=min_finite_samples,
+            hint=(
+                "Supply a non-empty numeric data column or select a longer interval "
+                "before running wavelet_transform."
+            ),
+        )
 
     from pyspedas.analysis.wavelet import idl_wavelet_scales
 

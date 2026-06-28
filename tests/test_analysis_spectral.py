@@ -328,6 +328,65 @@ def test_wavelet_empty_period_band(channel_csv, tmp_path, monkeypatch):
     assert "natural_period_range" in out
 
 
+def test_wavelet_rejects_all_nan_data_column_before_scales(tmp_path, monkeypatch):
+    def fail_scales(*args, **kwargs):  # pragma: no cover - should not be called
+        raise AssertionError("idl_wavelet_scales should not run for all-NaN data")
+
+    _install_fake_pyspedas(monkeypatch, scales=fail_scales)
+    n = 300
+    csv = tmp_path / "all_nan.csv"
+    pd.DataFrame(
+        {
+            "time": np.arange(n, dtype="float64"),
+            "v": np.full(n, np.nan),
+        }
+    ).to_csv(csv, index=False)
+
+    out = spectral.wavelet_transform(
+        input_file=str(csv),
+        output_dir=str(tmp_path / "wav"),
+        data_col="v",
+    )
+
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert out["data_col"] == "v"
+    assert out["finite_samples"] == 0
+    assert out["total_samples"] == n
+    assert out["min_finite_samples"] == 2
+    assert "finite samples" in out["message"]
+    assert "Selected scale" not in out["message"]
+
+
+def test_wavelet_rejects_near_empty_finite_data_column_before_scales(tmp_path, monkeypatch):
+    def fail_scales(*args, **kwargs):  # pragma: no cover - should not be called
+        raise AssertionError("idl_wavelet_scales should not run for near-empty data")
+
+    _install_fake_pyspedas(monkeypatch, scales=fail_scales)
+    n = 300
+    values = np.full(n, np.nan)
+    values[17] = 1.0
+    csv = tmp_path / "one_finite.csv"
+    pd.DataFrame({"time": np.arange(n, dtype="float64"), "v": values}).to_csv(
+        csv, index=False
+    )
+
+    out = spectral.wavelet_transform(
+        input_file=str(csv),
+        output_dir=str(tmp_path / "wav"),
+        data_col="v",
+    )
+
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert out["data_col"] == "v"
+    assert out["finite_samples"] == 1
+    assert out["total_samples"] == n
+    assert out["min_finite_samples"] == 2
+    assert "finite samples" in out["message"]
+    assert "Selected scale" not in out["message"]
+
+
 # --------------------------------------------------------------------------
 # Input-parsing robustness
 # --------------------------------------------------------------------------
