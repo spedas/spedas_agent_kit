@@ -36,6 +36,56 @@ def _json(data: object) -> str:
 _FILL_LIKE_ABS_THRESHOLD = 1e29
 
 
+def _infer_coordinate_frame_from_dataset(dataset_id: str | None, parameters: list[str] | None = None) -> str | None:
+    """Conservative frame inference from explicit dataset/parameter tokens.
+
+    Used only as provenance for fetched artifacts; it does not claim every dataset
+    has a known frame. Tokens such as ``_RTN_``/``_GSE_``/``_GSM_`` are common in
+    heliophysics product IDs and are safe enough to surface as a guard signal for
+    downstream coordinate transforms.
+    """
+    import re
+
+    text = " ".join([dataset_id or "", *(parameters or [])]).lower()
+    for frame in ("rtn", "rtp", "gse", "gsm", "gei", "geo", "j2000", "sm", "sc", "srf"):
+        if re.search(rf"(?<![a-z0-9]){re.escape(frame)}(?![a-z0-9])", text):
+            return "spacecraft" if frame in {"sc", "srf"} else frame
+        if re.search(rf"[_./-]{re.escape(frame)}([_./-]|$)", text):
+            return "spacecraft" if frame in {"sc", "srf"} else frame
+    return None
+
+
+def _write_fetch_provenance_sidecar(
+    file_path: Path,
+    *,
+    source_type: str,
+    dataset_id: str,
+    parameters: list[str],
+    start: str,
+    stop: str,
+    fmt: str,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    """Write a compact JSON sidecar next to a fetched tabular artifact."""
+    coordinate_frame = _infer_coordinate_frame_from_dataset(dataset_id, parameters)
+    sidecar = file_path.with_suffix(file_path.suffix + ".provenance.json")
+    payload: dict[str, Any] = {
+        "source_type": source_type,
+        "dataset_id": dataset_id,
+        "parameters": list(parameters),
+        "time_range": {"start": start, "stop": stop},
+        "format": fmt,
+        "coordinate_frame": coordinate_frame,
+        "coordinate_frame_inference": (
+            "explicit frame token parsed from dataset_id/parameters" if coordinate_frame else None
+        ),
+    }
+    if extra:
+        payload.update(extra)
+    sidecar.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    return str(sidecar)
+
+
 def _safe_float(value: Any) -> float | None:
     """Return a finite float for JSON stats, or ``None`` if unavailable."""
     try:
@@ -1090,9 +1140,21 @@ def create_server() -> FastMCP:
             file_path.write_text(json.dumps(data), encoding="utf-8")
         else:
             merged_to_write.to_csv(file_path)
+        provenance_sidecar = _write_fetch_provenance_sidecar(
+            file_path,
+            source_type="cdaweb",
+            dataset_id=dataset_id,
+            parameters=parameters,
+            start=start,
+            stop=stop,
+            fmt=format,
+            extra={"rows_written": rows_written, "rows_before_limit": rows_before_limit},
+        )
         return _json({
             "status": "success",
             "file_path": str(file_path),
+            "provenance_sidecar": provenance_sidecar,
+            "source_frame": _infer_coordinate_frame_from_dataset(dataset_id, parameters),
             "format": format,
             "dataset_id": dataset_id,
             "time_range": {"start": start, "stop": stop},
@@ -1194,9 +1256,21 @@ def create_server() -> FastMCP:
             file_path.write_text(json.dumps(data), encoding="utf-8")
         else:
             merged.to_csv(file_path)
+        provenance_sidecar = _write_fetch_provenance_sidecar(
+            file_path,
+            source_type="pds",
+            dataset_id=dataset_id,
+            parameters=parameters,
+            start=start,
+            stop=stop,
+            fmt=format,
+            extra={"rows_written": len(merged)},
+        )
         return _json({
             "status": "success",
             "file_path": str(file_path),
+            "provenance_sidecar": provenance_sidecar,
+            "source_frame": _infer_coordinate_frame_from_dataset(dataset_id, parameters),
             "format": format,
             "dataset_id": dataset_id,
             "time_range": {"start": start, "stop": stop},
