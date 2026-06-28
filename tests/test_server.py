@@ -54,11 +54,13 @@ def test_server_has_expected_tools(monkeypatch):
         "list_coordinate_frames",
         "transform_timeseries_coordinates",
         "generate_fac_matrix",
+        "tvector_rotate",
         "analyze_minvar_coordinates",
         "dynamic_power_spectrum",
         "wavelet_transform",
         "evaluate_magnetic_field",
         "calculate_lshell",
+        "build_particle_distribution_artifact",
         "compute_particle_moments",
         "compute_particle_spectra",
         "render_tplot",
@@ -120,6 +122,20 @@ def test_overview_is_compact_json(monkeypatch):
     assert compat["available_for_existing_clients"] == []
 
 
+def test_overview_advertises_geomagnetic_index_recipe(monkeypatch):
+    monkeypatch.delenv("SPEDAS_MCP_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    data = json.loads(_call_tool(server, "spedas_overview"))
+    recipes = data["guided_recipes"]
+    assert recipes["overview_skill"] == "overview-geomagnetic-indices"
+    geomag = {entry["intent"]: entry for entry in recipes["geomagnetic_indices"]}
+    assert any("Dst" in intent for intent in geomag)
+    assert any("Kp" in entry["variables"] for entry in geomag.values())
+    assert any("SYM_H" in entry["variables"] for entry in geomag.values())
+    assert "MMS1_FGM_SRVY_L2" in recipes["mission_overview_starting_points"]["MMS"]
+    assert "THA_L2_FGM" in recipes["mission_overview_starting_points"]["THEMIS"]
+
+
 def test_tool_descriptions_mark_primary_and_compatibility_surfaces(monkeypatch):
     monkeypatch.setenv("SPEDAS_MCP_COMPAT_TOOLS", "1")
     server = create_server()
@@ -155,6 +171,40 @@ def test_browse_data_sources_filters_spice_query():
     assert data["status"] == "success"
     assert data["payload"]
     assert all("psp" in json.dumps(entry).lower() or "parker" in json.dumps(entry).lower() for entry in data["payload"])
+
+
+def test_browse_data_sources_discovers_curated_omni_and_geomagnetic_indices():
+    server = create_server()
+
+    omni = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "cdaweb", "query": "omni"}))
+    omni_ids = {entry["id"] for entry in omni["payload"]}
+    assert "omni" in omni_ids
+    assert any(entry.get("source_label") == "CDAWeb curated dataset group" for entry in omni["payload"])
+
+    dst = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "cdaweb", "query": "dst"}))
+    assert any(entry["id"] == "geomagnetic_indices" for entry in dst["payload"])
+
+
+def test_load_data_source_cdaweb_resolves_curated_omni_aliases():
+    server = create_server()
+    for source_id in ("OMNI", "OMNI_HRO", "OMNI_HRO2"):
+        data = json.loads(_call_tool(server, "load_data_source", {"source_type": "cdaweb", "source_id": source_id}))
+        assert data["status"] == "success"
+        assert data["normalized_source_id"] == "omni"
+        dataset_ids = {entry["dataset_id"] for entry in data["datasets"]}
+        assert {"OMNI_HRO_1MIN", "OMNI_HRO2_1MIN", "OMNI2_H0_MRG1HR"} <= dataset_ids
+        assert data["payload"]["source_label"] == "CDAWeb curated dataset group"
+
+
+def test_load_data_source_cdaweb_resolves_geomagnetic_index_alias():
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {"source_type": "cdaweb", "source_id": "dst"}))
+    assert data["status"] == "success"
+    assert data["normalized_source_id"] == "geomagnetic_indices"
+    text = json.dumps(data)
+    assert "OMNI2_H0_MRG1HR" in text
+    assert "SYM-H" in text
+    assert "Kp" in text
 
 def test_fetch_data_product_rejects_spice_measurement_fetch():
     server = create_server()

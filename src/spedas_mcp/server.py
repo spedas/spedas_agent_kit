@@ -34,11 +34,13 @@ logger = logging.getLogger(__name__)
 ANALYSIS_TOOL_NAMES = (
     "transform_timeseries_coordinates",
     "generate_fac_matrix",
+    "tvector_rotate",
     "analyze_minvar_coordinates",
     "dynamic_power_spectrum",
     "wavelet_transform",
     "evaluate_magnetic_field",
     "calculate_lshell",
+    "build_particle_distribution_artifact",
     "compute_particle_moments",
     "compute_particle_spectra",
     "render_tplot",
@@ -75,6 +77,80 @@ _ANALYSIS_REQUIRED_IMPORTS = (
     ("pyspedas.particles.spd_part_products.spd_pgs_make_theta_spec", "spd_pgs_make_theta_spec"),
     ("pyspedas.particles.spd_part_products.spd_pgs_do_fac", "spd_pgs_do_fac"),
 )
+
+
+_CURATED_CDAWEB_SOURCES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "omni",
+        "name": "OMNI",
+        "aliases": ["OMNI", "OMNI_HRO", "OMNI_HRO2", "OMNI2"],
+        "description": (
+            "Curated CDAWeb discovery entry for OMNI near-Earth solar-wind and "
+            "geomagnetic index products. The upstream CDAWeb observatory catalog "
+            "does not currently emit an OMNI observatory record, but these dataset "
+            "IDs are resolvable by browse_data_parameters/fetch_data_product."
+        ),
+        "dataset_count": 5,
+        "instruments": ["solar_wind", "geomagnetic_indices"],
+        "source_label": "CDAWeb curated dataset group",
+        "datasets": [
+            {"dataset_id": "OMNI_HRO_1MIN", "instrument": "solar_wind_geomagnetic_indices", "cadence": "1 minute", "contains": ["IMF", "plasma", "AE", "AL", "AU", "SYM-H"]},
+            {"dataset_id": "OMNI_HRO2_1MIN", "instrument": "solar_wind_geomagnetic_indices", "cadence": "1 minute", "contains": ["IMF", "plasma", "AE", "AL", "AU", "SYM-H"]},
+            {"dataset_id": "OMNI_HRO_5MIN", "instrument": "solar_wind_geomagnetic_indices", "cadence": "5 minute", "contains": ["IMF", "plasma", "AE", "AL", "AU", "SYM-H", "GOES proton flux"]},
+            {"dataset_id": "OMNI_HRO2_5MIN", "instrument": "solar_wind_geomagnetic_indices", "cadence": "5 minute", "contains": ["IMF", "plasma", "AE", "AL", "AU", "SYM-H", "GOES proton flux"]},
+            {"dataset_id": "OMNI2_H0_MRG1HR", "instrument": "solar_wind_geomagnetic_indices", "cadence": "1 hour", "contains": ["IMF", "plasma", "Kp", "Dst", "AE", "AL", "AU"]},
+        ],
+        "next_tools": [
+            "browse_data_parameters(source_type='cdaweb', dataset_id='OMNI_HRO_1MIN')",
+            "browse_data_parameters(source_type='cdaweb', dataset_id='OMNI2_H0_MRG1HR')",
+            "fetch_data_product(source_type='cdaweb', dataset_id=..., parameters=..., start=..., stop=..., output_dir=...)",
+        ],
+    },
+    {
+        "id": "geomagnetic_indices",
+        "name": "Geomagnetic indices (Dst/AE/Kp/SYM-H)",
+        "aliases": ["dst", "ae", "kp", "sym-h", "sym_h", "symh", "indices", "geomagnetic"],
+        "description": (
+            "Curated CDAWeb discovery entry for common geomagnetic indices. "
+            "Dst and Kp are available in OMNI2_H0_MRG1HR; AE/AL/AU and SYM-H "
+            "are available in OMNI high-resolution products."
+        ),
+        "dataset_count": 6,
+        "instruments": ["geomagnetic_indices"],
+        "source_label": "CDAWeb curated dataset group",
+        "datasets": [
+            {"dataset_id": "OMNI2_H0_MRG1HR", "instrument": "geomagnetic_indices", "cadence": "1 hour", "contains": ["Kp", "Dst", "AE", "AL", "AU"]},
+            {"dataset_id": "OMNI_HRO_1MIN", "instrument": "geomagnetic_indices", "cadence": "1 minute", "contains": ["AE", "AL", "AU", "SYM-H", "SYM-D"]},
+            {"dataset_id": "OMNI_HRO2_1MIN", "instrument": "geomagnetic_indices", "cadence": "1 minute", "contains": ["AE", "AL", "AU", "SYM-H", "SYM-D"]},
+            {"dataset_id": "OMNI_HRO_5MIN", "instrument": "geomagnetic_indices", "cadence": "5 minute", "contains": ["AE", "AL", "AU", "SYM-H", "SYM-D"]},
+            {"dataset_id": "OMNI_HRO2_5MIN", "instrument": "geomagnetic_indices", "cadence": "5 minute", "contains": ["AE", "AL", "AU", "SYM-H", "SYM-D"]},
+            {"dataset_id": "CN_K0_MARI", "instrument": "ground_ae_local", "cadence": "variable", "contains": ["local auroral electrojet indices"]},
+        ],
+        "next_tools": [
+            "browse_data_parameters(source_type='cdaweb', dataset_id='OMNI2_H0_MRG1HR')",
+            "browse_data_parameters(source_type='cdaweb', dataset_id='OMNI_HRO_1MIN')",
+            "fetch_data_product(source_type='cdaweb', dataset_id=..., parameters=..., start=..., stop=..., output_dir=...)",
+        ],
+    },
+)
+
+
+def _norm_source_key(value: str) -> str:
+    return (value or "").strip().casefold().replace("-", "_")
+
+
+def _curated_cdaweb_records() -> list[dict[str, Any]]:
+    return [dict(record) for record in _CURATED_CDAWEB_SOURCES]
+
+
+def _curated_cdaweb_lookup(source_id: str) -> dict[str, Any] | None:
+    key = _norm_source_key(source_id)
+    for record in _CURATED_CDAWEB_SOURCES:
+        tokens = [record["id"], record["name"], *record.get("aliases", [])]
+        if key in {_norm_source_key(str(token)) for token in tokens}:
+            return dict(record)
+    return None
+
 
 
 def _analysis_dependencies_available() -> bool:
@@ -1113,6 +1189,49 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
             ],
+            "guided_recipes": {
+                "overview_skill": "overview-geomagnetic-indices",
+                "geomagnetic_indices": [
+                    {
+                        "intent": "Dst / ring-current context",
+                        "preferred_source": "PySPEDAS Kyoto loader",
+                        "dataset_or_loader": "pyspedas.projects.kyoto.dst",
+                        "variables": ["kyoto_dst"],
+                        "notes": "Kyoto WDC Dst; useful for Tsyganenko dst inputs when the runtime can call PySPEDAS directly.",
+                    },
+                    {
+                        "intent": "AE/AL/AU electrojet context",
+                        "preferred_source": "CDAWeb HAPI OMNI or PySPEDAS Kyoto AE",
+                        "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN or pyspedas.projects.kyoto.load_ae",
+                        "variables": ["AE_INDEX", "AL_INDEX", "AU_INDEX"],
+                    },
+                    {
+                        "intent": "Kp activity index",
+                        "preferred_source": "PySPEDAS NOAA/GFZ loader",
+                        "dataset_or_loader": "pyspedas.projects.noaa.noaa_load_kp",
+                        "variables": ["Kp", "ap"],
+                        "notes": "Use pyspedas.geopack.kp2iopt to convert Kp for T89 iopt in PySPEDAS workflows.",
+                    },
+                    {
+                        "intent": "SYM-H / high-cadence storm context",
+                        "preferred_source": "CDAWeb HAPI OMNI",
+                        "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN",
+                        "variables": ["SYM_H", "SYM_D", "ASY_H", "ASY_D"],
+                    },
+                ],
+                "mission_overview_starting_points": {
+                    "THEMIS": ["THA_L2_FGM", "THA_L2_ESA", "THA_L2_SST", "THA_OR_SSC"],
+                    "MMS": [
+                        "MMS1_FGM_SRVY_L2",
+                        "MMS1_FPI_FAST_L2_DIS-MOMS",
+                        "MMS1_EDP_SRVY_L2_DCE",
+                        "MMS1_MEC_SRVY_L2_EPHT89D",
+                    ],
+                    "Van Allen Probes/RBSP": [
+                        "query CDAWeb for RBSP/Van Allen Probes EMFISIS, MagEIS, REPT, HOPE, EFW, RBSPICE, and magnephem products"
+                    ],
+                },
+            },
         })
 
     @mcp.tool()
@@ -2077,7 +2196,19 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 "note": "Use source_type to drill into one category. Backend package names are internal details. hapi/fdsn require their optional extras.",
             })
         if source == "cdaweb":
-            return _wrap_data_payload(source, _filter_json_records(browse_observatories(), query), query=query)
+            # Add a small source-labeled overlay for CDAWeb dataset groups that
+            # are resolvable by dataset_id but absent from the upstream
+            # observatory-stem catalog (issue #102: OMNI and geomagnetic indices).
+            try:
+                records = json.loads(browse_observatories())
+            except Exception:
+                records = []
+            if isinstance(records, list):
+                records = [*records, *_curated_cdaweb_records()]
+                raw_records = _json(records)
+            else:
+                raw_records = browse_observatories()
+            return _wrap_data_payload(source, _filter_json_records(raw_records, query), query=query)
         if source == "pds":
             return _wrap_data_payload(source, browse_pds_missions(query=query), query=query)
         if source == "spice":
@@ -2130,19 +2261,40 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
         """
         source = _normalize_source_type(source_type)
         if source == "cdaweb":
-            # Validate against the canonical catalog before touching the backend
-            # so an invalid id (e.g. "MMS1") returns a structured suggestion
+            curated = _curated_cdaweb_lookup(source_id)
+            # Validate against the canonical catalog plus the curated overlay before
+            # touching the backend so invalid ids return structured suggestions
             # instead of a FileNotFoundError that leaks a local cache path
-            # (issues #25/#27).
+            # (issues #25/#27/#102).
+            valid_ids = [*_catalog_ids(browse_observatories())]
+            for record in _CURATED_CDAWEB_SOURCES:
+                valid_ids.extend([record["id"], *record.get("aliases", [])])
             invalid = _validate_source_id(
                 "cdaweb",
                 source_id,
-                _catalog_ids(browse_observatories()),
+                valid_ids,
                 match=(source_id or "").strip().lower().replace("-", "_"),
                 discover_tool="browse_data_sources(source_type='cdaweb')",
             )
             if invalid is not None:
                 return invalid
+            if curated is not None:
+                datasets = list(curated.get("datasets", []))
+                return _wrap_data_payload(
+                    source,
+                    _json(curated),
+                    source_id=source_id,
+                    normalized_source_id=curated["id"],
+                    dataset_count=len(datasets),
+                    datasets=datasets,
+                    datasets_truncated=False,
+                    instruments=list(curated.get("instruments", [])),
+                    note=(
+                        "Curated CDAWeb dataset-group overlay for products absent "
+                        "from the upstream observatory catalog; dataset_ids resolve "
+                        "through browse_data_parameters/fetch_data_product."
+                    ),
+                )
             enumeration = _enumerate_cdaweb_datasets(source_id)
             extra: dict[str, Any] = {"source_id": source_id}
             if enumeration is not None:
@@ -2454,6 +2606,33 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
 
         @mcp.tool()
         @_safe_tool
+        def tvector_rotate(
+            vector_file: str,
+            matrix_file: str,
+            output_file: str,
+            time_col: str = "time",
+            vector_cols: list[str] | None = None,
+            output_cols: list[str] | None = None,
+        ) -> str:
+            """Analysis: apply an (N,3,3) rotation-matrix stack to an Nx3 vector series.
+
+            Reads a vector CSV/JSON artifact plus a saved matrix .npy/.npz artifact
+            from generate_fac_matrix or sliding-window MVA, writes the rotated
+            series to output_file, and returns paths plus compact summaries only.
+            """
+            from spedas_mcp.analysis.coords import tvector_rotate as _impl
+
+            return _json(_impl(
+                vector_file=vector_file,
+                matrix_file=matrix_file,
+                output_file=output_file,
+                time_col=time_col,
+                vector_cols=vector_cols,
+                output_cols=output_cols,
+            ))
+
+        @mcp.tool()
+        @_safe_tool
         def analyze_minvar_coordinates(
             input_file: str,
             output_dir: str,
@@ -2659,6 +2838,55 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
         # spd_pgs_make_pad_spec), so a missing backend yields a structured
         # unsupported/needs_input entry rather than a raw ImportError.
         # ------------------------------------------------------------------
+
+        @mcp.tool()
+        @_safe_tool
+        def build_particle_distribution_artifact(
+            tplot_name: str,
+            output_file: str,
+            converter: str = "mms_fpi",
+            index: int | list[int] | None = None,
+            probe: str | None = None,
+            data_rate: str | None = None,
+            species: str | None = None,
+            level: str | None = None,
+            units: str | None = None,
+            trange: list[str] | None = None,
+            single_time: str | None = None,
+            magf: list[float] | list[list[float]] | None = None,
+            max_slices: int | None = 32,
+        ) -> str:
+            """Analysis: bridge real pyspedas mission particle distributions into the MCP .npz schema.
+
+            Real mission CDFs should first be loaded by the appropriate pyspedas mission
+            loader into tplot variables. This tool then calls a pyspedas particle
+            converter (converter keys include mms_fpi, mms_hpca, and ERG particle
+            products such as erg_mepi) for the named distribution tplot variable,
+            flattens each energy/angle slice into the documented distribution schema,
+            writes output_file (.npz), and validates it for downstream
+            compute_particle_moments / compute_particle_spectra. Supply magf as either
+            [Bx,By,Bz] or one vector per output slice; the moments schema requires it.
+            Returns only compact shape/range/provenance metadata plus the artifact path.
+            Requires spedas-mcp[analysis] and pre-loaded tplot data; it does not itself
+            download CDFs.
+            """
+            from spedas_mcp.analysis.particles import build_particle_distribution_artifact as _impl
+
+            return _json(_impl(
+                tplot_name=tplot_name,
+                output_file=output_file,
+                converter=converter,
+                index=index,
+                probe=probe,
+                data_rate=data_rate,
+                species=species,
+                level=level,
+                units=units,
+                trange=trange,
+                single_time=single_time,
+                magf=magf,
+                max_slices=max_slices,
+            ))
 
         @mcp.tool()
         @_safe_tool
