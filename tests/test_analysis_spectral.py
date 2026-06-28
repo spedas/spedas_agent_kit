@@ -95,8 +95,10 @@ def _default_dpwrspc(time, quantity, nboxpoints=256, nshiftpoints=128, bin=3, no
 
 
 def _default_scales(n, dt, w0=None, dj=None):
-    # 12 log-spaced scales; periods cover roughly [2*dt, 0.05*n*dt].
-    scales = np.geomspace(2.0, 64.0, 12)
+    # 12 log-spaced scales.  The pyspedas helper follows the
+    # Torrence-Compo convention where returned scales/periods are in the same
+    # physical units as the supplied cadence.
+    scales = np.geomspace(2.0, 64.0, 12) * float(dt)
     periods = scales * 1.03  # fourier_factor ~ 0.97 for Morlet w0=2pi
     freqs = 1.0 / periods
     return scales, freqs, periods
@@ -279,6 +281,49 @@ def test_wavelet_writes_spectrogram(channel_csv, tmp_path, monkeypatch):
     assert "period" in npz and "freq" in npz
     assert "significance" not in npz
     assert len(out["period_range"]) == 2
+
+
+def test_wavelet_uses_sample_unit_scales_for_high_rate_data(tmp_path, monkeypatch):
+    n = 512
+    dt = 0.1
+    t = 1_600_000_000.0 + np.arange(n, dtype="float64") * dt
+    csv = tmp_path / "fast.csv"
+    pd.DataFrame({"time": t, "b": np.sin(2 * np.pi * np.arange(n) / 32.0)}).to_csv(
+        csv, index=False
+    )
+
+    calls = {}
+
+    def cadence_scaled_scales(npts, cadence, w0=None, dj=None):
+        calls["scale_cadence"] = cadence
+        return _default_scales(npts, cadence, w0=w0, dj=dj)
+
+    def rejecting_cwt(data, scales=None, wavelet=None, method="fft", sampling_period=1.0):
+        scales_arr = np.asarray(scales, dtype="float64")
+        calls["cwt_scales"] = scales_arr
+        calls["sampling_period"] = sampling_period
+        if float(np.min(scales_arr)) < 1.0:
+            raise ValueError(f"Selected scale of {float(np.min(scales_arr))} too small.")
+        return _default_cwt(
+            data, scales=scales_arr, wavelet=wavelet, method=method, sampling_period=sampling_period
+        )
+
+    _install_fake_pyspedas(monkeypatch, scales=cadence_scaled_scales, cwt=rejecting_cwt)
+
+    out = spectral.wavelet_transform(
+        input_file=str(csv),
+        output_dir=str(tmp_path / "wav"),
+        data_col="b",
+        wavename="morl",
+    )
+
+    assert out["status"] == "success"
+    assert calls["scale_cadence"] == 1.0
+    assert calls["sampling_period"] == pytest.approx(dt)
+    assert float(np.min(calls["cwt_scales"])) >= 1.0
+    npz = np.load(out["spectrogram_file"])
+    assert float(np.min(npz["period"])) == pytest.approx(2.0 * 1.03 * dt)
+    assert out["period_range"][0] == pytest.approx(2.0 * 1.03 * dt)
 
 
 def test_wavelet_with_significance(channel_csv, tmp_path, monkeypatch):
