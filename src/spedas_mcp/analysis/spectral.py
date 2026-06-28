@@ -383,7 +383,7 @@ def wavelet_transform(
     scales = scales[keep]
     periods0 = periods0[keep]
 
-    coef, _freqs = pywt.cwt(
+    coef, freqs = pywt.cwt(
         values,
         scales=scales,
         wavelet=wavename,
@@ -391,8 +391,12 @@ def wavelet_transform(
         sampling_period=dt,
     )
     power = (np.abs(np.asarray(coef, dtype="float64")) ** 2).transpose()  # (n_time, n_scale)
-    periods = periods0
-    freqs = np.where(periods != 0, 1.0 / periods, np.nan)
+    # Keep the returned axes calibrated to the actual PyWavelets wavelet family.
+    # ``periods0`` above is the Torrence-Compo/Morlet period grid used for
+    # SPEDAS-style period-band filtering; PyWavelets returns wavelet-specific
+    # frequencies after applying ``sampling_period=dt``.
+    freqs = np.asarray(freqs, dtype="float64")
+    periods = np.where(freqs != 0, 1.0 / freqs, np.nan)
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

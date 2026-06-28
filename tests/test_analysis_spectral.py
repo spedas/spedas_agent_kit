@@ -108,7 +108,7 @@ def _default_cwt(data, scales=None, wavelet=None, method="fft", sampling_period=
     nscale = len(scales)
     ntime = len(data)
     coef = np.ones((nscale, ntime), dtype="float64")
-    freqs = 1.0 / (np.asarray(scales, dtype="float64") * 1.03)
+    freqs = 1.0 / (np.asarray(scales, dtype="float64") * float(sampling_period) * 1.03)
     return coef, freqs
 
 
@@ -324,6 +324,43 @@ def test_wavelet_uses_sample_unit_scales_for_high_rate_data(tmp_path, monkeypatc
     npz = np.load(out["spectrogram_file"])
     assert float(np.min(npz["period"])) == pytest.approx(2.0 * 1.03 * dt)
     assert out["period_range"][0] == pytest.approx(2.0 * 1.03 * dt)
+
+
+def test_wavelet_preserves_pywavelets_frequency_axis_for_other_wavelets(
+    tmp_path, monkeypatch
+):
+    n = 128
+    dt = 0.25
+    t = 1_600_000_000.0 + np.arange(n, dtype="float64") * dt
+    csv = tmp_path / "fast_mexh.csv"
+    pd.DataFrame({"time": t, "b": np.sin(2 * np.pi * np.arange(n) / 16.0)}).to_csv(
+        csv, index=False
+    )
+    factor = 2.5
+
+    def custom_axis_cwt(data, scales=None, wavelet=None, method="fft", sampling_period=1.0):
+        assert wavelet == "mexh"
+        scales_arr = np.asarray(scales, dtype="float64")
+        coef = np.ones((scales_arr.size, len(data)), dtype="float64")
+        freqs = 1.0 / (scales_arr * float(sampling_period) * factor)
+        return coef, freqs
+
+    _install_fake_pyspedas(monkeypatch, cwt=custom_axis_cwt)
+
+    out = spectral.wavelet_transform(
+        input_file=str(csv),
+        output_dir=str(tmp_path / "wav"),
+        data_col="b",
+        wavename="mexh",
+    )
+
+    assert out["status"] == "success"
+    npz = np.load(out["spectrogram_file"])
+    sample_scales, _freqs, idl_periods = _default_scales(n, 1.0)
+    expected_periods = sample_scales * dt * factor
+    assert np.allclose(npz["period"], expected_periods)
+    assert not np.allclose(npz["period"], idl_periods * dt)
+    assert np.allclose(npz["freq"], 1.0 / expected_periods)
 
 
 def test_wavelet_with_significance(channel_csv, tmp_path, monkeypatch):
