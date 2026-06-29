@@ -352,6 +352,27 @@ def _require_attr(module_path: str, attr: str) -> Any:
     return fn
 
 
+# Verified upstream converter inventory (issue #95).
+#
+# As of pyspedas 1.7.x the ONLY mission ``*_get_dist`` converters that emit the
+# per-slice ``data/energy/theta/phi/...`` record dicts this bridge consumes are:
+#
+#   * MMS:  mms_get_fpi_dist, mms_get_hpca_dist
+#   * ERG:  erg_{lepi,lepe,mepi,mepe,hep,xep}_get_dist  (all 6)
+#
+# THEMIS and PSP have NO Python distribution converter in pyspedas 1.7.x and are
+# therefore deliberately NOT wired here:
+#   * THEMIS: the converter (thm_part_dist_array / thm_part_dist2tplot) exists
+#     only in IDL and has not been ported to Python. A from-scratch port carries
+#     calibration / spin-phase logic and belongs upstream, not in this kit.
+#   * PSP: SWEAP/SPAN loaders expose only reduced L3 moments / EFLUX spectra, not
+#     a 3D ``data_in`` distribution struct; there is no ``get_dist`` to call.
+# Do NOT add THEMIS/PSP keys until upstream pyspedas exposes a real ``*_get_dist``
+# for them. When it does, the ``_require_attr`` gating already degrades cleanly
+# (``code="unsupported"``) for any not-yet-present function, so a later mapping is
+# low-risk to add. Note the ERG signatures differ from the MMS template
+# (``units=`` / ``species=`` defaults, ``trange=``; no ``probe`` / ``data_rate``);
+# ``_converter_kwargs`` filters by signature so MMS-only kwargs are dropped safely.
 _DIST_CONVERTERS = {
     # Real mission CDF -> tplot -> pyspedas particle distribution converters.
     # The MCP tool intentionally exposes these through one neutral "converter"
@@ -781,7 +802,12 @@ def build_particle_distribution_artifact(
         missing = sorted({f for f in fields if f not in records[0]})
         missing += [f for f in ("charge", "mass") if f not in records[0]]
         if missing:
-            raise ValueError(f"converter output is missing required field(s): {sorted(set(missing))}")
+            raise ValueError(
+                f"converter '{converter}' ({module_path}.{attr}) output record is "
+                f"missing required field(s): {sorted(set(missing))}. Present keys: "
+                f"{sorted(records[0].keys())}. A real *_get_dist record must supply "
+                f"{sorted(set(fields) | {'charge', 'mass'})}."
+            )
 
         stacked = {field: np.stack([_flatten_particle_grid(r[field], field) for r in records], axis=0) for field in fields}
         shape = stacked["data"].shape

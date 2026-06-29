@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import builtins
 import importlib
+import inspect
 import json
 import sys
 import types
@@ -1207,3 +1208,246 @@ def test_load_particle_distribution_artifact_reports_missing_mag_source(tmp_path
     assert out["code"] == "needs_input"
     assert "magnetic-field" in out["message"]
     assert out["loaded_tplot_names"] == ["mms1_dis_dist_fast"]
+
+
+# --------------------------------------------------------------------------
+# Issue #95: verify the REAL registered converters (signature compatibility)
+#
+# The converter records themselves require real mission CDFs (network + large
+# downloads), which these offline tests deliberately avoid. What is checkable
+# offline is the contract the bridge actually relies on: every registered
+# (module, attr) imports against the installed pyspedas, and _converter_kwargs
+# filters each real signature correctly (drops MMS-only kwargs for ERG, keeps
+# units/species/trange). These pin the registry to upstream reality in the
+# primary supported environment while still skipping gracefully in builds where
+# optional PySPEDAS converters are absent.
+# --------------------------------------------------------------------------
+
+_ERG_CONVERTER_KEYS = ("erg_lepi", "erg_lepe", "erg_mepi", "erg_mepe", "erg_hep", "erg_xep")
+_MMS_CONVERTER_KEYS = ("mms_fpi", "mms_hpca")
+
+
+def _converter_importable(key: str) -> bool:
+    """True if the registered (module, attr) for ``key`` imports in this build."""
+    module_path, attr = particles._DIST_CONVERTERS[key]
+    try:
+        return getattr(importlib.import_module(module_path), attr, None) is not None
+    except Exception:
+        return False
+
+
+@pytest.mark.parametrize("key", sorted(particles._DIST_CONVERTERS))
+def test_registered_converter_imports_or_skips(key):
+    """Each registered converter resolves to a real callable (skip if absent)."""
+    module_path, attr = particles._DIST_CONVERTERS[key]
+    if not _converter_importable(key):
+        pytest.skip(f"pyspedas build lacks {module_path}.{attr}")
+    fn = getattr(importlib.import_module(module_path), attr)
+    assert callable(fn)
+    # The bridge passes the tplot variable name positionally; every converter
+    # must accept a leading positional parameter (tname).
+    params = list(inspect.signature(fn).parameters.values())
+    assert params, f"{key} converter takes no parameters"
+    assert params[0].kind in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+
+
+@pytest.mark.parametrize("key", _ERG_CONVERTER_KEYS)
+def test_erg_converter_kwargs_drop_mms_only_keep_erg(key):
+    """_converter_kwargs drops probe/data_rate for ERG, keeps units/species/trange."""
+    if not _converter_importable(key):
+        pytest.skip(f"pyspedas build lacks ERG converter {key}")
+    module_path, attr = particles._DIST_CONVERTERS[key]
+    fn = getattr(importlib.import_module(module_path), attr)
+    # Mirror the exact kwargs the bridge assembles (with MMS-only ones populated).
+    candidate = {
+        "index": [0, 1],
+        "probe": "1",        # MMS-only: must be dropped for ERG
+        "data_rate": "fast",  # MMS-only: must be dropped for ERG
+        "species": "e",
+        "level": "l2",
+        "units": "flux",
+        "trange": ["2017-01-01", "2017-01-02"],
+        "single_time": None,  # None values are always dropped
+    }
+    filtered = particles._converter_kwargs(fn, candidate)
+    assert "probe" not in filtered, f"{key} should not accept MMS-only 'probe'"
+    assert "data_rate" not in filtered, f"{key} should not accept MMS-only 'data_rate'"
+    for keep in ("units", "species", "trange"):
+        assert keep in filtered, f"{key} should accept ERG-relevant '{keep}'"
+        assert filtered[keep] == candidate[keep]
+    assert "single_time" not in filtered  # None is filtered regardless of signature
+
+
+@pytest.mark.parametrize("key", _MMS_CONVERTER_KEYS)
+def test_mms_converter_kwargs_keep_probe_data_rate(key):
+    """_converter_kwargs keeps probe/data_rate for the MMS converters that take them."""
+    if not _converter_importable(key):
+        pytest.skip(f"pyspedas build lacks MMS converter {key}")
+    module_path, attr = particles._DIST_CONVERTERS[key]
+    fn = getattr(importlib.import_module(module_path), attr)
+    candidate = {"probe": "1", "data_rate": "fast", "species": "i", "index": 0}
+    filtered = particles._converter_kwargs(fn, candidate)
+    assert filtered["probe"] == "1"
+    assert filtered["data_rate"] == "fast"
+    # ERG-only 'units'/'trange' are not in the MMS signatures and must be dropped.
+    sig_params = set(inspect.signature(fn).parameters)
+    extra = particles._converter_kwargs(fn, {"units": "flux", "trange": ["a", "b"]})
+    assert extra == {}
+    assert all(k in sig_params for k in extra)
+
+
+# --------------------------------------------------------------------------
+# Issue #95: ERG-shaped fake converter regression through the full bridge.
+#
+# Drives build_particle_distribution_artifact with records shaped like a real
+# ERG *_get_dist output (3D (E,phi,theta) per-slice grids, ERG-style scalar
+# masses/charges, start_time), plus magf synthesis from an injected B tplot
+# variable. Exercises the converter path -> _flatten_particle_grid -> magf
+# tplot interpolation/provenance sidecar -> schema + moments re-validation,
+# all offline (no network, no real CDFs).
+# --------------------------------------------------------------------------
+
+def _erg_shaped_records(n_time: int = 3, n_energy: int = 4, n_phi: int = 5, n_theta: int = 2):
+    """Records mirroring a real ERG converter's per-slice (E, phi, theta) grids."""
+    records = []
+    energy_axis = np.geomspace(20.0, 8000.0, n_energy)
+    for i in range(n_time):
+        grid = (n_energy, n_phi, n_theta)
+        # Energy varies along axis 0 only; broadcast across phi/theta like ERG.
+        energy = np.broadcast_to(energy_axis[:, None, None], grid).astype("float64")
+        phi_axis = np.linspace(0.0, 360.0, n_phi, endpoint=False)
+        theta_axis = np.linspace(-78.75, 78.75, n_theta)
+        phi = np.broadcast_to(phi_axis[None, :, None], grid).astype("float64")
+        theta = np.broadcast_to(theta_axis[None, None, :], grid).astype("float64")
+        data = (np.random.RandomState(i).rand(*grid) * 1e5).astype("float64")
+        records.append({
+            "start_time": 1_500_000_000.0 + 10.0 * i,
+            "end_time": 1_500_000_000.0 + 10.0 * i + 8.0,
+            "data": data,
+            "energy": energy,
+            "denergy": energy * 0.25,
+            "phi": phi,
+            "dphi": np.full(grid, 360.0 / n_phi),
+            "theta": theta,
+            "dtheta": np.full(grid, 157.5 / n_theta),
+            "bins": np.ones(grid),
+            "charge": -1.0,          # ERG LEP-e electron product
+            "mass": 5.68566e-06,     # electron mass, pyspedas eV/(km/s)^2 units
+        })
+    return records
+
+
+def test_build_artifact_from_erg_shaped_converter_with_mag_tplot(tmp_path, monkeypatch):
+    """ERG-shaped 3D records flatten + magf synth + schema/moments validation."""
+    n_time = 3
+    records = _erg_shaped_records(n_time=n_time)
+    # B tplot variable bracketing the distribution slices so interpolation
+    # (not broadcast) drives the magf-provenance path.
+    dist_times = np.array([r["start_time"] for r in records], dtype="float64")
+    b_times = np.array([dist_times[0] - 5.0, dist_times[-1] + 5.0], dtype="float64")
+    b_vals = np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 9.0]], dtype="float64")
+
+    def fake_get_data(name):
+        if name == "erg_mgf_8sec":
+            return {"times": b_times, "y": b_vals}
+        return None
+
+    _install_fake_pyspedas(monkeypatch, get_data=fake_get_data)
+    mod = types.ModuleType("fake_erg_converter")
+    calls = []
+
+    def erg_lepe_get_dist(tname, index=None, units="flux", level="l2", species="e",
+                          time_only=False, single_time=None, trange=None):
+        calls.append({"tname": tname, "units": units, "species": species, "trange": trange})
+        return records
+
+    mod.erg_lepe_get_dist = erg_lepe_get_dist
+    monkeypatch.setitem(sys.modules, "fake_erg_converter", mod)
+    monkeypatch.setitem(
+        particles._DIST_CONVERTERS,
+        "erg_shaped",
+        ("fake_erg_converter", "erg_lepe_get_dist"),
+    )
+
+    out_file = tmp_path / "erg_dist.npz"
+    out = particles.build_particle_distribution_artifact(
+        "erg_lepe_l2_3dflux_FEDU",
+        str(out_file),
+        converter="erg_shaped",
+        units="flux",
+        species="e",
+        trange=["2017-07-14", "2017-07-15"],
+        # MMS-only kwargs: the bridge must drop these for the ERG signature.
+        probe="1",
+        data_rate="fast",
+        mag_tplot_name="erg_mgf_8sec",
+    )
+
+    assert out["status"] == "success", out
+    # 3D (E, phi, theta) -> flattened (E, phi*theta) angular axis.
+    assert out["shape"] == [n_time, 4, 10]
+    assert out["converter"] == "erg_shaped"
+    assert out["magf_source"]["mode"] == "tplot"
+    assert out["magf_source"]["tplot_name"] == "erg_mgf_8sec"
+    assert out["magf_source"]["interpolated"] is True
+    # ERG signature accepted units/species/trange and dropped probe/data_rate.
+    assert calls == [{
+        "tname": "erg_lepe_l2_3dflux_FEDU",
+        "units": "flux",
+        "species": "e",
+        "trange": ["2017-07-14", "2017-07-15"],
+    }]
+    assert "probe" not in out["converter_kwargs"]
+    assert "data_rate" not in out["converter_kwargs"]
+
+    # Sidecar provenance written and self-consistent.
+    sidecar = json.loads(Path(out["metadata_file"]).read_text())
+    assert sidecar["converter"] == "erg_shaped"
+    assert sidecar["magf_source"]["tplot_name"] == "erg_mgf_8sec"
+
+    # The written artifact round-trips through the moments normalizer.
+    with np.load(out_file) as npz:
+        assert npz["data"].shape == (n_time, 4, 10)
+        assert npz["magf"].shape == (n_time, 3)
+        assert npz["charge"] == pytest.approx(-1.0)
+    raw = particles._load_distribution(str(out_file))
+    times, cubes, scalars, nt = particles._normalize_distribution(raw, particles._MOMENTS_REQUIRED)
+    assert nt == n_time
+    assert cubes["data"].shape == (n_time, 4, 10)
+    assert scalars["mass"] == pytest.approx(5.68566e-06)
+    # magf was interpolated between the two bracketing B samples: Bz rises 3->9.
+    assert cubes["magf"][0, 2] < cubes["magf"][-1, 2]
+
+
+def test_build_artifact_converter_missing_field_names_converter_and_field(tmp_path, monkeypatch):
+    """A converter record lacking a field raises an error naming key + field."""
+    _install_fake_pyspedas(monkeypatch)
+    mod = types.ModuleType("fake_partial_converter")
+
+    def partial_get_dist(tname):
+        recs = _erg_shaped_records(n_time=1)
+        del recs[0]["denergy"]  # drop a required field
+        return recs
+
+    mod.partial_get_dist = partial_get_dist
+    monkeypatch.setitem(sys.modules, "fake_partial_converter", mod)
+    monkeypatch.setitem(
+        particles._DIST_CONVERTERS,
+        "erg_partial",
+        ("fake_partial_converter", "partial_get_dist"),
+    )
+
+    out = particles.build_particle_distribution_artifact(
+        "erg_partial_tplot",
+        str(tmp_path / "partial.npz"),
+        converter="erg_partial",
+        magf=[0.0, 0.0, 5.0],
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert "erg_partial" in out["message"]      # names the converter key
+    assert "denergy" in out["message"]          # names the missing field
+    assert "fake_partial_converter.partial_get_dist" in out["message"]
