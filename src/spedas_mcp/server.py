@@ -47,6 +47,9 @@ ANALYSIS_TOOL_NAMES = (
     "render_tplot",
 )
 
+HAPI_TOOL_NAMES = ("browse_hapi_catalog", "fetch_hapi_data")
+FDSN_TOOL_NAMES = ("browse_fdsn_datasets", "fetch_fdsn_data")
+
 # Modules/attributes exercised by the ten optional analysis tools. This is more
 # precise than checking only ``import pyspedas``: several pyspedas builds expose
 # mission loaders but not the legacy tplot/cotrans/wavelet/particle helpers that
@@ -171,6 +174,85 @@ def _analysis_dependencies_available() -> bool:
         if attr_name is not None and not hasattr(module, attr_name):
             return False
     return True
+
+
+def _module_available(module_name: str) -> bool:
+    """Return whether a module appears importable without importing it fully."""
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+def _optional_backend_availability(*, include_analysis_tools: bool) -> dict[str, dict[str, Any]]:
+    """Summarize optional backend availability for overview/discovery payloads.
+
+    HAPI/FDSN tools stay registered for backward compatibility, but this metadata
+    lets generic MCP clients distinguish callable-but-missing optional backends
+    from tools that can perform work in the current base install. Analysis tools
+    remain hidden unless their backend is present.
+    """
+    hapi_modules = ("hapiclient",)
+    # Probe only top-level packages here. importlib.find_spec("pyspedas.mth5")
+    # imports the pyspedas package as a side effect in some environments, which
+    # is too expensive/noisy for a lightweight overview call; the actual tool
+    # still performs the authoritative lazy import and returns missing_dependency
+    # if pyspedas.mth5 itself is unavailable.
+    fdsn_modules = ("pyspedas", "mth5", "obspy")
+
+    def _entry(
+        *,
+        available: bool,
+        extra: str,
+        tools: tuple[str, ...],
+        registration: str,
+        missing_modules: list[str] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "available": available,
+            "requires_extra": extra,
+            "install_hint": f"pip install 'spedas-mcp[{extra}]'",
+            "tools": list(tools) if available or registration == "always_registered" else [],
+            "all_tools": list(tools),
+            "registration": registration,
+        }
+        if missing_modules:
+            payload["missing_modules"] = missing_modules
+        if not available:
+            payload["call_behavior"] = (
+                "tool calls return a structured status='error', "
+                "code='missing_dependency' payload until the extra is installed"
+                if registration == "always_registered"
+                else "tools are not registered in MCP list_tools until the extra is installed"
+            )
+        return payload
+
+    hapi_missing = [name for name in hapi_modules if not _module_available(name)]
+    fdsn_missing = [name for name in fdsn_modules if not _module_available(name)]
+
+    return {
+        "analysis": _entry(
+            available=include_analysis_tools,
+            extra="analysis",
+            tools=ANALYSIS_TOOL_NAMES,
+            registration="registered_when_available",
+            missing_modules=None if include_analysis_tools else ["pyspedas/matplotlib/PyWavelets analysis stack"],
+        ),
+        "hapi": _entry(
+            available=not hapi_missing,
+            extra="hapi",
+            tools=HAPI_TOOL_NAMES,
+            registration="always_registered",
+            missing_modules=hapi_missing,
+        ),
+        "fdsn": _entry(
+            available=not fdsn_missing,
+            extra="fdsn",
+            tools=FDSN_TOOL_NAMES,
+            registration="always_registered",
+            missing_modules=fdsn_missing,
+        ),
+    }
 
 
 def _compat_tools_enabled() -> bool:
@@ -1138,6 +1220,9 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
     )
 
     compat_tools_enabled = _compat_tools_enabled()
+    optional_backends = _optional_backend_availability(
+        include_analysis_tools=include_analysis_tools
+    )
 
     def _compat_tool(func):
         # Keep the function defined for internal unified-layer calls, but only
@@ -1180,7 +1265,11 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                     ),
                     "tools": list(ANALYSIS_TOOL_NAMES) if include_analysis_tools else [],
                     "install_hint": "pip install 'spedas-mcp[analysis]'",
+                    "available": optional_backends["analysis"]["available"],
+                    "requires_extra": optional_backends["analysis"]["requires_extra"],
+                    "registration": optional_backends["analysis"]["registration"],
                 },
+                "optional_backends": optional_backends,
                 "compatibility_low_level": {
                     "status": (
                         "CDAWeb/PDS compatibility tools advertised because "
@@ -2381,6 +2470,11 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                         "label": "HAPI time-series servers (CDAWeb, PDS-PPI, ISWA, LISIRD, ...)",
                         "best_for": "any HAPI-compliant server; generic catalog discovery and time-series fetch",
                         "optional_extra": "spedas-mcp[hapi]",
+                        "available": optional_backends["hapi"]["available"],
+                        "requires_extra": optional_backends["hapi"]["requires_extra"],
+                        "install_hint": optional_backends["hapi"]["install_hint"],
+                        "registration": optional_backends["hapi"]["registration"],
+                        "missing_modules": optional_backends["hapi"].get("missing_modules", []),
                         "next_tools": ["browse_hapi_catalog(server_url=...)", "fetch_hapi_data(server_url=..., dataset_id=..., parameters=[...])"],
                     },
                     {
@@ -2388,6 +2482,11 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                         "label": "FDSN/MTH5 magnetotelluric magnetic-field stations (EarthScope)",
                         "best_for": "ground-based 3-component MT magnetic observations for ground-magnetosphere coupling",
                         "optional_extra": "spedas-mcp[fdsn]",
+                        "available": optional_backends["fdsn"]["available"],
+                        "requires_extra": optional_backends["fdsn"]["requires_extra"],
+                        "install_hint": optional_backends["fdsn"]["install_hint"],
+                        "registration": optional_backends["fdsn"]["registration"],
+                        "missing_modules": optional_backends["fdsn"].get("missing_modules", []),
                         "next_tools": ["browse_fdsn_datasets(trange=[...])", "fetch_fdsn_data(trange=[...], network=..., station=...)"],
                     },
                 ],
@@ -2459,6 +2558,11 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                     "fetch_hapi_data(server_url=..., dataset_id=..., parameters=[...], start=..., stop=..., output_dir=...)",
                 ],
                 "optional_extra": "spedas-mcp[hapi]",
+                "available": optional_backends["hapi"]["available"],
+                "requires_extra": optional_backends["hapi"]["requires_extra"],
+                "install_hint": optional_backends["hapi"]["install_hint"],
+                "registration": optional_backends["hapi"]["registration"],
+                "missing_modules": optional_backends["hapi"].get("missing_modules", []),
                 "query": query,
             })
         if source == "fdsn":
@@ -2475,6 +2579,11 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                     "fetch_fdsn_data(trange=[...], network=..., station=..., output_dir=...)",
                 ],
                 "optional_extra": "spedas-mcp[fdsn]",
+                "available": optional_backends["fdsn"]["available"],
+                "requires_extra": optional_backends["fdsn"]["requires_extra"],
+                "install_hint": optional_backends["fdsn"]["install_hint"],
+                "registration": optional_backends["fdsn"]["registration"],
+                "missing_modules": optional_backends["fdsn"].get("missing_modules", []),
                 "query": query,
             })
         return _unknown_source_type_error(source_type, ["all", "cdaweb", "pds", "spice", "hapi", "fdsn"])
