@@ -184,6 +184,10 @@ def test_base_tools_expose_primary_surface_metadata(monkeypatch):
     assert tools["browse_data_sources"].annotations.readOnlyHint is True
     assert tools["fetch_data_product"].annotations.readOnlyHint is False
     assert tools["fetch_data_product"].annotations.openWorldHint is True
+    assert tools["get_ephemeris"].annotations.readOnlyHint is False
+    assert tools["get_ephemeris"].annotations.openWorldHint is True
+    assert tools["compute_distance"].annotations.readOnlyHint is False
+    assert tools["transform_coordinates"].annotations.readOnlyHint is False
     assert tools["manage_data_cache"].annotations.destructiveHint is True
     assert tools["manage_data_cache"].annotations.openWorldHint is False
 

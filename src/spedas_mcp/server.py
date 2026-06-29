@@ -1779,7 +1779,7 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
 
         return _json(list_supported_missions())
 
-    @_primary_tool()
+    @_primary_tool(read_only=False, idempotent=False, open_world=True)
     @_safe_tool
     def get_ephemeris(
         target: str,
@@ -1859,7 +1859,7 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
         state["cache_size_mb"] = round(get_kernel_manager().get_cache_size_bytes() / (1024 * 1024), 2)
         return _json(state)
 
-    @_primary_tool()
+    @_primary_tool(read_only=False, idempotent=False, open_world=True)
     @_safe_tool
     def compute_distance(
         target1: str,
@@ -1904,7 +1904,7 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
             "samples": len(distances),
         })
 
-    @_primary_tool()
+    @_primary_tool(read_only=False, idempotent=False, open_world=True)
     @_safe_tool
     def transform_coordinates(
         vector: list[float],
