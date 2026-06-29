@@ -151,6 +151,20 @@ def browse_missions(query: str | None = None) -> list[dict]:
     return results
 
 
+def _format_coverage(start: str, stop: str) -> str:
+    """Render a coverage line, representing missing endpoints explicitly.
+
+    Avoids malformed ``Coverage:  to `` output when start/stop are empty or
+    missing. Both unknown -> ``unknown``; one unknown -> ``unknown``
+    placeholder for that side.
+    """
+    start = (start or "").strip()
+    stop = (stop or "").strip()
+    if not start and not stop:
+        return "unknown"
+    return f"{start or 'unknown'} to {stop or 'unknown'}"
+
+
 def mission_to_markdown(mission: dict) -> str:
     """Convert a mission JSON dict to a readable markdown dataset catalog.
 
@@ -168,11 +182,11 @@ def mission_to_markdown(mission: dict) -> str:
         lines.append("")
         for ds_id, ds_info in sorted(inst_data.get("datasets", {}).items()):
             desc = ds_info.get("description", "")
-            start = ds_info.get("start_date", "?")
-            stop = ds_info.get("stop_date", "?")
+            start = ds_info.get("start_date", "")
+            stop = ds_info.get("stop_date", "")
             archive_type = ds_info.get("archive_type", "")
             lines.append(f"- **{ds_id}**: {desc}")
-            lines.append(f"  Coverage: {start} to {stop}")
+            lines.append(f"  Coverage: {_format_coverage(start, stop)}")
             if archive_type:
                 lines.append(f"  Archive: PDS{archive_type}")
         lines.append("")
