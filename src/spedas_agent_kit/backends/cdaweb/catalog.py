@@ -116,6 +116,19 @@ def _date_only(iso: str) -> str:
     return iso[:10] if len(iso) >= 10 else iso
 
 
+def _format_coverage(start: str, stop: str) -> str:
+    """Render a coverage line, representing missing endpoints explicitly.
+
+    Avoids malformed ``Coverage:  to `` output when start/stop are empty or
+    missing. Non-empty endpoints are truncated to date-only form.
+    """
+    start = _date_only((start or "").strip())
+    stop = _date_only((stop or "").strip())
+    if not start and not stop:
+        return "unknown"
+    return f"{start or 'unknown'} to {stop or 'unknown'}"
+
+
 def observatory_to_markdown(observatory: dict) -> str:
     """Convert an observatory JSON dict to a readable markdown dataset catalog.
 
@@ -135,10 +148,10 @@ def observatory_to_markdown(observatory: dict) -> str:
             desc = _strip_pi_from_description(
                 ds_info.get("description", ""), pi_name
             )
-            start = _date_only(ds_info.get("start_date", "?"))
-            stop = _date_only(ds_info.get("stop_date", "?"))
+            start = ds_info.get("start_date", "")
+            stop = ds_info.get("stop_date", "")
             lines.append(f"- **{ds_id}**: {desc}")
-            lines.append(f"  Coverage: {start} to {stop}")
+            lines.append(f"  Coverage: {_format_coverage(start, stop)}")
         lines.append("")
     return "\n".join(lines)
 
