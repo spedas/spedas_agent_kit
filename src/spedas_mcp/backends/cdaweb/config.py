@@ -30,7 +30,7 @@ _REFRESH_INTERVAL_SECONDS = 86400  # 24 hours
 
 
 def configure(cache_dir: str | Path | None = None) -> None:
-    """Configure the cdawebmcp package.
+    """Configure the vendored CDAWeb backend.
 
     Call once at startup to set the cache root directory. All runtime data
     (metadata cache, CDF file cache, validation overrides) lives under this root.

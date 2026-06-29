@@ -472,7 +472,7 @@ def rebuild_catalog(observatory: str | None = None) -> dict:
     Downloads the full CDAWeb dataset catalog and observatory groups,
     and regenerates observatory JSON files. This is the programmatic
     equivalent of:
-        python -m cdawebmcp.scripts.build_catalog [--observatory <slug>]
+        python -m spedas_mcp.backends.cdaweb.scripts.build_catalog [--observatory <slug>]
 
     Args:
         observatory: Only rebuild this observatory slug. If None, rebuild all.

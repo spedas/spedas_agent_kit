@@ -1,15 +1,15 @@
 """Fetch parameter metadata for all bundled observatory datasets.
 
 Downloads Master CDF skeletons from CDAWeb, extracts parameter metadata,
-and saves JSON files to src/cdawebmcp/data/metadata/ for bundling with the package.
+and saves JSON files to src/spedas_mcp/backends/cdaweb/data/metadata/ for bundling with the package.
 
 When a Master CDF is unavailable, falls back to downloading one real data CDF
 from the dataset and extracting metadata from it (same CDF attributes).
 
 Usage:
-    python -m cdawebmcp.scripts.build_metadata                      # All observatories
-    python -m cdawebmcp.scripts.build_metadata --observatory timed  # One observatory
-    python -m cdawebmcp.scripts.build_metadata --workers 20         # Faster parallel
+    python -m spedas_mcp.backends.cdaweb.scripts.build_metadata                      # All observatories
+    python -m spedas_mcp.backends.cdaweb.scripts.build_metadata --observatory timed  # One observatory
+    python -m spedas_mcp.backends.cdaweb.scripts.build_metadata --workers 20         # Faster parallel
 """
 
 import argparse

@@ -4,9 +4,9 @@ Queries CDAWeb's observatory groups and dataset catalog, groups datasets by
 observatory group, categorizes by InstrumentType, and writes one JSON per group.
 
 Usage:
-    python -m cdawebmcp.scripts.build_catalog                    # Build all
-    python -m cdawebmcp.scripts.build_catalog --observatory ace   # Build one
-    python -m cdawebmcp.scripts.build_catalog --list              # List groups
+    python -m spedas_mcp.backends.cdaweb.scripts.build_catalog                    # Build all
+    python -m spedas_mcp.backends.cdaweb.scripts.build_catalog --observatory ace   # Build one
+    python -m spedas_mcp.backends.cdaweb.scripts.build_catalog --list              # List groups
 """
 
 import argparse
