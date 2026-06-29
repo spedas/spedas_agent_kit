@@ -3756,3 +3756,40 @@ def test_summarize_pydantic_validation_is_url_free():
         assert message.endswith(".")
     else:  # pragma: no cover - validation must fail
         raise AssertionError("expected a ValidationError")
+
+
+def test_server_exposes_packaged_skills_as_mcp_resources(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert "spedas-skill://index" in by_uri
+    assert "spedas-skill://skills/spedas-workflow" in by_uri
+    assert "spedas-skill://skills/wave-polarization" in by_uri
+    assert by_uri["spedas-skill://index"].mimeType == "text/markdown"
+    assert by_uri["spedas-skill://index"].meta["surface"] == "spedas_skill"
+    assert by_uri["spedas-skill://skills/spedas-workflow"].meta["skill_name"] == "spedas-workflow"
+
+    index_contents = asyncio.run(server.read_resource("spedas-skill://index"))
+    assert "spedas-skill://skills/spedas-workflow" in index_contents[0].content
+    workflow_contents = asyncio.run(server.read_resource("spedas-skill://skills/spedas-workflow"))
+    assert "name: spedas-workflow" in workflow_contents[0].content
+
+
+def test_overview_advertises_skill_resources(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    overview = json.loads(_call_tool(server, "spedas_overview"))
+    resources = overview["skill_resources"]
+    assert resources["status"] == "available_as_mcp_resources"
+    assert resources["index_resource"] == "spedas-skill://index"
+    assert resources["uri_pattern"] == "spedas-skill://skills/{skill_name}"
+    assert resources["count"] >= 22
+    assert "spedas-workflow" in resources["names"]
+    assert "default 13-tool surface stays compact" in resources["note"]
+    assert any("spedas-skill://index" in step for step in overview["workflow"])
