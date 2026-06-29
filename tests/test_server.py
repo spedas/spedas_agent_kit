@@ -510,6 +510,84 @@ def test_browse_spice_sources_also_advertises_frame_catalog_for_discovery():
     assert "transform_coordinates" in data["note"]
 
 
+# Issue #134: load_data_source(spice, <mission>) must return mission-specific
+# SPICE metadata (NAIF id, kernel files, cache status) instead of silently
+# ignoring source_id and always returning the global frame catalog.
+
+
+def test_load_data_source_spice_empty_source_id_returns_global_frame_catalog():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": ""}))
+    assert loaded["status"] == "success"
+    assert loaded["source_type"] == "spice"
+    # Empty source_id keeps the legacy global coordinate-frame catalog behavior.
+    assert loaded["frame_catalog"]["catalog_type"] == "spice_coordinate_frames"
+    assert loaded["frame_catalog"]["frames"] == loaded["payload"]
+    # No mission-specific metadata leaks into the global catalog response.
+    assert "naif_id" not in loaded
+    assert "mission" not in loaded
+
+
+def test_load_data_source_spice_juno_returns_mission_metadata():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "JUNO"}))
+    assert loaded["status"] == "success"
+    assert loaded["source_type"] == "spice"
+    # Juno is NAIF -61 with the juno_rec_orbit.bsp SPK (issue #134).
+    assert loaded["naif_id"] == -61
+    assert loaded["mission"] == "JUNO"
+    payload = loaded["payload"]
+    assert payload["naif_id"] == -61
+    assert payload["mission_key"] == "JUNO"
+    assert "juno_rec_orbit.bsp" in payload["kernel_files"]
+    # Cache status is reported without downloading anything.
+    assert "cached" in payload["kernel_status"]
+    # Frame support is not falsely claimed for mission body frames.
+    assert payload["caveats"]
+
+
+def test_load_data_source_spice_juno_differs_from_global_frame_catalog():
+    server = create_server()
+    juno = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "JUNO"}))
+    glbl = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": ""}))
+    # Mission load must NOT return the global frame catalog.
+    assert juno["payload"] != glbl["payload"]
+    assert "frame_catalog" not in juno
+    assert glbl["frame_catalog"]["catalog_type"] == "spice_coordinate_frames"
+
+
+def test_load_data_source_spice_frames_keyword_still_returns_catalog():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "frames"}))
+    assert loaded["status"] == "success"
+    assert loaded["frame_catalog"]["catalog_type"] == "spice_coordinate_frames"
+
+
+def test_load_data_source_spice_unknown_mission_returns_structured_error():
+    server = create_server()
+    raw = _call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "NOT_A_MISSION"})
+    # No filesystem path may leak (issue #25 contract carried over).
+    assert "/Users/" not in raw
+    payload = json.loads(raw)
+    assert payload["status"] == "error"
+    assert payload["code"] == "unknown_source_id"
+    assert payload["source_id"] == "NOT_A_MISSION"
+    assert payload["source_type"] == "spice"
+
+
+def test_load_data_source_spice_mission_alias_resolves():
+    server = create_server()
+    # "Parker Solar Probe" is an alias for PSP (NAIF -96); aliases must resolve
+    # to the canonical mission metadata, not an unknown_source_id error.
+    loaded = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "spice",
+        "source_id": "Parker Solar Probe",
+    }))
+    assert loaded["status"] == "success"
+    assert loaded["naif_id"] == -96
+    assert loaded["mission"] == "PSP"
+
+
 def test_unified_pds_fetch_rejects_unsupported_limit_cleanly(tmp_path: Path):
     server = create_server()
     data = json.loads(_call_tool(server, "fetch_data_product", {
@@ -2021,7 +2099,10 @@ def test_transform_coordinates_unknown_frame_is_clean_structured_error(no_backen
 
 def test_supported_frame_catalog_for_errors_includes_coordinate_frames():
     server = create_server()
-    listed = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "PSP"}))
+    # The frame catalog (used to validate transform_coordinates frame args) is
+    # surfaced via the frames source_id; a mission source_id now returns
+    # mission-specific metadata instead (issue #134).
+    listed = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "frames"}))
     supported = _spice_supported_frames()
     for entry in listed["payload"]:
         assert entry["frame"] in supported

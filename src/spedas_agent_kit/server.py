@@ -986,6 +986,53 @@ def _spice_frame_catalog() -> dict[str, Any]:
     }
 
 
+def _spice_mission_metadata(mission_key: str, naif_id: int) -> dict[str, Any]:
+    """Build mission-specific SPICE metadata for ``load_data_source`` (issue #134).
+
+    ``mission_key`` is the canonical registry key (e.g. ``"JUNO"``) and ``naif_id``
+    its NAIF body/spacecraft id. The payload reports the mission's SPK kernel files
+    and their on-disk cache status/coverage via :func:`_spice_missing_kernels` —
+    pure registry + disk inspection, never any network I/O. Frame support for
+    mission body frames is *not* claimed here; the caveats steer callers to the
+    global frame catalog and the kernel-load gate instead of asserting false
+    support.
+    """
+    from spedas_agent_kit.backends.spice.missions import (
+        MISSION_KERNELS,
+        SEGMENTED_MISSIONS,
+    )
+
+    segmented = mission_key in SEGMENTED_MISSIONS
+    kernel_files = sorted(MISSION_KERNELS.get(mission_key, {}))
+    kernel_status = _spice_missing_kernels([mission_key])
+
+    caveats = [
+        "SPICE geometry calls require cached kernels; load with "
+        "manage_data_cache(source_type='spice', action='load', mission="
+        f"'{mission_key}') before computing geometry.",
+        "Mission body/instrument frames are not enumerated here; use "
+        "load_data_source(source_type='spice', source_id='frames') for the "
+        "supported coordinate-frame catalog.",
+    ]
+    if segmented:
+        caveats.append(
+            "This mission uses time-segmented SPK files; the required segment "
+            "depends on the query window, so kernels load through the time-aware "
+            "manage_data_cache(source_type='spice') gate."
+        )
+
+    return {
+        "catalog_type": "spice_mission",
+        "mission_key": mission_key,
+        "naif_id": naif_id,
+        "kernel_files": kernel_files,
+        "segmented": segmented,
+        "kernel_status": kernel_status,
+        "geometry_tools": ["get_ephemeris", "compute_distance", "transform_coordinates"],
+        "caveats": caveats,
+    }
+
+
 def _spice_supported_frames() -> list[str]:
     """Return supported SPICE coordinate frame names for validation/errors.
 
@@ -2912,6 +2959,43 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 normalized_source_id=normalized_source_id,
             )
         if source == "spice":
+            # An empty/whitespace source_id (or the explicit "frames" keyword)
+            # keeps the legacy behavior: return the global coordinate-frame
+            # catalog. A concrete mission source_id resolves to mission-specific
+            # SPICE metadata instead of silently ignoring it (issue #134).
+            requested = (source_id or "").strip()
+            if requested and requested.lower() != "frames":
+                resolution = _spice_resolve_target(requested)
+                if not resolution["resolved"]:
+                    from spedas_agent_kit.backends.spice.missions import MISSION_NAIF_IDS
+                    invalid = _validate_source_id(
+                        "spice",
+                        source_id,
+                        [k for k, v in MISSION_NAIF_IDS.items() if v < 0],
+                        match=requested,
+                        discover_tool="browse_data_sources(source_type='spice')",
+                    )
+                    # _validate_source_id only skips on an empty catalog, which
+                    # cannot happen here, so invalid is always the error envelope.
+                    return invalid if invalid is not None else _unknown_source_type_error(
+                        source_type, ["cdaweb", "pds", "spice", "hapi", "fdsn"]
+                    )
+                metadata = _spice_mission_metadata(resolution["key"], resolution["naif_id"])
+                return _wrap_data_payload(
+                    source,
+                    _json(metadata),
+                    source_id=source_id,
+                    mission=resolution["key"],
+                    naif_id=resolution["naif_id"],
+                    note=(
+                        "SPICE mission context for "
+                        f"{resolution['key']} (NAIF {resolution['naif_id']}). "
+                        "kernel_status reports on-disk cache state without "
+                        "downloading; use the geometry tools for ephemeris/"
+                        "distance/transform work. See caveats for kernel-load and "
+                        "frame-support notes."
+                    ),
+                )
             frame_catalog = _spice_frame_catalog()
             return _wrap_data_payload(
                 source,
