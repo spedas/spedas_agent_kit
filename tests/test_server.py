@@ -281,6 +281,52 @@ def test_browse_data_sources_cdaweb_dataset_query_themis_fgm_and_negative():
     assert negative["payload"] == []
 
 
+def test_browse_data_sources_pds_matches_single_token_query():
+    # Regression for issue #133: a single recognizable mission token must surface
+    # the matching PDS mission instead of an empty payload.
+    server = create_server()
+    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": "juno"}))
+    assert data["status"] == "success"
+    ids = [entry["id"] for entry in data["payload"]]
+    assert "JUNO_PPI" in ids
+
+
+def test_browse_data_sources_pds_matches_multiword_query_by_term():
+    # Regression for issue #133: a multi-word query whose mission token clearly
+    # matches must not silently return an empty payload just because the whole
+    # phrase is not a contiguous substring of the record.
+    server = create_server()
+    for query in ("juno magnetometer", "Juno spacecraft", "juno mag"):
+        data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": query}))
+        assert data["status"] == "success", query
+        ids = [entry["id"] for entry in data["payload"]]
+        assert "JUNO_PPI" in ids, f"expected Juno PDS mission to surface for query {query!r}, got {ids}"
+
+
+def test_browse_data_sources_pds_negative_query_returns_empty():
+    server = create_server()
+    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": "zzzz notarealmission"}))
+    assert data["status"] == "success"
+    assert data["payload"] == []
+
+
+def test_browse_data_sources_spice_matches_multiword_query_by_term():
+    # Regression for issue #133: SPICE multi-word queries must match by token too.
+    server = create_server()
+    for query in ("juno magnetometer", "Juno spacecraft", "juno jupiter"):
+        data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "spice", "query": query}))
+        assert data["status"] == "success", query
+        keys = [entry.get("mission_key") for entry in data["payload"]]
+        assert "JUNO" in keys, f"expected Juno SPICE mission to surface for query {query!r}, got {keys}"
+
+
+def test_browse_data_sources_spice_negative_query_returns_empty():
+    server = create_server()
+    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "spice", "query": "zzzz notarealmission"}))
+    assert data["status"] == "success"
+    assert data["payload"] == []
+
+
 def test_browse_data_sources_discovers_curated_omni_and_geomagnetic_indices():
     server = create_server()
 
@@ -1311,6 +1357,54 @@ def test_load_data_source_cdaweb_paginates_and_filters_mms_catalog():
         }))
         assert second["datasets_offset"] == first["datasets_next_offset"]
         assert {d["dataset_id"] for d in first["datasets"]}.isdisjoint({d["dataset_id"] for d in second["datasets"]})
+
+
+def test_load_data_source_cdaweb_themis_mag_prefers_spacecraft_bucket():
+    # Regression for issue #136: instrument="mag" on THEMIS must prefer the
+    # spacecraft "mag" bucket (which holds probe FGM) rather than being flooded
+    # by the much larger "ground_mag" bucket via substring matching.
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "themis",
+        "instrument": "mag",
+        "limit": 30,
+    }))
+    assert data["status"] == "success"
+    buckets = {entry["instrument"] for entry in data["datasets"]}
+    assert buckets == {"mag"}, f"expected only the spacecraft mag bucket, got {buckets}"
+    dataset_ids = {entry["dataset_id"] for entry in data["datasets"]}
+    assert {"THA_L2_FGM", "THB_L2_FGM"} <= dataset_ids
+    assert not any("THG_L2_MAG" in entry["dataset_id"] for entry in data["datasets"])
+
+
+def test_load_data_source_cdaweb_themis_fgm_finds_probe_fgm():
+    # Probe FGM must remain findable via instrument="fgm".
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "themis",
+        "instrument": "fgm",
+        "limit": 30,
+    }))
+    assert data["status"] == "success"
+    dataset_ids = {entry["dataset_id"] for entry in data["datasets"]}
+    assert {"THA_L2_FGM", "THB_L2_FGM", "THC_L2_FGM"} <= dataset_ids
+
+
+def test_load_data_source_cdaweb_themis_ground_mag_remains_discoverable():
+    # Ground magnetometers must stay reachable via the explicit bucket name.
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "themis",
+        "instrument": "ground_mag",
+        "limit": 30,
+    }))
+    assert data["status"] == "success"
+    buckets = {entry["instrument"] for entry in data["datasets"]}
+    assert buckets == {"ground_mag"}, f"expected only the ground_mag bucket, got {buckets}"
+    assert any("THG_L2_MAG" in entry["dataset_id"] for entry in data["datasets"])
 
 
 def test_load_data_source_cdaweb_full_mode_preserves_legacy_prompt_payload():

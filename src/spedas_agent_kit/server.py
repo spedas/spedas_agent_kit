@@ -2447,6 +2447,54 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 return False
         return True
 
+    # Fields that identify a mission/source. A query term matching any of these
+    # is a strong signal that the source is relevant, even when the rest of a
+    # multi-word query describes an instrument or target absent from the
+    # (often sparse) catalog record. Deliberately excludes ``instruments`` so a
+    # bare product token such as ``fgm`` does not flood the result with every
+    # mission that happens to carry a magnetometer (issue #133).
+    _SOURCE_IDENTITY_FIELDS = ("id", "name", "title", "mission_key", "aliases")
+
+    def _record_matches_query(entry: Any, query: str | None) -> bool:
+        """Term-aware source-record match used for PDS/SPICE source browsing.
+
+        A naive ``query in json.dumps(record)`` substring test produces silent
+        false negatives for multi-word queries (issue #133): ``"juno
+        magnetometer"`` never appears verbatim in a record even though the
+        mission clearly matches by id/name. Instead we tokenize the query and
+        accept a record when either every token matches the full record (strict
+        AND, as CDAWeb dataset search does) or any token matches one of the
+        record's identity fields.
+        """
+        if not query:
+            return True
+        if not isinstance(entry, dict):
+            return _dataset_matches_query({"value": entry}, query)
+        if _dataset_matches_query(entry, query):
+            return True
+        identity_text = json.dumps(
+            {key: entry.get(key) for key in _SOURCE_IDENTITY_FIELDS if key in entry},
+            default=str,
+        ).casefold()
+        for term in re.findall(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*", query.casefold()):
+            variants = [term, term.replace("-", "_"), term.replace("_", "-")]
+            variants.extend(_CDAWEB_PRODUCT_ALIASES.get(term, ()))
+            if any(_text_matches(identity_text, variant) for variant in variants if variant):
+                return True
+        return False
+
+    def _filter_source_records(raw: str, query: str | None) -> str:
+        """Filter list-shaped source JSON with term-aware matching (issue #133)."""
+        if not query:
+            return raw
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return raw
+        if not isinstance(payload, list):
+            return raw
+        return _json([entry for entry in payload if _record_matches_query(entry, query)])
+
     def _dataset_matches_instrument(entry: dict[str, Any], instrument: str | None) -> bool:
         if not instrument:
             return True
@@ -2499,9 +2547,38 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
 
         instrument_names = sorted(instruments.keys())
         instrument_filter = instrument.strip().casefold() if isinstance(instrument, str) and instrument.strip() else None
+
+        # Prefer an exact instrument-bucket match over substring matching so
+        # ``instrument="mag"`` selects the spacecraft "mag" bucket (which holds
+        # probe FGM) instead of being flooded by the much larger "ground_mag"
+        # bucket via substring overlap (issue #136). The explicit ``ground_mag``
+        # bucket key still resolves exactly, keeping ground magnetometers
+        # discoverable. Falls back to substring matching when the filter is not
+        # itself a bucket key/name (e.g. ``fgm`` lives inside the ``mag`` bucket).
+        exact_bucket_keys: set[str] = set()
+        if instrument_filter:
+            for inst_key, inst_data in instruments.items():
+                if not isinstance(inst_data, dict):
+                    continue
+                candidates = {
+                    inst_key.casefold(),
+                    inst_key.casefold().replace("-", "_"),
+                    inst_key.casefold().replace("_", "-"),
+                    str(inst_data.get("name") or "").casefold(),
+                }
+                normalized_filter = {
+                    instrument_filter,
+                    instrument_filter.replace("-", "_"),
+                    instrument_filter.replace("_", "-"),
+                }
+                if candidates & normalized_filter:
+                    exact_bucket_keys.add(inst_key)
+
         all_entries: list[dict[str, Any]] = []
         for inst_key, inst_data in sorted(instruments.items()):
             if not isinstance(inst_data, dict):
+                continue
+            if exact_bucket_keys and inst_key not in exact_bucket_keys:
                 continue
             inst_name = str(inst_data.get("name") or inst_key)
             for ds_id, ds_info in sorted(inst_data.get("datasets", {}).items()):
@@ -2652,12 +2729,19 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                     )
             return _wrap_data_payload(source, filtered_records, query=query)
         if source == "pds":
-            return _wrap_data_payload(source, browse_pds_missions(query=query), query=query)
+            # Filter at the facade with term-aware matching rather than the
+            # backend's whole-query substring test so multi-word queries whose
+            # mission token clearly matches still surface the mission (issue #133).
+            return _wrap_data_payload(
+                source,
+                _filter_source_records(browse_pds_missions(), query),
+                query=query,
+            )
         if source == "spice":
             frame_catalog = _spice_frame_catalog()
             return _wrap_data_payload(
                 source,
-                _filter_json_records(list_spice_missions(), query),
+                _filter_source_records(list_spice_missions(), query),
                 query=query,
                 note=(
                     "SPICE is exposed as the geometry data-source category. "
