@@ -1218,8 +1218,9 @@ def test_load_particle_distribution_artifact_reports_missing_mag_source(tmp_path
 # offline is the contract the bridge actually relies on: every registered
 # (module, attr) imports against the installed pyspedas, and _converter_kwargs
 # filters each real signature correctly (drops MMS-only kwargs for ERG, keeps
-# units/species/trange). These pin the registry to upstream reality so a future
-# pyspedas rename/removal fails loudly here instead of at runtime on real data.
+# units/species/trange). These pin the registry to upstream reality in the
+# primary supported environment while still skipping gracefully in builds where
+# optional PySPEDAS converters are absent.
 # --------------------------------------------------------------------------
 
 _ERG_CONVERTER_KEYS = ("erg_lepi", "erg_lepe", "erg_mepi", "erg_mepe", "erg_hep", "erg_xep")
@@ -1294,6 +1295,7 @@ def test_mms_converter_kwargs_keep_probe_data_rate(key):
     # ERG-only 'units'/'trange' are not in the MMS signatures and must be dropped.
     sig_params = set(inspect.signature(fn).parameters)
     extra = particles._converter_kwargs(fn, {"units": "flux", "trange": ["a", "b"]})
+    assert extra == {}
     assert all(k in sig_params for k in extra)
 
 
