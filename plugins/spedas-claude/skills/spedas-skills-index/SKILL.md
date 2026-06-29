@@ -39,6 +39,9 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 
 | Trace a spacecraft to its ionospheric footpoint / magnetic-equator (conjugacy, L-shell) | `field-line-footpoint` | `create_spedas_analysis_bundle` |
 | Quick-look 1-D power spectral density (PSD slope/peak) of an interval | `power-spectral-density` | `create_spedas_analysis_bundle` |
+| Field-aligned pitch-angle distribution (beam/pancake/loss-cone) of particles | `pitch-angle-distribution` | `create_spedas_analysis_bundle` |
+| Coherence + cross-phase between two channels (wave-mode, compressibility, propagation) | `spectral-cross-coherence` | `create_spedas_analysis_bundle` |
+| Multi-spacecraft timing: boundary normal + speed from >=4 s/c crossing times | `dual-spacecraft-timing` | `create_spedas_analysis_bundle` |
 
 ## Load order
 1. (this index) → 2. one focused skill → 3. that skill's tool chain. Don't pre-read every skill.
