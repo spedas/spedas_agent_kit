@@ -15,7 +15,7 @@ Implementation backend packages should stay visible to maintainers, but they sho
 - Python package name: `spedas-agent-kit`
 - Python module / CLI module: `spedas_agent_kit`
 - Canonical shared skills: `src/spedas_agent_kit/resources/skills/` (packaged with the kit; wrappers should stay thin)
-- Default MCP tool count: 17 (compatibility and analysis tools are conditionally registered); advertised tools carry MCP `ToolAnnotations` plus `meta.surface` (`primary`, `advanced`, or `compat`) so launchers can filter by surface and side-effect hints.
+- Default MCP tool count: 13 (direct datasource, compatibility, and analysis tools are conditionally registered); advertised tools carry MCP `ToolAnnotations` plus `meta.surface` (`primary`, `datasource`, `advanced`, or `compat`) so launchers can filter by surface and side-effect hints.
 
 ## Practical guide: run a SPEDAS Agent Kit study
 
@@ -370,12 +370,13 @@ Run tests and smoke checks:
 uv run --extra dev --extra mcp python -m pytest -q
 uv run --extra mcp python scripts/smoke_mcp_list_tools.py --json
 uv run --extra dev --extra mcp python scripts/validate_plugin_packages.py
+uv run --extra analysis --extra mcp python scripts/smoke_analysis_imports.py --json
 ```
 
-The list-tools smoke starts the stdio MCP server with isolated temporary cache directories, performs MCP `initialize` + `list_tools`, and verifies the expected advertised tool names. It does not fetch CDAWeb/PDS data or download SPICE kernels.
+The list-tools smoke starts the stdio MCP server with isolated temporary cache directories, performs MCP `initialize` + `list_tools`, and verifies the expected advertised tool names. The analysis smoke imports the exact optional backend modules/attributes and verifies that a real `[analysis]` install registers every analysis tool by default. Neither smoke fetches CDAWeb/PDS data or downloads SPICE kernels.
 
 Optional backends are installed via extras and are not required for the base
-install. The `analysis` extra also controls MCP registration of the ten local
+install. The `analysis` extra also controls MCP registration of the 13 local
 analysis tools, so a base `list_tools` response stays focused on data/workflow
 and geometry surfaces:
 

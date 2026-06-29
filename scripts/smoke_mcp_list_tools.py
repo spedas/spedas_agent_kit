@@ -9,7 +9,6 @@ tool names, and exits.
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import os
 import sys
@@ -19,6 +18,11 @@ from pathlib import Path
 import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+from spedas_agent_kit.optional_backends import (
+    ANALYSIS_TOOL_NAMES as ANALYSIS_EXPECTED_TOOLS,
+    analysis_dependencies_available,
+)
 
 COMPAT_CDAWEB_PDS_TOOLS = [
     "browse_observatories",
@@ -55,56 +59,6 @@ DATASOURCE_TOOLS = [
     "browse_fdsn_datasets",
     "fetch_fdsn_data",
 ]
-
-# Keep in sync with spedas_agent_kit.server.ANALYSIS_TOOL_NAMES (13 names,
-# including tvector_rotate). Previously omitted tvector_rotate, which tripped the
-# strict ``unexpected`` check when the analysis extra was installed.
-ANALYSIS_EXPECTED_TOOLS = [
-    "transform_timeseries_coordinates",
-    "generate_fac_matrix",
-    "tvector_rotate",
-    "analyze_minvar_coordinates",
-    "dynamic_power_spectrum",
-    "wavelet_transform",
-    "evaluate_magnetic_field",
-    "calculate_lshell",
-    "build_particle_distribution_artifact",
-    "load_particle_distribution_artifact",
-    "compute_particle_moments",
-    "compute_particle_spectra",
-    "render_tplot",
-]
-
-
-def _analysis_dependencies_available() -> bool:
-    required = (
-        ("pyspedas", None),
-        ("matplotlib", None),
-        ("pywt", None),
-        ("pyspedas.cotrans_tools.cotrans", "cotrans"),
-        ("pyspedas.cotrans_tools.fac_matrix_make", "fac_matrix_make"),
-        ("pyspedas.cotrans_tools.minvar", "minvar"),
-        ("pyspedas.cotrans_tools.minvar_matrix_make", "minvar_matrix_make"),
-        ("pyspedas.tplot_tools", "store_data"),
-        ("pyspedas.tplot_tools.tplot_math.dpwrspc", "dpwrspc"),
-        ("pyspedas.analysis.wavelet", "idl_wavelet_scales"),
-        ("pyspedas.analysis.wave_signif", "wave_signif"),
-        ("pyspedas.geopack", None),
-        ("pyspedas.particles.moments", "moments_3d"),
-        ("pyspedas.particles.spd_part_products", "spd_pgs_make_e_spec"),
-        ("pyspedas.particles.spd_part_products", "spd_pgs_make_phi_spec"),
-        ("pyspedas.particles.spd_part_products", "spd_pgs_make_theta_spec"),
-        ("pyspedas.particles.spd_part_products", "spd_pgs_do_fac"),
-    )
-    for module_name, attr_name in required:
-        try:
-            module = importlib.import_module(module_name)
-        except Exception:
-            return False
-        if attr_name is not None and not hasattr(module, attr_name):
-            return False
-    return True
-
 
 async def _list_tools(module: str, env: dict[str, str]) -> list[str]:
     params = StdioServerParameters(
@@ -159,7 +113,7 @@ def main() -> int:
         expected_tools.extend(COMPAT_CDAWEB_PDS_TOOLS)
     if args.datasource_tools:
         expected_tools.extend(DATASOURCE_TOOLS)
-    analysis_available = _analysis_dependencies_available()
+    analysis_available = analysis_dependencies_available()
     if analysis_available:
         expected_tools.extend(ANALYSIS_EXPECTED_TOOLS)
 

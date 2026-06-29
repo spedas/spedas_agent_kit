@@ -55,6 +55,10 @@ jobs:
           pip install -e ".[analysis,dev,mcp]"
       - name: Show pyspedas build
         run: python -c "import pyspedas, importlib.metadata as m; print('pyspedas', m.version('pyspedas'))"
+      - name: Run analysis import/list-tools smoke
+        run: python scripts/smoke_analysis_imports.py --json
+      - name: Run analysis MCP list-tools smoke
+        run: python scripts/smoke_mcp_list_tools.py --json
       - name: Run particle real-backend tests (#18, #19, incl. pitch-angle)
         run: pytest -q tests/test_analysis_particles.py
       - name: Run coordinate-transform real-backend tests
