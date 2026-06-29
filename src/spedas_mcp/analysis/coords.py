@@ -663,11 +663,12 @@ def tvector_rotate(
 
 def analyze_minvar_coordinates(
     input_file: str,
-    output_dir: str,
+    output_dir: str | None = None,
     twindow: float | None = None,
     tslide: float | None = None,
     time_col: str = "time",
     vector_cols: list[str] | None = None,
+    output_file: str | None = None,
 ) -> dict[str, Any]:
     """Minimum-variance analysis / LMN boundary-normal frame (#14).
 
@@ -675,10 +676,28 @@ def analyze_minvar_coordinates(
     ``minvar_matrix_make`` for sliding windows.
 
     Full-interval mode (``twindow is None``) writes the rotated Nx3 series to
-    ``output_dir`` and returns eigenvalues, eigenvectors, the normal vector, and
-    the intermediate/minimum eigenvalue ratio as small tables. Sliding-window
-    mode writes the per-window rotation matrices to ``output_dir``.
+    ``output_file`` when supplied, otherwise to ``output_dir/minvar_rotated.csv``,
+    and returns eigenvalues, eigenvectors, the normal vector, and the
+    intermediate/minimum eigenvalue ratio as small tables. Sliding-window mode
+    writes the per-window rotation matrices to ``output_file`` when supplied,
+    otherwise to ``output_dir/minvar_matrices.npz``. ``output_file`` is accepted
+    as a compatibility alias for users following the single-artifact convention;
+    ``output_dir`` remains supported for existing callers.
     """
+    if output_file is None and output_dir is None:
+        return _error(
+            "analyze_minvar_coordinates requires either output_file or output_dir",
+            hint=(
+                "Use output_file for a single explicit artifact path, or output_dir "
+                "to keep the default minvar_rotated.csv/minvar_matrices.npz name."
+            ),
+        )
+    if output_file is not None and output_dir is not None:
+        return _error(
+            "provide only one of output_file or output_dir",
+            hint="Choose output_file for an explicit artifact path or output_dir for the default filename.",
+        )
+
     try:
         pyspedas = require_pyspedas()
     except AnalysisDependencyError as exc:
@@ -694,8 +713,14 @@ def analyze_minvar_coordinates(
     except ValueError as exc:
         return _error(str(exc))
 
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if output_file is not None:
+        out_path = Path(output_file)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_dir = out_path.parent
+    else:
+        out_dir = Path(output_dir or "")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = None
 
     if twindow is None:
         from pyspedas.cotrans_tools.minvar import minvar
@@ -705,7 +730,7 @@ def analyze_minvar_coordinates(
         eigvecs = np.asarray(eigvecs, dtype="float64")
         eigvals = np.asarray(eigvals, dtype="float64")
 
-        rotated_path = out_dir / "minvar_rotated.csv"
+        rotated_path = out_path if out_path is not None else out_dir / "minvar_rotated.csv"
         rot_df = pd.DataFrame(
             {"time": unix_time, "L": vrot[:, 0], "M": vrot[:, 1], "N": vrot[:, 2]}
         )
@@ -720,6 +745,7 @@ def analyze_minvar_coordinates(
             "tool": "analyze_minvar_coordinates",
             "mode": "full_interval",
             "rotated_file": str(rotated_path),
+            "output_file": str(rotated_path),
             "rows": int(vrot.shape[0]),
             "input_vector_cols": resolved,
             "eigenvalues": [l1, l2, l3],
@@ -764,7 +790,7 @@ def analyze_minvar_coordinates(
             except Exception:  # pragma: no cover - cleanup best-effort
                 pass
 
-    matrices_path = out_dir / "minvar_matrices.npz"
+    matrices_path = out_path if out_path is not None else out_dir / "minvar_matrices.npz"
     save_kwargs = {"time": mat_times, "matrices": matrices}
     if eigvals is not None:
         save_kwargs["eigenvalues"] = eigvals
@@ -775,6 +801,7 @@ def analyze_minvar_coordinates(
         "tool": "analyze_minvar_coordinates",
         "mode": "sliding_window",
         "matrices_file": str(matrices_path),
+        "output_file": str(matrices_path),
         "windows": int(matrices.shape[0]),
         "matrix_shape": list(matrices.shape),
         "twindow": float(twindow),

@@ -2635,18 +2635,22 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
         @_safe_tool
         def analyze_minvar_coordinates(
             input_file: str,
-            output_dir: str,
+            output_dir: str | None = None,
             twindow: float | None = None,
             tslide: float | None = None,
             time_col: str = "time",
             vector_cols: list[str] | None = None,
+            output_file: str | None = None,
         ) -> str:
             """Analysis: minimum-variance analysis (MVA) / LMN boundary-normal frame.
 
             Backend: pyspedas minvar / minvar_matrix_make. Full-interval mode
             (twindow=None) returns eigenvalues, eigenvectors, the normal vector, and
-            the intermediate/min ratio plus a rotated-series file path. Sliding-window
-            mode writes per-window rotation matrices. Requires spedas-mcp[analysis].
+            the intermediate/min ratio plus a rotated-series file path. Use
+            output_file for an explicit single artifact path, or output_dir for
+            the default filename; output_dir remains supported for existing
+            callers. Sliding-window mode writes per-window rotation matrices.
+            Requires spedas-mcp[analysis].
             """
             from spedas_mcp.analysis.coords import analyze_minvar_coordinates as _impl
 
@@ -2657,6 +2661,7 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 tslide=tslide,
                 time_col=time_col,
                 vector_cols=vector_cols,
+                output_file=output_file,
             ))
 
         # ------------------------------------------------------------------
@@ -3193,7 +3198,8 @@ def _install_argument_validation_guard(mcp: FastMCP) -> None:
                 hint=(
                     "Check the argument names/types against the tool's documented "
                     "parameters; analysis tools that emit a single artifact take "
-                    "output_file, those that emit multiple files take output_dir."
+                    "output_file (analyze_minvar_coordinates also accepts output_dir "
+                    "for backward compatibility), those that emit multiple files take output_dir."
                 ),
                 sanitize=False,  # already sanitized by _summarize_pydantic_validation
                 tool=name,
