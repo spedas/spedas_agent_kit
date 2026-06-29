@@ -2834,10 +2834,12 @@ def test_planetary_energetic_particles_stay_pds_led(goal):
 # ---------------------------------------------------------------------------
 
 
-def test_arg_validation_missing_required_is_structured_no_pydantic_leak():
-    """The exact issue #57 scenario: calling analyze_minvar_coordinates with
-    output_file (its sibling's name) instead of the required output_dir must
-    return the structured contract, not a raw pydantic validation error."""
+def test_arg_validation_output_file_alias_reaches_minvar_body_no_pydantic_leak():
+    """The exact issue #57 ergonomics case now succeeds at argument validation:
+    analyze_minvar_coordinates accepts output_file like sibling single-artifact
+    tools. Any later error comes from the body and must not be a raw Pydantic
+    ToolError.
+    """
     server = create_server(include_analysis_tools=True)
     raw = _call_tool(server, "analyze_minvar_coordinates", {
         "input_file": "x.csv",
@@ -2846,16 +2848,13 @@ def test_arg_validation_missing_required_is_structured_no_pydantic_leak():
     })
     payload = json.loads(raw)
     assert payload["status"] == "error"
-    assert payload["code"] == "invalid_arguments"
-    assert payload["tool"] == "analyze_minvar_coordinates"
-    # Names the actually-required argument so the user can recover.
-    assert "output_dir" in payload["message"]
-    assert "hint" in payload
-    # No raw pydantic leak: no doc URL, no echoed input dict, no input value.
+    assert payload["code"] != "invalid_arguments"
+    assert payload.get("tool") != "analyze_minvar_coordinatesArguments"
+    # No raw pydantic leak: no doc URL, no echoed validation internals.
     assert "errors.pydantic.dev" not in raw
     assert "input_value" not in raw
+    assert "ValidationError" not in raw
     assert "out.csv" not in raw
-    # Single-line message, no path leak (consistent with issues #25/#27/#28).
     assert "\n" not in payload["message"]
     assert "/Users/" not in raw
 

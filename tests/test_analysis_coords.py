@@ -499,6 +499,49 @@ def test_minvar_sliding_window(vector_csv, tmp_path, monkeypatch):
     assert npz["matrices"].shape == (3, 3, 3)
 
 
+def test_minvar_full_interval_accepts_output_file_alias(vector_csv, tmp_path, monkeypatch):
+    """Issue #57 compatibility: MVA emits one artifact, so output_file should
+    work like sibling single-artifact analysis tools while output_dir remains
+    accepted for existing callers.
+    """
+    _install_fake_pyspedas(monkeypatch)
+    out_file = tmp_path / "mva_lmn.csv"
+    out = coords.analyze_minvar_coordinates(
+        input_file=str(vector_csv),
+        output_file=str(out_file),
+        vector_cols=["bx", "by", "bz"],
+    )
+    assert out["status"] == "success"
+    assert out["mode"] == "full_interval"
+    assert out["rotated_file"] == str(out_file)
+    assert out["output_file"] == str(out_file)
+    assert out_file.exists()
+
+
+def test_minvar_sliding_window_accepts_output_file_alias(vector_csv, tmp_path, monkeypatch):
+    _install_fake_pyspedas(monkeypatch)
+    out_file = tmp_path / "mva_matrices.npz"
+    out = coords.analyze_minvar_coordinates(
+        input_file=str(vector_csv),
+        output_file=str(out_file),
+        twindow=10.0,
+        tslide=5.0,
+        vector_cols=["bx", "by", "bz"],
+    )
+    assert out["status"] == "success"
+    assert out["mode"] == "sliding_window"
+    assert out["matrices_file"] == str(out_file)
+    assert out["output_file"] == str(out_file)
+    assert np.load(out_file)["matrices"].shape == (3, 3, 3)
+
+
+def test_minvar_requires_one_output_target(vector_csv):
+    out = coords.analyze_minvar_coordinates(input_file=str(vector_csv))
+    assert out["status"] == "error"
+    assert out["code"] == "invalid_argument"
+    assert "output_file" in out["message"]
+
+
 # --------------------------------------------------------------------------
 # Input-parsing robustness
 # --------------------------------------------------------------------------
