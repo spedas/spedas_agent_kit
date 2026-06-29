@@ -26,4 +26,4 @@ In-tree copies of the data backends the facade dispatches to (issue #107: absorb
 ## Notes
 
 - Internal imports were rewritten `cdawebmcp.* → spedas_mcp.backends.cdaweb.*`. The absorption surfaced + fixed a latent bug: the facade called `cache_clean(observatory=...)` but the backend takes `observatories=[...]` (server.py now maps singular→list).
-- Remaining work (#107): vendor `spice/` the same way (kernel-download gating + `.kernel_manager` submodule) (each its own PR, anatomy updated in the same commit); fold their deps; drop the `xhelio-pds`/`xhelio-spice` lines.
+- Remaining work (#107): vendor `spice/` the same way (kernel-download gating + `.kernel_manager` submodule) (each its own PR, anatomy updated in the same commit); fold their deps; drop the remaining `xhelio-spice` line.

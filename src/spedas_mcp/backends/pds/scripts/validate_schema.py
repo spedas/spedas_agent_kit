@@ -5,10 +5,10 @@ Downloads and parses N labels per dataset (without fetching full data)
 to detect schema drift. Results are persisted to the validation cache.
 
 Usage:
-    python -m pdsmcp.scripts.validate_schema                     # All missions
-    python -m pdsmcp.scripts.validate_schema --mission juno      # One mission
-    python -m pdsmcp.scripts.validate_schema --dataset-id X      # One dataset
-    python -m pdsmcp.scripts.validate_schema --sample 20         # More samples
+    python -m spedas_mcp.backends.pds.scripts.validate_schema                     # All missions
+    python -m spedas_mcp.backends.pds.scripts.validate_schema --mission juno      # One mission
+    python -m spedas_mcp.backends.pds.scripts.validate_schema --dataset-id X      # One dataset
+    python -m spedas_mcp.backends.pds.scripts.validate_schema --sample 20         # More samples
 """
 
 import argparse

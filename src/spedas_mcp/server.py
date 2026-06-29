@@ -350,7 +350,7 @@ def _augment_cdaweb_stats(dataframe: Any, backend_stats: Any) -> Any:
 _MAX_RESPONSE_BYTES = 60000
 
 # Matches absolute filesystem paths so they can be stripped from user-facing
-# error text. Backends such as vendored CDAWeb and external PDS raise FileNotFoundError
+# error text. Backends such as vendored CDAWeb and PDS raise FileNotFoundError
 # messages that embed local cache directories (issue #25, issue #27); those must
 # never reach an MCP client. Two narrow alternatives keep the match specific:
 #   * POSIX absolute paths: a leading ``/`` plus two or more segments.

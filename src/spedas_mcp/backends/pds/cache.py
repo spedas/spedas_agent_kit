@@ -498,7 +498,7 @@ def rebuild_catalog(mission: str | None = None) -> dict:
 
     Downloads the full Metadex dataset catalog and regenerates mission JSON
     files. This is the programmatic equivalent of:
-        python -m pdsmcp.scripts.build_catalog [--mission <stem>]
+        python -m spedas_mcp.backends.pds.scripts.build_catalog [--mission <stem>]
 
     Args:
         mission: Only rebuild this mission stem. If None, rebuild all.

@@ -2,12 +2,12 @@
 """Build PDS PPI mission catalog JSONs from Metadex Solr API.
 
 Queries the PDS PPI Metadex, groups collections by mission, and writes
-one JSON per mission to ``src/pdsmcp/data/missions/``.
+one JSON per mission to ``src/spedas_mcp/backends/pds/data/missions/``.
 
 Usage:
-    python -m pdsmcp.scripts.build_catalog                  # All missions
-    python -m pdsmcp.scripts.build_catalog --mission juno    # One mission
-    python -m pdsmcp.scripts.build_catalog --list            # List missions only
+    python -m spedas_mcp.backends.pds.scripts.build_catalog                  # All missions
+    python -m spedas_mcp.backends.pds.scripts.build_catalog --mission juno    # One mission
+    python -m spedas_mcp.backends.pds.scripts.build_catalog --list            # List missions only
 """
 
 import argparse
@@ -77,7 +77,7 @@ def fetch_all_ppi_collections(rows: int = 2000) -> list[dict]:
 
 
 def metadex_id_to_dataset_id(metadex_id: str, archive_type: int) -> str:
-    """Convert a Metadex collection ID to a pdsmcp dataset ID.
+    """Convert a Metadex collection ID to a vendored PDS dataset ID.
 
     PDS4 URNs pass through as-is. PDS3 IDs get a ``pds3:`` prefix.
     """

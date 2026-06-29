@@ -49,7 +49,7 @@ SPICE is a special case: it is part of the SPEDAS data context, but most useful 
 Good fits for backend packages:
 
 - CDAWeb catalog/fetch semantics → vendored `spedas_mcp.backends.cdaweb` backend (formerly `xhelio-cdaweb`).
-- PDS archive resolution and dataset metadata → `xhelio-pds` backend.
+- PDS archive resolution and dataset metadata → vendored `spedas_mcp.backends.pds` backend (formerly `xhelio-pds`).
 - SPICE kernel registry and geometry computation → `xhelio-spice` backend.
 
 Good fits for `spedas_mcp`:

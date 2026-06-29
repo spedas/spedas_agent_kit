@@ -397,7 +397,7 @@ def compute_stats(df: pd.DataFrame) -> dict:
 def _load_cached_metadata(dataset_id: str) -> dict | None:
     """Try to load metadata from local cache.
 
-    Imports from ``pdsmcp.metadata`` (lazy) to access the metadata cache
+    Imports from ``spedas_mcp.backends.pds.metadata`` (lazy) to access the metadata cache
     directory and filename convention.
 
     Returns:

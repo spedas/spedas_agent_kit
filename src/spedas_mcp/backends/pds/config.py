@@ -6,7 +6,7 @@ _cache_dir: Path | None = None
 
 
 def configure(cache_dir: str | Path | None = None) -> None:
-    """Configure the pdsmcp package.
+    """Configure the vendored PDS backend.
 
     Call once at startup to set the cache root directory. All runtime data
     (metadata cache, data file cache, validation records) lives under this root.

@@ -2,12 +2,12 @@
 """Build bundled parameter metadata JSONs from PDS labels.
 
 Downloads one label per dataset, parses it, and writes the metadata to
-``src/pdsmcp/data/metadata/``.  These files ship with the package so
+``src/spedas_mcp/backends/pds/data/metadata/``.  These files ship with the package so
 ``browse_parameters`` works instantly without network access.
 
 Usage:
-    python -m pdsmcp.scripts.build_metadata                  # All missions
-    python -m pdsmcp.scripts.build_metadata --mission juno   # One mission
+    python -m spedas_mcp.backends.pds.scripts.build_metadata                  # All missions
+    python -m spedas_mcp.backends.pds.scripts.build_metadata --mission juno   # One mission
 """
 
 import argparse
