@@ -107,6 +107,43 @@ def test_analysis_tools_register_when_analysis_extra_is_available(monkeypatch):
     data = json.loads(_call_tool(server, "spedas_overview"))
     assert data["capability_groups"]["analysis"]["tools"] == list(ANALYSIS_TOOL_NAMES)
 
+def test_optional_backend_availability_metadata_when_base_deps_missing(monkeypatch):
+    from spedas_mcp import server as server_mod
+
+    monkeypatch.setattr(server_mod, "_analysis_dependencies_available", lambda: False)
+    monkeypatch.setattr(server_mod, "_module_available", lambda name: False)
+
+    server = create_server()
+    tool_names = {tool.name for tool in asyncio.run(server.list_tools())}
+    assert {"browse_hapi_catalog", "fetch_hapi_data", "browse_fdsn_datasets", "fetch_fdsn_data"} <= tool_names
+    assert set(ANALYSIS_TOOL_NAMES).isdisjoint(tool_names)
+
+    overview = json.loads(_call_tool(server, "spedas_overview"))
+    optional = overview["capability_groups"]["optional_backends"]
+    assert optional["analysis"]["available"] is False
+    assert optional["analysis"]["requires_extra"] == "analysis"
+    assert optional["analysis"]["registration"] == "registered_when_available"
+    assert optional["hapi"]["available"] is False
+    assert optional["hapi"]["requires_extra"] == "hapi"
+    assert optional["hapi"]["registration"] == "always_registered"
+    assert optional["hapi"]["missing_modules"] == ["hapiclient"]
+    assert optional["fdsn"]["available"] is False
+    assert optional["fdsn"]["requires_extra"] == "fdsn"
+    assert optional["fdsn"]["registration"] == "always_registered"
+    assert {"pyspedas", "mth5", "obspy"} == set(optional["fdsn"]["missing_modules"])
+    assert "missing_dependency" in optional["hapi"]["call_behavior"]
+    assert "missing_dependency" in optional["fdsn"]["call_behavior"]
+
+    sources = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "all"}))
+    by_type = {entry["source_type"]: entry for entry in sources["source_types"]}
+    assert by_type["hapi"]["available"] is False
+    assert by_type["hapi"]["requires_extra"] == "hapi"
+    assert by_type["hapi"]["install_hint"] == "pip install 'spedas-mcp[hapi]'"
+    assert by_type["fdsn"]["available"] is False
+    assert by_type["fdsn"]["requires_extra"] == "fdsn"
+    assert by_type["fdsn"]["install_hint"] == "pip install 'spedas-mcp[fdsn]'"
+
+
 def test_overview_is_compact_json(monkeypatch):
     monkeypatch.delenv("SPEDAS_MCP_COMPAT_TOOLS", raising=False)
     server = create_server()
