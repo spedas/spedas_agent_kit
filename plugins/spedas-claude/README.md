@@ -19,3 +19,11 @@ uvx --with 'mcp>=1.26.0' --from git+https://github.com/spedas/spedas_mcp.git spe
 ```
 
 For local hacking before release, install this repo into the environment you use with Claude Code or edit `.mcp.json` to run `uv run --project /path/to/spedas-mcp --extra mcp spedas-mcp`.
+
+## Compatibility pin
+
+This in-repo fixture follows `../spedas-mcp-compatibility.json`: it pins
+`spedas_mcp` to commit `170a8b0c0d058c729d4769f9848754cfb8ec9f8e`, bounds the MCP
+protocol package as `mcp>=1.26.0,<2`, and expects the base `list_tools` surface to
+advertise 17 tools. Refresh the manifest, this `.mcp.json`, and the Codex fixture
+together after any server tool-surface change.

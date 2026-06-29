@@ -377,6 +377,7 @@ For plugin-style distribution, the canonical standalone wrappers now live in sep
 - <https://github.com/spedas/spedas_codex> — Codex plugin wrapper.
 
 The in-repo `plugins/spedas-claude/` and `.agents/plugins/spedas-codex/` directories remain lightweight development examples and compatibility fixtures; runtime-specific packaging should evolve in the standalone repos while this repository owns the MCP server itself.
+Their shared compatibility contract is recorded in `plugins/spedas-mcp-compatibility.json` and validated by `scripts/validate_plugin_packages.py`: current base `list_tools` count is 17 at `170a8b0c0d058c729d4769f9848754cfb8ec9f8e`; optional analysis and legacy compatibility tools are intentionally outside that base count.
 
 ## Maintainer-facing positioning
 

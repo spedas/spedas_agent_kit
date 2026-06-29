@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+COMPATIBILITY = ROOT / "plugins" / "spedas-mcp-compatibility.json"
 
 
 def load_json(path: Path) -> dict:
@@ -20,8 +21,40 @@ def require(path: Path) -> None:
         raise SystemExit(f"Missing required plugin file: {path.relative_to(ROOT)}")
 
 
+def _expected_mcp_args() -> list[str]:
+    manifest = load_json(COMPATIBILITY)
+    tools = manifest.get("base_tools", [])
+    if manifest.get("base_tool_count") != len(tools):
+        raise SystemExit(
+            "plugins/spedas-mcp-compatibility.json: base_tool_count does not "
+            "match base_tools length"
+        )
+    return [
+        "--with",
+        manifest["mcp_requirement"],
+        "--from",
+        manifest["spedas_mcp_source"],
+        "spedas-mcp",
+    ]
+
+
+def _validate_mcp_server(mcp_path: Path, server: dict) -> None:
+    assert server["command"] == "uvx"
+    expected = _expected_mcp_args()
+    if server.get("args") != expected:
+        raise SystemExit(
+            f"{mcp_path.relative_to(ROOT)}: spedas MCP args must match "
+            f"plugins/spedas-mcp-compatibility.json; got {server.get('args')!r}"
+        )
+    env = server.get("env", {})
+    for name in ["XHELIO_CDAWEB_CACHE_DIR", "PDSMCP_CACHE_DIR", "XHELIO_SPICE_KERNEL_DIR"]:
+        if name not in env:
+            raise SystemExit(f"{mcp_path.relative_to(ROOT)}: missing cache env {name}")
+
+
 def validate_claude() -> None:
     root = ROOT / "plugins" / "spedas-claude"
+    require(COMPATIBILITY)
     require(root / ".claude-plugin" / "plugin.json")
     require(root / ".mcp.json")
     require(root / "skills" / "spedas-workflow" / "SKILL.md")
@@ -31,14 +64,14 @@ def validate_claude() -> None:
     manifest = load_json(root / ".claude-plugin" / "plugin.json")
     assert manifest["name"] == "spedas-claude"
     assert manifest["version"]
-    mcp = load_json(root / ".mcp.json")
-    server = mcp["mcpServers"]["spedas"]
-    assert server["command"] == "uvx"
-    assert "spedas-mcp" in server["args"]
+    mcp_path = root / ".mcp.json"
+    mcp = load_json(mcp_path)
+    _validate_mcp_server(mcp_path, mcp["mcpServers"]["spedas"])
 
 
 def validate_codex() -> None:
     root = ROOT / ".agents" / "plugins" / "spedas-codex"
+    require(COMPATIBILITY)
     require(root / ".codex-plugin" / "plugin.json")
     require(root / ".mcp.json")
     require(root / "skills" / "spedas-workflow" / "SKILL.md")
@@ -48,10 +81,9 @@ def validate_codex() -> None:
     assert manifest["name"] == "spedas-codex"
     assert manifest["skills"] == "./skills/"
     assert manifest["mcpServers"] == "./.mcp.json"
-    mcp = load_json(root / ".mcp.json")
-    server = mcp["mcp_servers"]["spedas"]
-    assert server["command"] == "uvx"
-    assert "spedas-mcp" in server["args"]
+    mcp_path = root / ".mcp.json"
+    mcp = load_json(mcp_path)
+    _validate_mcp_server(mcp_path, mcp["mcp_servers"]["spedas"])
     marketplace = load_json(ROOT / ".agents" / "plugins" / "marketplace.json")
     assert marketplace["plugins"][0]["source"]["path"] == "./spedas-codex"
 
