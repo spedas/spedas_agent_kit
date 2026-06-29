@@ -15,6 +15,7 @@ Implementation backend packages should stay visible to maintainers, but they sho
 - Python package name: `spedas-agent-kit`
 - Python module / CLI module: `spedas_agent_kit`
 - Canonical shared skills: `src/spedas_agent_kit/resources/skills/` (packaged with the kit; wrappers should stay thin)
+- MCP skill resources: `spedas-skill://index` lists the packaged skills and `spedas-skill://skills/<skill-name>` returns the full `SKILL.md`; skills are exposed as resources rather than extra tools.
 - Default MCP tool count: 13 (direct datasource, compatibility, and analysis tools are conditionally registered); advertised tools carry MCP `ToolAnnotations` plus `meta.surface` (`primary`, `datasource`, `advanced`, or `compat`) so launchers can filter by surface and side-effect hints.
 
 ## Practical guide: run a SPEDAS Agent Kit study
@@ -344,16 +345,20 @@ The former dedicated cache tools (`manage_cdaweb_cache`, `manage_pds_cache`, `ma
 ## Recommended agent workflow
 
 1. Call `spedas_overview()`.
-2. For a natural-language science request, call `search_spedas_data_sources(...)` or `plan_spedas_observation(...)`.
-3. Use the data layer:
+2. If your MCP client supports resources, read `spedas-skill://index` (or call
+   `list_resources`) and then load the relevant `spedas-skill://skills/<name>`
+   `SKILL.md`; this exposes the shipped research workflows without increasing
+   the default `list_tools` surface.
+3. For a natural-language science request, call `search_spedas_data_sources(...)` or `plan_spedas_observation(...)`.
+4. Use the data layer:
    - `browse_data_sources(source_type="all")`
    - `browse_data_sources(source_type="cdaweb" | "pds" | "spice")`
    - `load_data_source(...)`
    - `browse_data_parameters(...)`
    - `fetch_data_product(...)` for CDAWeb/PDS measurement/archive products
-4. Use geometry tools directly for SPICE ephemeris, distance, frame, and coordinate-transform work.
-5. For any real analysis, call `create_spedas_analysis_bundle(...)` and write fetched files under the generated `data/` directory.
-6. Return compact summaries and file paths. Do not paste large science arrays into chat.
+5. Use geometry tools directly for SPICE ephemeris, distance, frame, and coordinate-transform work.
+6. For any real analysis, call `create_spedas_analysis_bundle(...)` and write fetched files under the generated `data/` directory.
+7. Return compact summaries and file paths. Do not paste large science arrays into chat.
 
 ## Quick start for local development
 

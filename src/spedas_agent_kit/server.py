@@ -22,6 +22,13 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
+from .resources.skill_catalog import (
+    SPEDAS_SKILL_INDEX_URI,
+    SPEDAS_SKILL_URI_PREFIX,
+    list_packaged_skills,
+    read_packaged_skill,
+    render_skill_index_markdown,
+)
 from .optional_backends import (
     ANALYSIS_REQUIRED_IMPORTS as _ANALYSIS_REQUIRED_IMPORTS,
     ANALYSIS_TOOL_NAMES,
@@ -1232,6 +1239,40 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
         datasource_tools_enabled=datasource_tools_enabled,
     )
 
+    def _register_packaged_skill_resources() -> None:
+        """Expose bundled SPEDAS skills through standard MCP resources."""
+
+        @mcp.resource(
+            SPEDAS_SKILL_INDEX_URI,
+            name="spedas-packaged-skills-index",
+            title="SPEDAS Agent Kit packaged skills index",
+            description="Index of packaged SPEDAS Agent Kit research skills and their resource URIs.",
+            mime_type="text/markdown",
+            meta={"surface": "spedas_skill", "kind": "index"},
+        )
+        def spedas_packaged_skills_index_resource() -> str:
+            return render_skill_index_markdown()
+
+        def make_skill_reader(skill_name: str):
+            def read_spedas_skill_resource() -> str:
+                return read_packaged_skill(skill_name)
+
+            safe_name = re.sub(r"[^0-9A-Za-z_]", "_", skill_name)
+            read_spedas_skill_resource.__name__ = f"read_spedas_skill_{safe_name}"
+            return read_spedas_skill_resource
+
+        for skill in list_packaged_skills():
+            mcp.resource(
+                skill.resource_uri,
+                name=skill.name,
+                title=f"SPEDAS skill: {skill.name}",
+                description=skill.description,
+                mime_type="text/markdown",
+                meta={"surface": "spedas_skill", "kind": "skill", "skill_name": skill.name},
+            )(make_skill_reader(skill.name))
+
+    _register_packaged_skill_resources()
+
     def _register_tool(
         *,
         surface: str,
@@ -1351,9 +1392,23 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
     @_primary_tool()
     def spedas_overview() -> str:
         """Describe available SPEDAS Agent Kit capabilities and the recommended workflow."""
+        packaged_skills = list_packaged_skills()
         return _json({
             "status": "success",
             "server": "spedas-agent-kit",
+            "skill_resources": {
+                "status": "available_as_mcp_resources",
+                "count": len(packaged_skills),
+                "index_resource": SPEDAS_SKILL_INDEX_URI,
+                "uri_pattern": f"{SPEDAS_SKILL_URI_PREFIX}{{skill_name}}",
+                "recommended_start": ["spedas-workflow", "spedas-skills-index"],
+                "names": [skill.name for skill in packaged_skills],
+                "note": (
+                    "Bundled SPEDAS Agent Kit skills are exposed as MCP resources, "
+                    "not extra tools, so the default 13-tool surface stays compact. "
+                    "Use MCP list_resources/read_resource to load the index or a full SKILL.md."
+                ),
+            },
             "capability_groups": {
                 "data": [
                     "browse_data_sources",
@@ -1468,6 +1523,7 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
             },
             "workflow": [
                 "Start with search_spedas_data_sources or plan_spedas_observation for open-ended science requests.",
+                "If the MCP client supports resources, read spedas-skill://index or list_resources to discover packaged SPEDAS skills such as spedas-workflow, overview-geomagnetic-indices, wave-polarization, and particle-velocity-slice without adding extra tools to list_tools.",
                 "Use browse_data_sources(source_type='all') to inspect SPEDAS data-source categories.",
                 "Use load_data_source, browse_data_parameters, fetch_data_product, and manage_data_cache for the unified data layer.",
                 "load_data_source(source_type='cdaweb', ...) enumerates dataset_ids so you can call browse_data_parameters without guessing; pass the science goal to search_spedas_data_sources via question= (query= is accepted as an alias).",
