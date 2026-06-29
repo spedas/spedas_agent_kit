@@ -40,6 +40,9 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 ## Load order
 1. (this index) → 2. one focused skill → 3. that skill's tool chain. Don't pre-read every skill.
 
+## For coding agents (maintenance)
+- To navigate or change the spedas_mcp codebase, use the **`spedas-mcp-anatomy`** skill: descend the `ANATOMY.md` tree from the repo root, read cited `file:line` code, and update anatomy in the same commit as code.
+
 ## Universal rules (every skill obeys)
 - **Artifact-first:** bundle the run, pass `output_dir` everywhere, return paths + compact stats, never pasted arrays.
 - **Plan before fetch:** know source_type, dataset_id, parameters, time range, output_dir first.
