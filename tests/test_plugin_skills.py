@@ -42,3 +42,15 @@ def test_claude_plugin_skills_match_packaged_resource_copies():
             mismatches.append(name)
 
     assert not mismatches, "Skill copies differ: " + ", ".join(mismatches)
+
+
+def test_solar_wind_turbulence_intermittency_skill_is_indexed():
+    skill = ROOT / "plugins/spedas-claude/skills/solar-wind-turbulence-intermittency/SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    assert "name: solar-wind-turbulence-intermittency" in text
+    assert "PVI" in text
+    assert "third-order" in text
+    assert "event table" in text
+
+    index = (ROOT / "plugins/spedas-claude/skills/spedas-skills-index/SKILL.md").read_text(encoding="utf-8")
+    assert "solar-wind-turbulence-intermittency" in index

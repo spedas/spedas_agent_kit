@@ -9,6 +9,8 @@ A guided, end-to-end version of the classic IDL SPEDAS "wave/turbulence crib she
 take a magnetic-field interval and characterize its fluctuation power vs. frequency.
 It chains **existing** unified + analysis tools — there is no dedicated "turbulence"
 tool, and there should not be; the value is in the procedure and the interpretation.
+For PVI, intermittency event tables, or third-order-law/energy-transfer prerequisites,
+load `solar-wind-turbulence-intermittency` alongside this spectrum skill.
 
 ## When to use
 - "What does the turbulence spectrum look like for PSP on <date>?"
@@ -19,6 +21,25 @@ tool, and there should not be; the value is in the procedure and the interpretat
 `plan_spedas_observation` → `load_data_source` → `browse_data_parameters`
 → `fetch_data_product` → `dynamic_power_spectrum` → `wavelet_transform` → `render_tplot`,
 wrapped in `create_spedas_analysis_bundle` for provenance.
+
+## PSP paper-reproduction branch
+
+For PSP Encounter-1 papers such as Chhiber et al. 2020 PVI (`10.3847/1538-4365/ab53d2`),
+inner-heliosphere turbulence evolution (`10.3847/1538-4365/ab60a3`), and enhanced
+energy-transfer/cascade-rate work (`10.3847/1538-4365/ab5dae`), start with this
+skill but keep the claim level explicit:
+
+1. **Smoke/proxy run:** a narrow MAG RTN 1-minute + SWEAP/SPC interval may be
+   enough to prove the data route, artifact bundle, and provenance. Label it
+   `cached_smoke` or `representative_proxy`, not `paper_quality`.
+2. **Derived breadcrumbs:** PVI, rolling variance, simple PSD slopes, vector
+   increments, and `delta z`/third-order-law teaching proxies are useful for
+   orientation. Record cadence, lag, normalization, fit band, and sample counts.
+3. **Paper-quality escalation:** switch to the cadence/product used by the paper,
+   isolate stationary intervals, handle gaps/fill values, and document the
+   Taylor-hypothesis / plasma-moment assumptions before reporting cascade rates.
+4. **Event output:** when PVI or switchback thresholds are used, write an event
+   table next to the PNG so the result is reviewable and reusable.
 
 ## Procedure
 
@@ -52,6 +73,7 @@ wrapped in `create_spedas_analysis_bundle` for provenance.
 - Artifact-first: every step writes to the bundle; return paths + compact stats, never pasted spectra.
 - A meaningful spectrum needs enough samples for the lowest frequency of interest — a few minutes minimum at high cadence; warn if the window is too short (the spectral tools will reject single-row / all-NaN input).
 - Don't over-interpret a slope from a non-stationary window (e.g. spanning a shock or sector boundary); split the interval if conditions change.
+- Do not present PVI/increment/cascade proxies as publication-grade energy-transfer rates unless the lag range, cadence, plasma normalization, and uncertainty treatment match the paper method.
 
 ## Example (verified)
 PSP Encounter 24, 2025-06-17→06-21, `PSP_FLD_L2_MAG_RTN_1MIN` → |B| → dynamic power spectrum + Morlet wavelet → 2-panel spectrogram PNG. Enhanced power bands coincide with high-density streamer crossings near perihelion; the full-cadence MAG (`PSP_FLD_L2_MAG_RTN`) resolves the inertial range and switchback intermittency far better than the 1-min product.

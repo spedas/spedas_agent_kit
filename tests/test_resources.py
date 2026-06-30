@@ -44,6 +44,7 @@ def test_packaged_skill_catalog_lists_research_skill_resources() -> None:
         "paper-reproduction",
         "psp-solar-wind-switchbacks",
         "solar-wind-icme-storm",
+        "solar-wind-turbulence-intermittency",
     } <= names
     assert all(skill.resource_uri == f"{SPEDAS_SKILL_URI_PREFIX}{skill.name}" for skill in skills)
     assert all(skill.description for skill in skills)
@@ -82,6 +83,8 @@ def test_solar_wind_paper_reproduction_skills_are_packaged_and_indexed() -> None
     assert "name: psp-solar-wind-switchbacks" in psp
     assert "deflection angle" in psp
     assert "Bale" in psp and "Dudok de Wit" in psp
+    assert "Horbury" in psp and "Chhiber" in psp
+    assert "interval_quality" in psp
     assert "name: solar-wind-icme-storm" in storm
     assert "AE_INDEX" in storm
     assert "STEREO" in storm
@@ -89,3 +92,28 @@ def test_solar_wind_paper_reproduction_skills_are_packaged_and_indexed() -> None
     index = read_packaged_skill("spedas-skills-index")
     assert "psp-solar-wind-switchbacks" in index
     assert "solar-wind-icme-storm" in index
+
+def test_solar_wind_event_presets_include_psp_batch003_seeds() -> None:
+    from pathlib import Path
+
+    # The docs file is not a packaged resource; resolve from repository layout for
+    # regression coverage in source checkouts.
+    text = (Path(__file__).resolve().parents[1] / "docs/examples/solar_wind_event_presets.md").read_text(encoding="utf-8")
+    assert "10.3847/1538-4365/ab5b15" in text
+    assert "10.3847/1538-4365/ab53d2" in text
+    assert "10.3847/1538-4365/ab60a3" in text
+    assert "10.3847/1538-4365/ab5dae" in text
+    assert "10.3847/1538-4365/ab4da7" in text
+    assert "representative_proxy" in text
+    assert "cached_smoke" in text
+
+
+def test_solar_wind_turbulence_intermittency_skill_is_packaged_and_indexed() -> None:
+    skill = read_packaged_skill("solar-wind-turbulence-intermittency")
+    assert "name: solar-wind-turbulence-intermittency" in skill
+    assert "PVI" in skill
+    assert "third-order" in skill
+    assert "event table" in skill
+
+    index = read_packaged_skill("spedas-skills-index")
+    assert "solar-wind-turbulence-intermittency" in index
