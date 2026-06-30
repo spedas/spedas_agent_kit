@@ -41,6 +41,7 @@ def test_packaged_skill_catalog_lists_research_skill_resources() -> None:
         "overview-geomagnetic-indices",
         "wave-polarization",
         "particle-velocity-slice",
+        "paper-reproduction",
     } <= names
     assert all(skill.resource_uri == f"{SPEDAS_SKILL_URI_PREFIX}{skill.name}" for skill in skills)
     assert all(skill.description for skill in skills)
@@ -52,6 +53,15 @@ def test_packaged_skill_index_markdown_points_to_resource_uris() -> None:
     assert SPEDAS_SKILL_INDEX_URI == "spedas-skill://index"
     assert "spedas-skill://skills/spedas-workflow" in index
     assert "spedas-skill://skills/wave-polarization" in index
+    assert "spedas-skill://skills/paper-reproduction" in index
+
+
+def test_paper_reproduction_skill_is_packaged_with_provenance_template() -> None:
+    text = read_packaged_skill("paper-reproduction")
+    assert "name: paper-reproduction" in text
+    assert "Minimal provenance schema" in text
+    assert "paper_quality | proxy | candidate_interval | partial_success" in text
+    assert "Agent Kit feedback" in text
 
 
 def test_read_packaged_skill_by_name_and_reject_path_traversal() -> None:
