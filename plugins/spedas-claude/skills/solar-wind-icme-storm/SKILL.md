@@ -96,6 +96,16 @@ into multi-spacecraft STEREO/Wind/ACE and reduced SEP reproductions:
 - **Use the example doc:** `docs/examples/stereo_icme_multispacecraft.md` carries
   Batch 007 seed rows and a provenance snippet for these cases.
 
+## Batch-009 storm/operational-context cross-reference
+
+Batch 009 revisited Halloween 2003 and Bastille Day 2000 through ENA-emission
+and Brazilian-anomaly precipitation papers, but only loaded OMNI/Kyoto storm
+context. Do not add duplicate seed rows for those intervals and do not claim ENA
+imaging, precipitation, GIC, TEC, or ground-detector reproduction from OMNI/Kyoto
+overlays. Route GOES XRS / storm-index context to `overview-geomagnetic-indices`
+and keep XRS labeled as operational flare context unless a calibrated paper recipe
+is present.
+
 ## Caveats to state in the report
 
 - OMNI is propagated to the bow shock / near-Earth context; it is not a raw Wind or

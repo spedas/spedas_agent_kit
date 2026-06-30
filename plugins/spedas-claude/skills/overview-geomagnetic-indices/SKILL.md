@@ -84,6 +84,53 @@ mind before escalating to new tools or dedicated skills:
   valid. Do not claim third-belt persistence, local acceleration, L*, or PSD
   diagnostics from a six-hour flux/L-shell overview alone.
 
+## GOES XRS operational context
+
+Use GOES XRS only as compact flare / operational context beside storm-index
+overviews unless the paper's calibration and event-selection recipe is explicit.
+The Batch 009 September 2017 route scout loaded XRS through PySPEDAS directly:
+
+```python
+pyspedas.goes.xrs(probe="15", trange=["2017-09-06", "2017-09-08"])
+# example tplot variable: g15_xrs_B_AVG
+```
+
+Guidance:
+
+- Choose the GOES spacecraft/probe from the event year and record that choice in
+  provenance. GOES-15 is appropriate for the 2017-09 scout; older events may
+  require GOES-13/14/15 overlap checks, while GOES-16/17/18 use a newer product
+  family.
+- Treat `g*_xrs_*` variables as X-ray-flux context. They are not a GIC driver,
+  not a calibrated flare-class/event-selection product, and not a ground-network
+  reproduction without an explicit paper recipe and citation.
+- Do not promise an Agent Kit `load_data_source` route for XRS from the packaged
+  CDAWeb catalog. GOES appears as a CDAWeb observatory, but Batch 009 reached XRS
+  through `pyspedas.goes.xrs`; say that plainly in reports.
+
+## Batch 009 storm/operational-context guardrails
+
+Batch 009 used OMNI HRO 1-min, Kyoto Dst, OMNI `SYM_H`/AE/AL/AU, and one GOES-15
+XRS route scout for storm-linked papers. Keep these as `proxy` / `route_scout`
+results unless the paper's exact products, cadence, station/spacecraft selection,
+and analysis recipe are reproduced.
+
+- St. Patrick's Day 2015 papers can share one verified OMNI/Kyoto storm-context
+  bundle, but keep their DOIs and science targets distinct. OMNI/Kyoto overlays
+  are not a TEC, GNSS, or ionosphere data assimilation reproduction.
+- September 2017 GOES XRS context must remain `route_scout`; label the ESSOAr DOI
+  as `doi_verified_crossref_preprint` / preprint, and do not claim a GIC
+  reproduction or calibrated flare attribution from `g15_xrs_B_AVG` alone.
+- Halloween 2003 ENA-emission and Bastille Day 2000 Brazilian-anomaly
+  precipitation papers revisit intervals already seeded elsewhere. Do not add
+  duplicate event rows for those intervals; use them as overclaim reminders.
+  OMNI/Kyoto context cannot reproduce ENA imaging, particle precipitation, or
+  ground-detector response.
+- Multiple papers may target the same storm interval. Share a verified
+  OMNI/Kyoto/GOES bundle in provenance, but keep the paper target, DOI,
+  quality label, and non-reproduced observables explicit rather than inventing a
+  resolver tool.
+
 ## Fetch pattern
 
 - Create an analysis bundle first when the task is more than a single index:

@@ -193,3 +193,36 @@ def test_batch008_magnetotail_guardrails_are_indexed():
     assert "10.1029/2009GL038980" in doc
     assert presets.count("10.1126/science.1160495") == 1
     assert presets.count("10.1029/2009GL038980") == 1
+
+
+def test_batch009_storm_context_guardrails_are_indexed():
+    overview = (ROOT / "plugins/spedas-claude/skills/overview-geomagnetic-indices/SKILL.md").read_text(encoding="utf-8")
+    storm = (ROOT / "plugins/spedas-claude/skills/solar-wind-icme-storm/SKILL.md").read_text(encoding="utf-8")
+    index = (ROOT / "plugins/spedas-claude/skills/spedas-skills-index/SKILL.md").read_text(encoding="utf-8")
+    presets = (ROOT / "docs/examples/solar_wind_event_presets.md").read_text(encoding="utf-8")
+
+    assert "GOES XRS operational context" in overview
+    assert "pyspedas.goes.xrs" in overview
+    assert "St. Patrick's Day 2015" in overview
+    assert "not a TEC" in overview
+    assert "ionosphere data assimilation" in overview
+    assert "GIC" in overview and "reproduction" in overview
+    assert "ENA imaging" in overview
+    assert "precipitation" in overview
+    assert "doi_verified_crossref_preprint" in overview
+
+    assert "Batch-009 storm/operational-context cross-reference" in storm
+    assert "not add duplicate seed rows" in storm
+    assert "GOES XRS operational storm context" in index
+
+    for expected in [
+        "10.1002/2016JA023346",
+        "10.31401/ws.2024.proc.10",
+        "10.22541/essoar.175767277.75279168/v1",
+    ]:
+        assert expected in presets
+    assert "For Batch 009 storm/operational-context seeds" in presets
+    assert "10.1029/2009GL038853" not in presets
+    assert "10.1186/BF03351958" not in presets
+    assert presets.count("10.1029/2004JA010494") == 1
+    assert presets.count("10.1029/2001GL014136") == 1
