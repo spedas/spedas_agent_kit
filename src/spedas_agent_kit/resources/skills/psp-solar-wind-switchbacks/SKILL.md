@@ -17,7 +17,10 @@ a narrow FIELDS + SWEAP data plan, an artifact bundle, and explicit proxy labels
 | Bale et al. 2019 structured slow wind, DOI `10.1038/s41586-019-1818-7` | PSP E1, e.g. `2018-11-05/00:00:00`–`2018-11-07/00:00:00` until the paper figure interval is confirmed | FIELDS MAG RTN 1-min + SWEAP/SPC L3i | `Br/Bt/Bn`, `|B|`, proton speed/density/thermal speed, magnetic deflection angle |
 | Kasper et al. 2019 Alfvénic velocity spikes, DOI `10.1038/s41586-019-1813-z` | PSP E1 windows around perihelion, e.g. `2018-11-06/00:00:00`–`12:00:00` | FIELDS MAG RTN + SWEAP/SPC velocity moments | B/V component rotations, speed spikes, candidate Alfvénic correlation |
 | Dudok de Wit et al. 2020 switchbacks, DOI `10.3847/1538-4365/ab5853` | PSP E1 multi-hour to multi-day windows | FIELDS MAG RTN, optional SPC context | deflection-angle histogram, threshold sensitivity, candidate switchback fraction |
-| Horbury/Chhiber PSP E1 switchback/turbulence papers | PSP E1 paper interval or candidate interval | FIELDS MAG, SWEAP, optional derived turbulence skill | switchback markers plus PSD/PVI follow-up |
+| Horbury et al. 2020 sharp Alfvénic impulses, DOI `10.3847/1538-4365/ab5b15` | PSP E1 paper interval or smoke window such as `2018-11-06/00:00:00`–`06:00:00` | FIELDS MAG RTN + SWEAP/SPC | matched-cadence B/V rotations, deflection angle, candidate velocity-jump/Alfvénicity proxy |
+| Chhiber et al. 2020 PVI/intermittent structures, DOI `10.3847/1538-4365/ab53d2` | PSP E1 short windows around perihelion, e.g. `2018-11-06/00:00:00`–`03:00:00` for cache-friendly smoke | FIELDS MAG RTN, optional SWEAP/SPC context | PVI by explicit lag, thresholded intermittent-structure candidates, event table |
+| PSP E1 turbulence / cascade papers, DOIs `10.3847/1538-4365/ab60a3` and `10.3847/1538-4365/ab5dae` | PSP E1 statistically quiet sub-intervals; keep smoke windows narrow until paper windows are confirmed | FIELDS MAG RTN + SWEAP/SPC, preferably high cadence for real analysis | PSD/PVI/increment breadcrumbs first; escalate to `solar-wind-turbulence-spectrum` or a documented cascade workflow |
+| Magnetic field line switchbacks near the Sun, DOI `10.3847/1538-4365/ab4da7` | PSP E1 perihelion windows such as `2018-11-05/00:00:00`–`06:00:00` for smoke | FIELDS MAG RTN + SWEAP/SPC | field-line polarity/deflection proxy, speed overlay, threshold-sensitivity follow-up |
 
 Treat these intervals as **candidate intervals** unless the user supplies an exact
 paper figure time or you have checked the paper/supplement.
@@ -48,6 +51,30 @@ paper figure time or you have checked the paper/supplement.
 6. **Validate artifacts.** Ensure axes include units, panels are populated, and the
    report labels the result as `candidate_interval` or `proxy` unless the exact
    paper method/interval has been matched.
+
+## Batch-003 follow-up diagnostics
+
+The paper-reproduction campaign's PSP batch 003 (Horbury/Chhiber/turbulence/
+energy-transfer/field-line-switchback papers) showed a repeated gap: agents can
+fetch PSP E1 MAG+SPC, but they must hand-code the same derived breadcrumbs. Until
+Agent Kit grows dedicated, validated operations, keep the workflow explicit:
+
+- **PVI/intermittency:** state the vector product, cadence, lag, normalization
+  window, threshold, and whether event durations were merged. Export a compact
+  event table (`start`, `stop`, `peak_pvi`, `lag`, `threshold`) before claiming an
+  intermittent-structure catalog.
+- **Sharp impulses / switchbacks:** record the deflection-angle definition,
+  threshold sweep, B/V interpolation method, and candidate duration. Keep
+  `proxy` labels unless the paper's event list or figure interval is matched.
+- **Turbulence / cascade papers:** use `solar-wind-turbulence-intermittency` for PVI/event tables,
+  `solar-wind-turbulence-spectrum` or `power-spectral-density` for spectra, but label single-window PSD/increment
+  plots as pedagogical breadcrumbs. A third-order-law or cascade-rate result
+  needs explicit units, Taylor-hypothesis assumptions, plasma moments, lag range,
+  and uncertainty/fit bounds.
+- **Provenance:** add `interval_quality` (`paper_exact`, `representative_proxy`,
+  or `cached_smoke`), `cadence_choice`, `fill_value_warnings`, and
+  `derived_normalization` so a reviewer can tell what is science-ready and what
+  is only a workflow smoke test.
 
 ## Caveats to state in the report
 
