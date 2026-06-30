@@ -90,3 +90,33 @@ def test_batch005_themis_rbsp_guardrails_are_indexed():
         "10.1126/science.1237743",
     ]:
         assert expected in presets
+
+
+def test_batch006_mms_reconnection_guardrails_are_indexed():
+    workflow = (ROOT / "plugins/spedas-claude/skills/spedas-workflow/SKILL.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs/examples/mms_magnetopause_workflow.md").read_text(encoding="utf-8")
+    presets = (ROOT / "docs/examples/solar_wind_event_presets.md").read_text(encoding="utf-8")
+
+    assert "MMS reconnection events (Batch 006 guardrail)" in workflow
+    assert "analyze_minvar_coordinates" in workflow
+    assert "pitch_angle" in workflow
+    assert "transparent proxy" in workflow
+    assert "availability_failure" in workflow
+
+    assert "Batch 006 MMS derived-diagnostics guardrail" in doc
+    assert "transform_timeseries_coordinates" in doc
+    assert "single-spacecraft moment current" in doc
+    assert "curlometer current" in doc
+    assert "availability_failure" in doc
+
+    for expected in [
+        "10.1002/2016GL068613",
+        "10.1002/2016GL069064",
+        "10.1002/2016GL068359",
+        "10.1038/nature26178",
+        "10.1126/science.aat2998",
+    ]:
+        assert expected in presets
+    assert "MMS asymmetric magnetopause electron-current/heating proxy" in presets
+    assert "MMS electron-only reconnection availability scout" in presets
+    assert "availability_failure" in presets

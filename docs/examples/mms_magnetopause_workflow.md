@@ -140,6 +140,37 @@ Notes:
 - Supported bridge converters today are **MMS FPI/HPCA + ERG** only (THEMIS/PSP have no upstream pyspedas Python `*_get_dist` converter yet).
 - For a velocity-space cut (beams/crescents) see the `particle-velocity-slice` skill; for the full PAD pipeline see `pitch-angle-distribution`.
 
+
+### 5c. Batch 006 MMS derived-diagnostics guardrail (existing analysis tools)
+
+Batch 006 paper-reproduction probes (Graham/Khotyaintsev/Lavraud/Phan/Torbert)
+showed that an agent can fetch MMS FGM/FPI/EDP data and still miss analysis
+helpers that already ship with Agent Kit. After the data fetches above, keep the
+run artifact-first and chain into the existing analysis layer before writing new
+physics code:
+
+1. **Boundary-normal / LMN frame:** run `analyze_minvar_coordinates` on the FGM B
+   time series over the paper or candidate current-sheet interval. Record the LMN
+   matrix, eigenvalue ratios, time window, and input artifact path in provenance.
+   Use `transform_timeseries_coordinates` to put B, V_i, or V_e into that frame;
+   use `generate_fac_matrix` when a field-aligned frame is the right comparison.
+2. **Particle pitch-angle or energy spectra:** use the `*-DIST` path in §5b and
+   call `compute_particle_spectra(..., spectrum_types=["energy", "pitch_angle"])`.
+   A `*-MOMS` product can support density/velocity panels, but it is not enough
+   for distribution or PAD claims.
+3. **Proxy-vs-paper-exact labeling:** a single-spacecraft moment current such as
+   `J_moments = e * n_e * (V_i - V_e)` and any `J·E'` value computed from it are
+   transparent screening proxies only. Do **not** label them as the papers'
+   curlometer current, pressure-divergence term, or paper-quality heating rate.
+   Paper-quality current-density comparisons require a verified MMS1-4 interval,
+   LMN/FAC basis, calibrated electric field choices, and curlometer/quality
+   diagnostics; until those exist, cite the `multi-spacecraft-gradients` skill as
+   the planning route and keep the result marked `proxy`.
+4. **Interval verification:** if a DOI or supplement cannot provide the exact
+   paper interval (for example, the Phan 2018 supplement was blocked during Batch
+   006), record the run as `availability_failure` or `candidate_interval` rather
+   than widening the fetch window or claiming reproduction.
+
 ### 6. Bundle scaffold
 
 ```json
@@ -204,6 +235,7 @@ Observed result: `status: success`; 27 rows were written. Density ranged approxi
 4. `limit` is described as a CDAWeb safety control, but it should be documented/implemented as either a row cap or a prefetch cap; in this MMS FPI run it did not cap the 27 returned rows.
 5. SPICE/geometry planning is recommended for spacecraft position context, but the current geometry layer is not an MMS ephemeris solution; FGM position variables are currently the practical path.
 6. No plot/quicklook tool exists, so an agent still has to leave MCP and write plotting code to verify a magnetopause signature.
+7. Four-spacecraft curlometer current-density (`curl B -> J`) is not yet a first-class analysis helper in this workflow. Do not substitute a single-spacecraft moment-current proxy for paper-quality curlometer current; mark it as `proxy` until an MMS1-4 validation exists.
 
 ## Validation value
 

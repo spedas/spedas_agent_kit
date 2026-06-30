@@ -28,6 +28,22 @@ Prefer the public SPEDAS mental model:
 
 Compatibility low-level tools remain available for maintenance/debugging, but new agent workflows should start with the unified data-layer tools.
 
+
+## MMS reconnection events (Batch 006 guardrail)
+
+For MMS reconnection/EDR papers, keep the first pass narrow and explicit: plan
+with `spedas_overview` / `plan_spedas_observation`, fetch burst FGM/FPI/EDP
+artifacts, then chain into existing analysis helpers before asking for new code.
+Use `analyze_minvar_coordinates` plus `transform_timeseries_coordinates` for LMN
+or field-aligned panels, and use `*-DIST` artifacts with
+`compute_particle_spectra(..., spectrum_types=["energy", "pitch_angle"])` for
+PAD/energy claims. A single-spacecraft `e*n_e*(V_i-V_e)` current or `J·E'` is a
+transparent proxy, not a curlometer or paper-quality heating result; mark it
+`proxy` unless the interval, LMN/FAC basis, calibrated E-field, and MMS1-4
+curlometer diagnostics are all verified. If the paper/supplement interval cannot
+be verified, record `candidate_interval` or `availability_failure` instead of
+widening the fetch or claiming reproduction.
+
 ## Guardrails
 
 - Do not fetch large intervals until source_type, dataset_id, parameters, time range, output_dir, and provenance plan are clear.
