@@ -27,7 +27,7 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 | Solar-wind storm, ICME, magnetic cloud, stream interaction, or multi-spacecraft in-situ overview (OMNI/Wind/ACE/STEREO/PSP/SolO) | `solar-wind-icme-storm` | `spedas_overview` then `search_spedas_data_sources` / `plan_spedas_observation`; compose scalar OMNI vectors and start STEREO multi-day runs at 1-minute cadence |
 | The turbulence/wave power spectrum of a field interval | `solar-wind-turbulence-spectrum` | `create_spedas_analysis_bundle` |
 | Solar-wind intermittency, PVI, vector increments, thresholded event tables, or proxy-labelled energy-transfer / third-order-law workflow | `solar-wind-turbulence-intermittency` | `create_spedas_analysis_bundle` |
-| Wave polarization (whistler/EMIC/chorus: degpol, wave-normal angle, ellipticity) | `wave-polarization` | `create_spedas_analysis_bundle` |
+| Wave polarization (whistler/EMIC/chorus: degpol, wave-normal angle, ellipticity; THEMIS SCM `scf`/`scp`/`scw` valid-window checks) | `wave-polarization` | `create_spedas_analysis_bundle` |
 | A boundary normal / LMN frame for a crossing | `boundary-minimum-variance` | `create_spedas_analysis_bundle` |
 | Hodogram: vector component-vs-component for wave polarization / rotation sense (LMN) | `hodogram` | `create_spedas_analysis_bundle` |
 | Apply a FAC/LMN/rotation matrix to a vector series | `apply-rotation-matrix` | (matrix from generate_fac_matrix / MVA) |
@@ -39,7 +39,7 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 | Clean/condition a messy time-series before analysis (despike, deflag, smooth, gap-fill) | `timeseries-cleaning` | `create_spedas_analysis_bundle` |
 | 2D velocity-space slice of a particle distribution (beams/crescents) | `particle-velocity-slice` | `create_spedas_analysis_bundle` |
 | Just fetch & plot a time series | `spedas-workflow` | `plan_spedas_observation` |
-| Standard mission overview plot or Dst/AE/Kp/SYM-H context | `overview-geomagnetic-indices` | `spedas_overview` |
+| Standard mission overview plot, geomagnetic-index context, THEMIS FGM/ESA substorm/dipolarization proxy, or RBSP MagEIS/REPT radiation-belt overview | `overview-geomagnetic-indices` | `spedas_overview` |
 | To know what data/sources exist at all | `spedas-workflow` | `spedas_overview` |
 
 | Trace a spacecraft to its ionospheric footpoint / magnetic-equator (conjugacy, L-shell) | `field-line-footpoint` | `create_spedas_analysis_bundle` |

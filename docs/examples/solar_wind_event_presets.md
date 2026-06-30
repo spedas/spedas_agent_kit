@@ -16,6 +16,11 @@ reproductions, then record exact paper/supplement intervals in provenance.
 | PSP magnetic field line switchbacks near the Sun (2020) | `10.3847/1538-4365/ab4da7` | `2018-11-05/00:00:00`–`2018-11-05/06:00:00` smoke interval | PSP FIELDS MAG RTN + SWEAP/SPC | `representative_proxy` | `psp-solar-wind-switchbacks` |
 | Halloween 2003 extreme-speed solar wind (Skoug et al. 2004) | `10.1029/2004JA010494` | `2003-10-29/00:00:00`–`2003-10-31/00:00:00` | OMNI HRO 1-min + Wind/ACE context | `paper_quality` only if timing/source choices match target figure | `solar-wind-icme-storm` |
 | July 2012 STEREO-A extreme ICME (Liu et al. 2014) | `10.1038/ncomms4481` | `2012-07-23/00:00:00`–`2012-07-25/00:00:00` | STEREO-A MAG + PLASTIC 1-min | `candidate_interval` | `solar-wind-icme-storm` |
+| THEMIS substorm onset proxy (Angelopoulos et al. 2008) | `10.1126/science.1160495` | `2008-02-26/04:45:00`–`2008-02-26/05:15:00` | THEMIS-A FGM L2 + ESA moments | `proxy` until multi-probe timing and ground/auroral context are reproduced | `overview-geomagnetic-indices` |
+| THEMIS dipolarization-front proxy (Runov et al. 2009) | `10.1029/2009GL038980` | `2008-02-27/07:10:00`–`2008-02-27/07:25:00` | THEMIS-D FGM L2 + ESA moments | `proxy` until paper front markers/speed and multi-probe context are reproduced | `overview-geomagnetic-indices` |
+| THEMIS whistler wave-context proxy (Cattell et al. 2008) | `10.1029/2007GL032009` | `2007-03-23/12:00:00`–`2007-03-23/12:10:00` | THEMIS-C SCM + EFI + FGM; choose non-empty SCM cadence family (`scf`/`scp`/`scw`) | `proxy` until waveform amplitude/polarization definitions match the paper | `wave-polarization` |
+| RBSP third-radiation-belt smoke (Baker et al. 2013) | `10.1126/science.1233518` | `2013-03-01/00:00:00`–`2013-03-01/06:00:00` | RBSP-A ECT MagEIS + REPT with suffix-namespaced `FEDU`/`L` variables | `proxy` until multi-day L*/PSD/flux-map diagnostics are reproduced | `overview-geomagnetic-indices` |
+| RBSP local-acceleration smoke (Reeves et al. 2013) | `10.1126/science.1237743` | `2012-10-09/00:00:00`–`2012-10-09/06:00:00` | RBSP-A ECT MagEIS + REPT; EMFISIS/HOPE optional fallback context | `proxy` until L*/PSD, energy-channel, and acceleration diagnostics are reproduced | `overview-geomagnetic-indices` |
 
 ## Rules for using these seeds
 
@@ -30,3 +35,4 @@ reproductions, then record exact paper/supplement intervals in provenance.
 - For PSP turbulence/switchback seeds, record `interval_quality` (`paper_exact`,
   `representative_proxy`, or `cached_smoke`) plus cadence/lag/threshold choices
   in provenance before using the result as Agent Kit feedback.
+- For THEMIS/RBSP Batch 005 seeds, treat the listed windows as partial/proxy data-route probes: record empty THEMIS ESA/SCM variables, RBSP suffix/namespacing choices, and optional EMFISIS/HOPE fallback warnings before using the result as Agent Kit feedback.
