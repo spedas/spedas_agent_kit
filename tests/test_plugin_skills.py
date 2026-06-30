@@ -66,3 +66,27 @@ def test_batch004_multispacecraft_guardrails_are_indexed():
     assert "8hz" in storm and "1min" in storm
     assert "Solar Orbiter" in index
     assert "scalar OMNI vectors" in index
+
+
+
+def test_batch005_themis_rbsp_guardrails_are_indexed():
+    overview = (ROOT / "plugins/spedas-claude/skills/overview-geomagnetic-indices/SKILL.md").read_text(encoding="utf-8")
+    wave = (ROOT / "plugins/spedas-claude/skills/wave-polarization/SKILL.md").read_text(encoding="utf-8")
+    index = (ROOT / "plugins/spedas-claude/skills/spedas-skills-index/SKILL.md").read_text(encoding="utf-8")
+    presets = (ROOT / "docs/examples/solar_wind_event_presets.md").read_text(encoding="utf-8")
+
+    assert "THEMIS ESA availability" in overview
+    assert "FEDU_mageis" in overview and "FEDU_rept" in overview
+    assert "EMFISIS" in overview and "HOPE" in overview
+    assert "THEMIS SCM Batch 005 guardrail" in wave
+    assert "thc_scw_gse" in wave and "thc_scf_gse" in wave
+    assert "THEMIS FGM/ESA substorm/dipolarization proxy" in index
+    assert "THEMIS SCM `scf`/`scp`/`scw` valid-window checks" in index
+    for expected in [
+        "10.1126/science.1160495",
+        "10.1029/2009GL038980",
+        "10.1029/2007GL032009",
+        "10.1126/science.1233518",
+        "10.1126/science.1237743",
+    ]:
+        assert expected in presets

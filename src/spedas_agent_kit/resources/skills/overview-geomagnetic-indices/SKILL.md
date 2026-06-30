@@ -50,6 +50,40 @@ because CDAWeb variable names differ by product/version.
 | MMS magnetopause/reconnection overview | CDAWeb | `MMS1_FGM_SRVY_L2`, `MMS1_FPI_FAST_L2_DIS-MOMS`, `MMS1_EDP_SRVY_L2_DCE`, `MMS1_MEC_SRVY_L2_EPHT89D` (replace spacecraft/cadence as requested) | B-field, ion/electron moments, electric field, ephemeris |
 | Van Allen Probes / RBSP radiation-belt overview | CDAWeb | query `RBSP` / `Van Allen Probes`; inspect `EMFISIS`, `MagEIS`, `REPT`, `HOPE`, `EFW`, and `RBSPICE` products | waves/fields, energetic particles, plasma, orbit/magnephem |
 
+
+## Batch 005 THEMIS/RBSP guardrails
+
+The Batch 005 paper-reproduction probes extended this overview recipe beyond
+solar-wind context into narrow near-Earth proxy workflows. Keep these lessons in
+mind before escalating to new tools or dedicated skills:
+
+- **THEMIS substorm/dipolarization first route:** for Angelopoulos et al. 2008
+  (`10.1126/science.1160495`) and Runov et al. 2009 (`10.1029/2009GL038980`),
+  a cache-friendly first artifact can start with one THEMIS spacecraft FGM + ESA
+  moments (for example THEMIS-A 2008-02-26 04:45–05:15 UTC or THEMIS-D
+  2008-02-27 07:10–07:25 UTC). Label this as `proxy` unless paper markers,
+  multi-probe timing, and ground/auroral context are reproduced.
+- **THEMIS ESA availability:** ESA loaders may expose many mode variables, but
+  several can be empty after clipping to a narrow interval. Record both the raw
+  tplot inventory and the variables that have samples after clipping; do not make
+  the researcher infer usable density/temperature/velocity panels from a long
+  empty-mode list.
+- **THEMIS SCM as overview adjunct:** if a THEMIS wave-context paper starts from
+  this overview skill, route the waveform/polarization decision to
+  `wave-polarization` after checking whether `scf`, `scp`, or `scw` actually has
+  samples in the requested interval.
+- **RBSP / Van Allen ECT first route:** for Baker et al. 2013
+  (`10.1126/science.1233518`) and Reeves et al. 2013
+  (`10.1126/science.1237743`), MagEIS + REPT are practical first-load products.
+  Use suffixes/namespaces for overlapping variables such as `FEDU` and `L`
+  (`FEDU_mageis`, `L_mageis`, `FEDU_rept`, `L_rept`) and preserve energy/L-shell
+  metadata in provenance.
+- **Optional RBSP context is a fallback, not an assumption:** EMFISIS may be
+  transiently unavailable and HOPE moments can return no matching CDF for a smoke
+  route. Record those as warnings while keeping the successful ECT artifact
+  valid. Do not claim third-belt persistence, local acceleration, L*, or PSD
+  diagnostics from a six-hour flux/L-shell overview alone.
+
 ## Fetch pattern
 
 - Create an analysis bundle first when the task is more than a single index:

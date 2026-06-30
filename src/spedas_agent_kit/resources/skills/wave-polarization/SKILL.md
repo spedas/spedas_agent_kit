@@ -42,6 +42,14 @@ obliquely-propagating circularly-polarized whistler — the spectral power alone
 
 4. **Run twavpol** (small local call, no dedicated MCP tool needed): load the 3-comp B as a tplot var, call `twavpol(var, prefix=...)`, then `get_data` each output. Tune `nopfft` (FFT window length) / `steplength` / `bin_freq` for the time/frequency resolution you want.
    - **Gotcha (verified):** `twavpol` returns only a success bool; the results are the stored tplot variables, retrieved via `get_data('{prefix}_degpol')` etc. Do not expect the arrays back from the call itself.
+
+   - **THEMIS SCM Batch 005 guardrail:** THEMIS search-coil products can expose
+     multiple cadence families (`scf`, `scp`, `scw`). A tplot variable name alone
+     is not proof that samples exist after clipping. For the Cattell et al. 2008
+     whistler proxy (`10.1029/2007GL032009`, THEMIS-C 2007-03-23 12:00–12:10 UTC),
+     Batch 005 found `thc_scw_gse` empty and rerouted to non-empty `thc_scf_gse`.
+     Count samples in the requested interval before recommending a cadence
+     family, and record rejected empty waveform variables in provenance.
    - For durable artifacts, write one compact `.npz` per panel you intend to render, using standard spectrogram keys such as `time`, `freq`, and `spectrogram` (or `power` for power). Suggested files: `<bundle>/data/wavepol_powspec.npz`, `wavepol_degpol.npz`, `wavepol_waveangle.npz`, and `wavepol_elliptict.npz`. Keep optional component power files (`wavepol_pspec3_x.npz`, etc.) only if you need them.
 
 5. **Render.** `render_tplot(input_files=[<panel npz files>], output_file=<bundle>/plots/polarization.png, panel_types=["spectrogram",...], zlog=[...])`. `render_tplot` selects one 2-D matrix per `.npz`; do not put all panels into one multi-key `wavepol.npz` and expect a multi-panel stack. Typical stack: power, degree-of-polarization, wave-normal angle, ellipticity.
