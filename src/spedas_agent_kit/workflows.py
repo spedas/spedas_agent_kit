@@ -913,9 +913,11 @@ _MISSION_DATASET_PROFILES: dict[str, dict[str, Any]] = {
                 "note": (
                     "Ion 3D velocity distribution. This is the input the in-kit particle "
                     "tools need: feed it to build_particle_distribution_artifact("
-                    "converter='mms_fpi') -> compute_particle_moments / "
-                    "compute_particle_spectra (pitch-angle needs a magf/B-field input). "
-                    "The DIS-MOMS product below is precomputed moments and is NOT a valid "
+                    "converter='mms_fpi', mag_tplot_name=... or magf=...) -> "
+                    "compute_particle_moments / compute_particle_spectra. "
+                    "Pitch-angle/PAD spectra then reuse the embedded magf "
+                    "(mag_source='distribution_artifact_magf'); pass mag_file only "
+                    "as an override. The DIS-MOMS product below is precomputed moments and is NOT a valid "
                     "distribution-artifact input."
                 ),
             },
@@ -997,9 +999,12 @@ _ANALYSIS_STEP_GUIDANCE: list[dict[str, str]] = [
         "in_kit_tool": "compute_particle_spectra",
         "prerequisite": (
             "Same distribution artifact as compute_particle_moments "
-            "(build_particle_distribution_artifact from a *-DIST product). Pitch-angle / "
-            "PAD spectra additionally require mag_file (a B-field reference) — "
-            "spectrum_types=['pitch_angle'], mag_file=<B .npz>."
+            "(build_particle_distribution_artifact from a *-DIST product). For pitch-angle / "
+            "PAD spectra, prefer an artifact built with mag_tplot_name/magf; "
+            "compute_particle_spectra(..., spectrum_types=['pitch_angle']) reuses embedded "
+            "magf (mag_source='distribution_artifact_magf'). Pass mag_file=<B .npz> only "
+            "to override that embedded B reference, or when an older artifact has no magf; "
+            "otherwise the pitch-angle entry reports needs_input."
         ),
         "pyspedas_fallback": "pyspedas.particles.spd_pgs_make_*_spec (e_spec / phi_spec / theta_spec)",
         "see_skill": "pitch-angle-distribution / particle-velocity-slice",

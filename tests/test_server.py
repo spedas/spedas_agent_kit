@@ -1516,6 +1516,9 @@ def test_mms_dist_candidate_note_distinguishes_dist_from_moms():
     note = dist["note"].lower()
     assert "build_particle_distribution_artifact" in note
     assert "compute_particle_moments" in note or "compute_particle_spectra" in note
+    assert "embedded magf" in note
+    assert "distribution_artifact_magf" in note
+    assert "mag_file" in note and "override" in note
     # MOMS candidate must say it is not a valid distribution-artifact input.
     moms = next(
         c for c in data["mission_dataset_candidates"]
@@ -1534,7 +1537,12 @@ def test_mms_plan_downstream_guidance_names_bridge_and_spectra():
     assert "load_particle_distribution_artifact" in blob
     assert "compute_particle_spectra" in blob
     assert "pitch_angle" in blob or "pitch-angle" in blob
-    assert "magf" in blob or "mag_file" in blob or "b-field" in blob
+    assert "embedded magf" in blob
+    assert "distribution_artifact_magf" in blob
+    assert "mag_file" in blob and "override" in blob
+    assert "needs_input" in blob
+    assert "require mag_file" not in blob
+    assert "additionally require mag_file" not in blob
     # Skill pointers so an agent can find the documented end-to-end pipeline.
     assert "pitch-angle-distribution" in blob
 
