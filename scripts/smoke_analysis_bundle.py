@@ -20,6 +20,7 @@ from _smoke_runtime import ensure_source_tree_on_path
 
 ensure_source_tree_on_path()
 
+from spedas_agent_kit.resources.provenance import validate_analysis_bundle_run
 from spedas_agent_kit.server import create_server
 
 SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
@@ -84,6 +85,15 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
     for key in ("tool_calls", "artifacts", "caveats"):
         if not updated.get(key):
             structural_failures.append(f"{key} was not updated")
+    helper_validation = validate_analysis_bundle_run(updated)
+    if helper_validation["valid"]:
+        helper_validation_status = "ok"
+    else:
+        helper_validation_status = "failed"
+        structural_failures.extend(
+            f"{error['field']}: {error['code']}: {error['message']}"
+            for error in helper_validation["errors"]
+        )
     schema_validation = "not_run"
     try:
         import jsonschema  # type: ignore[import-not-found]
@@ -98,6 +108,8 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
         "run_provenance": str(run_path),
         "schema_uri": SCHEMA_URI,
         "schema_title": schema.get("title"),
+        "helper_validation": helper_validation_status,
+        "helper_validation_errors": helper_validation["errors"],
         "schema_validation": schema_validation,
         "tool_calls_len": len(updated["tool_calls"]),
         "artifacts_len": len(updated["artifacts"]),
