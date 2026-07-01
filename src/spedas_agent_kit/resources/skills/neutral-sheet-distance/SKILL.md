@@ -33,6 +33,15 @@ a reproducible Python note in the bundle that calls the PySPEDAS neutral-sheet
 backend → export compact CSV/NPZ → `render_tplot` for the distance panel. Wrap
 everything in `create_spedas_analysis_bundle` for provenance.
 
+## MCP/default-surface boundary
+
+`pyspedas.neutral_sheet` is an external PySPEDAS backend, not an Agent Kit MCP
+tool (`external_runtime_route.not_an_mcp_tool: true`). MCP-only clients should
+produce the GSM position/time artifacts plus a `notes/run_neutral_sheet.py` or
+next-step note in the analysis bundle, then report that evaluating the neutral
+sheet model requires a local Python runtime with PySPEDAS. Do not attempt to call
+`neutral_sheet` as an MCP tool.
+
 ## Backend (VERIFIED contract)
 
 Top-level attribute `pyspedas.neutral_sheet` (real module
@@ -64,7 +73,7 @@ Always re-check the live signature in-skill (`inspect.signature(pyspedas.neutral
 
 4. **Validity gate (reliability check).** Verify the interval is in the model's near-tail validity region: nightside, `X_GSM` negative and within the model's fitted range (typically out to ~ -30 Re for THEMIS-class fits). If samples fall on the dayside or far down-tail, flag them and either drop or report them as out-of-region — the empirical fit is extrapolating there.
 
-5. **Run the backend from one reproducible script.** In `notes/run_neutral_sheet.py`: load time + GSM position from the bundle artifact, `time_double` the times, and call `pyspedas.neutral_sheet(time, pos, model=<chosen>, in_coord='gsm', sc2NS=True, ...)` with any model-required extras (`kp`, `pdyn`, `byimf`, `bzimf`, `mlt`). **Capture the returned array directly** — do not look for a tplot var. Save the array (and the model name) to `<bundle>/data/sc_to_ns_distance.npz` / `.csv` alongside the time axis.
+5. **Run the backend from one reproducible external-runtime script.** In `notes/run_neutral_sheet.py`: load time + GSM position from the bundle artifact, `time_double` the times, and call `pyspedas.neutral_sheet(time, pos, model=<chosen>, in_coord='gsm', sc2NS=True, ...)` with any model-required extras (`kp`, `pdyn`, `byimf`, `bzimf`, `mlt`). **Capture the returned array directly** — do not look for a tplot var. Save the array (and the model name) to `<bundle>/data/sc_to_ns_distance.npz` / `.csv` alongside the time axis.
 
 6. **Derive north/south & crossings.** From the `sc2NS=True` array: `sign > 0` ⇒ spacecraft on one side (state which, per the model's sign convention you verified), `sign < 0` ⇒ the other; **sign changes = neutral-sheet crossings.** Compute and report the crossing times, the min |distance| (closest approach), and the fraction of the interval spent on each side. If you also called `sc2NS=False`, you have the sheet's z-coordinate for plotting against the spacecraft's z.
 

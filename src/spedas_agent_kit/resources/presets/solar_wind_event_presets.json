@@ -348,7 +348,7 @@
       "doi_status": "ESSOAr preprint",
       "companion_dois": [],
       "trange_utc": ["2017-09-06/00:00:00", "2017-09-08/00:00:00"],
-      "data_route": "OMNI HRO 1-min + Kyoto kyoto_dst + GOES-15 XRS via pyspedas.goes.xrs(probe=\"15\") (g15_xrs_B_AVG)",
+      "data_route": "OMNI HRO 1-min + Kyoto kyoto_dst + GOES-15 XRS via external PySPEDAS-only pyspedas.goes.xrs(probe=\"15\") (g15_xrs_B_AVG; not an Agent Kit MCP tool)",
       "quality_labels": ["route_scout"],
       "skills": ["overview-geomagnetic-indices"],
       "notes": "XRS is flare/operational context, not a GIC reproduction or calibrated event-selection product."

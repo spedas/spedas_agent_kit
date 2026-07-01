@@ -12,6 +12,26 @@ style `thm_gen_overplot` / `mms_overview_plot`) or for common geomagnetic indice
 This is intentionally an **intent-to-dataset/parameter recipe**, not a new backend.
 Plan first, then use the existing unified data layer and HAPI tools.
 
+## MCP/default-surface boundary
+
+Treat `pyspedas...` loader names in this skill as **external runtime routes**, not
+Agent Kit MCP tool names (`external_runtime_route.not_an_mcp_tool: true`). MCP-only
+clients should call `spedas_overview()` and follow each
+`guided_recipes.geomagnetic_indices[*].mcp_first_route` before trying local Python.
+Those MCP-first routes use `browse_data_sources`, `load_data_source`,
+`browse_data_parameters`, and `fetch_data_product` against CDAWeb candidates:
+
+- Dst: `OMNI2_H0_MRG1HR`, browse `Dst`.
+- AE/AL/AU: `OMNI_HRO_1MIN`, `OMNI_HRO2_1MIN`, or `OMNI2_H0_MRG1HR`, browse
+  `AE_INDEX`, `AL_INDEX`, and `AU_INDEX`.
+- Kp/ap: `OMNI2_H0_MRG1HR`, browse `Kp` and `ap`.
+- SYM-H/SYM-D/ASY-H/ASY-D: `OMNI_HRO_1MIN` or `OMNI_HRO2_1MIN`, browse the named
+  parameters.
+
+Use direct Kyoto/NOAA/GOES PySPEDAS loaders only when the surrounding runtime can
+import PySPEDAS and run local scripts; otherwise report the external-runtime
+requirement instead of inventing MCP tool names.
+
 ## First calls
 
 1. `spedas_overview()` — confirms the current recipe catalog.
@@ -33,10 +53,10 @@ Plan first, then use the existing unified data layer and HAPI tools.
 
 | User intent | Preferred dataset / loader | Parameters / variables | Notes |
 |---|---|---|---|
-| Dst / ring-current context | PySPEDAS Kyoto `pyspedas.projects.kyoto.dst` (tplot `kyoto_dst`) | `kyoto_dst` | Verified local source: `pyspedas/projects/kyoto/load_dst.py`; Kyoto WDC data are acknowledged and redistribution-restricted. Use for field-model `dst` inputs when the agent/runtime can call PySPEDAS directly. |
+| Dst / ring-current context | MCP-first: CDAWeb `OMNI2_H0_MRG1HR` (`Dst`); external runtime: PySPEDAS Kyoto `pyspedas.projects.kyoto.dst` (tplot `kyoto_dst`) | `Dst` or `kyoto_dst` | Verified local source: `pyspedas/projects/kyoto/load_dst.py`; Kyoto WDC data are acknowledged and redistribution-restricted. The Kyoto loader is not an MCP tool; use it only when the agent/runtime can call PySPEDAS directly. |
 | SYM-H / high-cadence storm index | CDAWeb HAPI `OMNI_HRO_1MIN` or `OMNI_HRO2_1MIN` | `SYM_H` (plus `SYM_D`, `ASY_H`, `ASY_D` if requested) | Source evidence: PySPEDAS `load_geomagnetic_indices.py` lists OMNI variables `SYM_D`, `SYM_H`, `ASY_D`, `ASY_H`; CDAWeb HAPI catalog advertises OMNI HRO datasets. |
-| AE / AL / AU electrojet context | CDAWeb HAPI `OMNI_HRO_1MIN` / `OMNI_HRO2_1MIN`, or PySPEDAS Kyoto `load_ae` | `AE_INDEX`, `AL_INDEX`, `AU_INDEX`; Kyoto tplot variables `kyoto_ae`, `kyoto_al`, `kyoto_au` when available | Prefer OMNI HAPI for MCP artifact fetches; use Kyoto loader when exact Kyoto WDC AE products are needed. |
-| Kp / T89 activity class | PySPEDAS NOAA/GFZ `noaa_load_kp` | `Kp` (also `ap`, `Kp_Sum`, etc.) | Source evidence: `pyspedas/projects/noaa/noaa_load_kp.py`; use `pyspedas.geopack.kp2iopt` to convert to T89 `iopt` if running PySPEDAS code. |
+| AE / AL / AU electrojet context | MCP-first: CDAWeb/unified data layer `OMNI_HRO_1MIN` / `OMNI_HRO2_1MIN` / `OMNI2_H0_MRG1HR`; external runtime: PySPEDAS Kyoto `load_ae` | `AE_INDEX`, `AL_INDEX`, `AU_INDEX`; Kyoto tplot variables `kyoto_ae`, `kyoto_al`, `kyoto_au` when available | Prefer OMNI/CDAWeb for MCP artifact fetches. The Kyoto loader is not an MCP tool; use it only when exact Kyoto WDC AE products are needed and local PySPEDAS is available. |
+| Kp / T89 activity class | MCP-first: CDAWeb `OMNI2_H0_MRG1HR` (`Kp`, `ap`); external runtime: PySPEDAS NOAA/GFZ `noaa_load_kp` | `Kp`, `ap`; external loader also exposes `Kp_Sum`, etc. | Source evidence: `pyspedas/projects/noaa/noaa_load_kp.py`; `noaa_load_kp` and `pyspedas.geopack.kp2iopt` are not MCP tools, so use them only in local PySPEDAS code. |
 | Solar-wind dynamic pressure for Tsyganenko models | CDAWeb/HAPI `OMNI_HRO_1MIN` | `Pressure`, `BY_GSM`, `BZ_GSM` | Pair with Dst for T96/T01/TS04-style external-field parameters. |
 
 ## Standard overview starting points
@@ -107,6 +127,9 @@ Guidance:
 - Do not promise an Agent Kit `load_data_source` route for XRS from the packaged
   CDAWeb catalog. GOES appears as a CDAWeb observatory, but Batch 009 reached XRS
   through `pyspedas.goes.xrs`; say that plainly in reports.
+- Treat `pyspedas.goes.xrs` as `external_runtime_route.not_an_mcp_tool: true`.
+  MCP-only clients should keep GOES XRS as an external-runtime caveat or route
+  scout, not attempt to call `goes.xrs` as an Agent Kit MCP tool.
 
 ## Batch 009 storm/operational-context guardrails
 
