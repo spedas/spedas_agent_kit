@@ -79,5 +79,6 @@ paper-interval provenance.
 
 - Do not fetch large intervals until source_type, dataset_id, parameters, time range, output_dir, and provenance plan are clear.
 - Prefer artifact paths, hashes, compact summaries, and provenance over pasted raw arrays/CDF contents.
+- After `create_spedas_analysis_bundle(...)`, update the seeded `provenance/run.json` (`paths.run_provenance`) as tool calls, artifacts, and caveats accumulate; its schema is `spedas-preset://schemas/analysis_bundle_run`.
 - For PDS fetches, narrow by time and parameters; `limit` is not a PDS backend control.
 - For SPICE geometry, use geometry tools after discovery; do not expect measurement parameters.

@@ -199,7 +199,7 @@ Start here for open-ended science requests.
 - `search_spedas_data_sources(question, target=None, observables=None)` — recommend which data source categories should lead a request.
 - `plan_spedas_observation(science_goal, start=None, stop=None, target=None, observables=None, data_sources=None)` — produce a source-specific plan before fetching data.
 - `compare_cdaweb_pds_spice(science_goal="")` — explain source boundaries and choose the right source family.
-- `create_spedas_analysis_bundle(study_name, output_dir, ...)` — create a request/provenance scaffold with `requests/`, `data/`, `plots/`, `provenance/run.json`, and `notes/` folders.
+- `create_spedas_analysis_bundle(study_name, output_dir, ...)` — create a request/provenance scaffold with `requests/`, `data/`, `plots/`, `provenance/run.json`, and `notes/` folders. The seeded `run.json` points to MCP resource `spedas-preset://schemas/analysis_bundle_run`; keep its `tool_calls`, `artifacts`, and `caveats` arrays updated as the workflow progresses.
 
 ### 3. Geometry tools
 

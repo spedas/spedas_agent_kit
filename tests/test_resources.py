@@ -128,6 +128,10 @@ def test_provenance_schema_and_presets_are_packaged_resources() -> None:
         "schemas", "reproduction_provenance.schema.json"
     )
     assert schema.is_file()
+    analysis_run_schema = resources.files("spedas_agent_kit.resources").joinpath(
+        "schemas", "analysis_bundle_run.schema.json"
+    )
+    assert analysis_run_schema.is_file()
     presets = resources.files("spedas_agent_kit.resources").joinpath(
         "presets", "solar_wind_event_presets.json"
     )
