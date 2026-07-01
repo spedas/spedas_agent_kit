@@ -42,6 +42,7 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 | Just fetch & plot a time series | `spedas-workflow` | `plan_spedas_observation` |
 | ERG/Arase radiation-belt, wave-particle, PWE/MGF/particle, or ground-conjugate ISEE/OMTI/MAGDAS route scout | `erg-arase-radiation-belt-waves` | `spedas_overview`; use this skill to choose `pyspedas.erg.*` / CDAWeb satellite routes, and keep ground routes labeled PySPEDAS-only |
 | Standard mission overview plot, geomagnetic-index context, GOES XRS operational storm context, THEMIS FGM/ESA substorm/dipolarization proxy, or RBSP MagEIS/REPT radiation-belt overview | `overview-geomagnetic-indices` | `spedas_overview` |
+| THEMIS mission route scout, substorm/dipolarization context, magnetotail boundary preflight, or FGM/state/ESA/SST/SCM workflow planning | `themis-workflows` | `create_spedas_analysis_bundle` then `spedas_overview` / `search_spedas_data_sources` |
 | Lightweight OMNI/Kyoto/NOAA space-weather smoke workflow, storm-context bundle, or cache-only geomagnetic-index validation | `omni-kyoto-noaa-smoke-workflows` | `create_spedas_analysis_bundle` then `spedas_overview` / `overview-geomagnetic-indices` |
 | To know what data/sources exist at all | `spedas-workflow` | `spedas_overview` |
 | Plan a PySPEDAS mission/product/time data load with `time_clip=True`, cache, `downloadonly`, `notplot`, and provenance hygiene | `pyspedas-load-planning` | `create_spedas_analysis_bundle` |

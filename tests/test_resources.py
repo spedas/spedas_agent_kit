@@ -178,3 +178,28 @@ def test_batch002_omni_kyoto_noaa_skill_is_packaged_and_indexed() -> None:
         "route_scout",
     ]:
         assert expected in skill
+
+
+def test_systematic_batch003_themis_workflows_skill_is_packaged_and_indexed() -> None:
+    skill_name = "themis-workflows"
+    skill = read_packaged_skill(skill_name)
+    index = read_packaged_skill("spedas-skills-index")
+    rendered = render_skill_index_markdown()
+
+    assert f"{SPEDAS_SKILL_URI_PREFIX}{skill_name}" in rendered
+    assert skill_name in index
+    for expected in [
+        "THA_L2_FGM",
+        "THA_L2_ESA",
+        "THA_OR_SSC",
+        "pyspedas.projects.themis.fgm",
+        "pyspedas.projects.themis.state",
+        "pyspedas.projects.themis.scm",
+        "pyspedas.projects.themis.gmag",
+        "external_runtime_route.not_an_mcp_tool: true",
+        "not_gradient_ready",
+        "downloadonly=True",
+        "notplot=True",
+        "no_update=True",
+    ]:
+        assert expected in skill
