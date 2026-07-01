@@ -359,3 +359,36 @@ def test_batch002_omni_kyoto_noaa_smoke_workflow_is_indexed_and_guarded() -> Non
         "provenance/run.json",
     ]:
         assert expected in skill
+
+
+def test_systematic_batch003_themis_workflows_are_indexed_and_guarded() -> None:
+    skill_root = ROOT / "plugins/spedas-claude/skills"
+    source_root = ROOT / "src/spedas_agent_kit/resources/skills"
+    index = (skill_root / "spedas-skills-index/SKILL.md").read_text(encoding="utf-8")
+    skill = (source_root / "themis-workflows/SKILL.md").read_text(encoding="utf-8")
+
+    assert "themis-workflows" in index
+    for expected in [
+        "THA_L2_FGM",
+        "THA_L2_ESA",
+        "THA_L2_SST",
+        "THA_OR_SSC",
+        "pyspedas.projects.themis.fgm",
+        "pyspedas.projects.themis.esa",
+        "pyspedas.projects.themis.sst",
+        "pyspedas.projects.themis.scm",
+        "pyspedas.projects.themis.gmag",
+        "pyspedas.projects.themis.ask",
+        "pyspedas.projects.themis.ssc",
+        "not_an_mcp_tool",
+        "external_runtime_route.not_an_mcp_tool: true",
+        "downloadonly=True",
+        "notplot=True",
+        "no_update=True",
+        "not_gradient_ready",
+        "single_spacecraft_route_scout",
+        "Do not paste arrays",
+        "create_spedas_analysis_bundle",
+        "thm_load_fgm",
+    ]:
+        assert expected in skill
