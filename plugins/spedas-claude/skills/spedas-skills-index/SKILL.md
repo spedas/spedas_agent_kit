@@ -32,6 +32,7 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 | A boundary normal / LMN frame for a crossing | `boundary-minimum-variance` | `create_spedas_analysis_bundle` |
 | Hodogram: vector component-vs-component for wave polarization / rotation sense (LMN) | `hodogram` | `create_spedas_analysis_bundle` |
 | Apply a FAC/LMN/rotation matrix to a vector series | `apply-rotation-matrix` | (matrix from generate_fac_matrix / MVA) |
+| Translate PySPEDAS/IDL `cotrans`, FAC/MVA/LMN, or tplot coordinate metadata into the right Agent Kit transform route | `coordinate-transform-recipes` | `create_spedas_analysis_bundle` |
 | Four-spacecraft curlometer J, linear B gradients/curvature, or magnetic nulls | `multi-spacecraft-gradients` | `create_spedas_analysis_bundle` |
 | Cluster/Geotail/THEMIS magnetotail boundary, current-sheet, or multi-spacecraft proxy/scouting overview | `spedas-workflow` + `multi-spacecraft-gradients` | `search_spedas_data_sources`; use `docs/examples/cluster_geotail_themis_magnetotail_multispacecraft.md`, keep `single_spacecraft_cis` / `fgm_route_empty` and `not_paper_exact` labels, and require four-spacecraft FGM + positions before curlometer/timing claims |
 | A full magnetopause/bow-shock crossing study (B + plasma + position) | `magnetopause-lmn-analysis` | `search_spedas_data_sources` |

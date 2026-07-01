@@ -496,3 +496,65 @@ def test_systematic_batch005_psp_solo_workflows_are_indexed_and_guarded() -> Non
         "mcp__spedas__pyspedas.projects.solo.mag",
     ]:
         assert forbidden not in skill
+
+
+def test_systematic_batch006_coordinate_transform_recipes_are_indexed_and_guarded() -> None:
+    skill_root = ROOT / "plugins/spedas-claude/skills"
+    source_root = ROOT / "src/spedas_agent_kit/resources/skills"
+    index = (skill_root / "spedas-skills-index/SKILL.md").read_text(encoding="utf-8")
+    skill = (source_root / "coordinate-transform-recipes/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "coordinate-transform-recipes" in index
+    for expected in [
+        "pyspedas.cotrans",
+        "pyspedas.cotrans_tools.*",
+        "fac_matrix_make",
+        "minvar_matrix_make",
+        "lmn_matrix_make",
+        "tvector_rotate",
+        "cotrans_get_coord",
+        "cotrans_set_coord",
+        "thm_cotrans",
+        "mms_cotrans_lmn",
+        "external_runtime_route.not_an_mcp_tool: true",
+        "not_an_mcp_tool",
+        "GSE",
+        "GSM",
+        "GEI",
+        "SM",
+        "GEO",
+        "J2000",
+        "FAC",
+        "LMN",
+        "MVA",
+        "coordinate-frame-tour",
+        "apply-rotation-matrix",
+        "boundary-minimum-variance",
+        "model-lmn-boundary",
+        "magnetopause-lmn-analysis",
+        "field-line-footpoint",
+        "tplot-data-lifecycle",
+        "spedas-heritage-vocabulary",
+        "transform_coordinates",
+        "transform_timeseries_coordinates",
+        "source_frame",
+        "target_frame",
+        "coord_in",
+        "coord_out",
+        "input_file",
+        "output_file",
+        "provenance/run.json",
+        "Do not paste arrays",
+    ]:
+        assert expected in skill
+
+    for forbidden in [
+        "mcp__spedas__pyspedas.cotrans",
+        "mcp__spedas__cotrans",
+        "use_dedicated_tool: pyspedas.cotrans",
+        "transform_timeseries_coordinates(..., from_frame=",
+        "transform_timeseries_coordinates(... from_frame=",
+    ]:
+        assert forbidden not in skill
