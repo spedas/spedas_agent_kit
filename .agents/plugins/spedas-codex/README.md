@@ -7,7 +7,7 @@ It contains:
 
 - `.codex-plugin/plugin.json` — Codex plugin manifest.
 - `.mcp.json` — plugin-scoped MCP server entry named `spedas`.
-- `skills/spedas-workflow/SKILL.md` — reusable Codex guidance for the unified
+- `skills/*/SKILL.md` — reusable Codex guidance for the unified
   SPEDAS data layer and science workflow layer.
 
 The repo also includes `.agents/plugins/marketplace.json`, pointing at
@@ -25,3 +25,16 @@ out of the default surface (issue #87); reach them via
 `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1` to advertise the four directly. Refresh the
 manifest, this `.mcp.json`, and the Claude fixture together after any server
 tool-surface change.
+
+## Shared skill synchronization
+
+The Codex plugin fixture now materializes the full shared SPEDAS skill set from
+`src/spedas_agent_kit/resources/skills/`. Refresh it with:
+
+```bash
+python scripts/export_packaged_skills.py --target .agents/plugins/spedas-codex/skills --clean
+```
+
+The packaged resource skills remain the source of truth. Codex-specific files
+should stay limited to runtime packaging, MCP configuration, and concise usage
+notes; do not add independent scientific workflow logic here.
