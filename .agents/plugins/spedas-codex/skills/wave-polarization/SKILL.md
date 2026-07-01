@@ -21,6 +21,17 @@ obliquely-propagating circularly-polarized whistler — the spectral power alone
 → [optional `generate_fac_matrix` + apply to put B in field-aligned coords]
 → a small `twavpol` call → `render_tplot`, in a `create_spedas_analysis_bundle`.
 
+## MCP/default-surface boundary
+
+`twavpol` is a PySPEDAS analysis backend, not an Agent Kit MCP tool
+(`external_runtime_route.not_an_mcp_tool: true`). MCP-only clients should stop
+after writing the fetched 3-component B artifact (and any optional FAC-rotation
+artifacts) into an analysis bundle, then report that the polarization calculation
+requires an external Python runtime with PySPEDAS and the Agent Kit `[analysis]`
+extra. When that runtime is available, run the local script/notebook from the
+bundle and record output paths in `provenance/run.json`; do not invent a
+`twavpol` MCP call.
+
 ## Backend (verified output contract)
 `pyspedas.analysis.twavpol.twavpol(tvarname, prefix=..., nopfft=..., steplength=..., bin_freq=...)`:
 - **Input:** a single tplot variable holding an (N,3) vector time-series (the 3-component B).
@@ -40,7 +51,7 @@ obliquely-propagating circularly-polarized whistler — the spectral power alone
 
 3. **(Optional but recommended) field-aligned coordinates.** Wave-normal angle is physically meaningful relative to B0. Use `generate_fac_matrix` to build the FAC (Z-along-B) rotation, then apply that matrix stack with a small local script or a pre-rotated artifact so the input to twavpol is in field-aligned coords. For a quick look you can skip this and interpret angles relative to the input frame.
 
-4. **Run twavpol** (small local call, no dedicated MCP tool needed): load the 3-comp B as a tplot var, call `twavpol(var, prefix=...)`, then `get_data` each output. Tune `nopfft` (FFT window length) / `steplength` / `bin_freq` for the time/frequency resolution you want.
+4. **Run twavpol only in an external/local Python runtime** (not an MCP tool): load the 3-comp B as a tplot var, call `twavpol(var, prefix=...)`, then `get_data` each output. Tune `nopfft` (FFT window length) / `steplength` / `bin_freq` for the time/frequency resolution you want.
    - **Gotcha (verified):** `twavpol` returns only a success bool; the results are the stored tplot variables, retrieved via `get_data('{prefix}_degpol')` etc. Do not expect the arrays back from the call itself.
 
    - **THEMIS SCM Batch 005 guardrail:** THEMIS search-coil products can expose

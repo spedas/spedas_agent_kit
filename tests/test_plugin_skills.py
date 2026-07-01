@@ -228,6 +228,36 @@ def test_batch009_storm_context_guardrails_are_indexed():
     assert presets.count("10.1029/2001GL014136") == 1
 
 
+def test_external_pyspedas_routes_are_gated_for_mcp_only_clients():
+    """Shared skill route prose should not make MCP-only clients invent PySPEDAS tools."""
+
+    skill_root = ROOT / "plugins/spedas-claude/skills"
+    overview = (skill_root / "overview-geomagnetic-indices/SKILL.md").read_text(encoding="utf-8")
+    wave = (skill_root / "wave-polarization/SKILL.md").read_text(encoding="utf-8")
+    neutral = (skill_root / "neutral-sheet-distance/SKILL.md").read_text(encoding="utf-8")
+    erg = (skill_root / "erg-arase-radiation-belt-waves/SKILL.md").read_text(encoding="utf-8")
+    presets = (ROOT / "docs/examples/solar_wind_event_presets.md").read_text(encoding="utf-8")
+    preset_resource = (
+        ROOT / "src/spedas_agent_kit/resources/presets/solar_wind_event_presets.json"
+    ).read_text(encoding="utf-8")
+
+    for text in [overview, wave, neutral, erg]:
+        assert "external_runtime_route.not_an_mcp_tool" in text
+        assert "MCP-only" in text
+
+    assert "guided_recipes.geomagnetic_indices[*].mcp_first_route" in overview
+    assert "OMNI2_H0_MRG1HR" in overview
+    assert "pyspedas.goes.xrs" in overview
+    assert "not attempt to call `goes.xrs` as an Agent Kit MCP tool" in overview
+
+    assert "do not invent a\n`twavpol` MCP call" in wave
+    assert "Do not attempt to call\n`neutral_sheet` as an MCP tool" in neutral
+    assert "should not\ninvent dataset IDs or MCP tool names" in erg
+
+    assert "not an Agent Kit MCP tool" in presets
+    assert "not an Agent Kit MCP tool" in preset_resource
+
+
 def test_batch010_erg_arase_guardrails_are_indexed():
     skill = (ROOT / "plugins/spedas-claude/skills/erg-arase-radiation-belt-waves/SKILL.md").read_text(encoding="utf-8")
     index = (ROOT / "plugins/spedas-claude/skills/spedas-skills-index/SKILL.md").read_text(encoding="utf-8")

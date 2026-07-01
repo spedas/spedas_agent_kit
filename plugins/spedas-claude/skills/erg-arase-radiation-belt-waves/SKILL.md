@@ -24,6 +24,17 @@ return only compact paths and caveats.
 
 ## Route map
 
+### MCP/default-surface boundary
+
+Read the table MCP-first. When a row lists a CDAWeb dataset, use the Agent Kit MCP
+unified data tools (`browse_data_sources`, `load_data_source`,
+`browse_data_parameters`, `fetch_data_product`) against that dataset before
+falling back to local Python. The `pyspedas.erg.*` names are external runtime
+routes, not Agent Kit MCP tools (`external_runtime_route.not_an_mcp_tool: true`).
+Ground-conjugate rows without a packaged CDAWeb dataset are PySPEDAS-only: an
+MCP-only client should preserve them as caveats/next-step routes and should not
+invent dataset IDs or MCP tool names.
+
 | Research intent | Route to try | Products / variable families | First artifact |
 |---|---|---|---|
 | Arase magnetic field context | `pyspedas.erg.mgf(...)` or CDAWeb `ERG_MGF_L2_8SEC` | `erg_mgf_l2_mag_8sec_*` (often GSM/GSE components) | B-field overview plus coordinate/frame note |
@@ -45,7 +56,8 @@ The ground-conjugate routes exercised by Batch 010 are different: ISEE fluxgate,
 ISEE induction, MAGDAS, MM210, STEL, OMTI ASI, VLF, and SD-fit are loaded through
 `pyspedas.erg.gmag_*`, `pyspedas.erg.camera_omti_asi`, `pyspedas.erg.isee_vlf`,
 or `pyspedas.erg.sd_fit`. Do **not** promise that these ground routes work through
-`load_data_source` or invent CDAWeb dataset IDs for them.
+`load_data_source` or invent CDAWeb dataset IDs for them; mark them as
+`external_runtime_route.not_an_mcp_tool` when translating this skill into a run plan.
 
 For ground work, record station, cadence, wavelength/filter, time base, and any
 availability failure as first-class provenance. For conjugacy, add footpoint /
