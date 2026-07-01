@@ -11,8 +11,15 @@ import pytest
 from spedas_agent_kit.resources.provenance import (
     ALLOWED_RUN_STATUS,
     ALLOWED_STATUS_LABELS,
+    ANALYSIS_BUNDLE_RUN_REQUIRED_ARTIFACT_DIRS,
+    ANALYSIS_BUNDLE_RUN_REQUIRED_TOP_LEVEL_KEYS,
+    ANALYSIS_BUNDLE_RUN_SCHEMA_URI,
+    ANALYSIS_BUNDLE_RUN_SCHEMA_VERSION,
+    ANALYSIS_BUNDLE_RUN_SKILL_INDEX_URI,
     REQUIRED_TOP_LEVEL_KEYS,
+    load_analysis_bundle_run_schema,
     load_provenance_schema,
+    validate_analysis_bundle_run,
     validate_reproduction_provenance,
 )
 
@@ -175,4 +182,142 @@ def test_validate_does_not_mutate_input() -> None:
     record = _valid_provenance()
     snapshot = copy.deepcopy(record)
     validate_reproduction_provenance(record)
+    assert record == snapshot
+
+
+
+def _valid_analysis_bundle_run() -> dict:
+    """A minimal, shape-valid analysis-bundle run provenance record."""
+    return {
+        "schema_version": ANALYSIS_BUNDLE_RUN_SCHEMA_VERSION,
+        "created_by": "spedas_agent_kit.create_spedas_analysis_bundle",
+        "created_at": "2026-07-01T00:00:00+00:00",
+        "study_name": "Example analysis",
+        "science_goal": "Validate a solar-wind interval",
+        "target": "solar wind",
+        "start": "2024-01-01T00:00:00Z",
+        "stop": "2024-01-01T00:10:00Z",
+        "requested_data_sources": ["cdaweb"],
+        "recommended_sources": ["cdaweb"],
+        "plan_path": "requests/spedas_plan.json",
+        "artifact_dirs": {
+            "requests": "requests",
+            "data": "data",
+            "plots": "plots",
+            "provenance": "provenance",
+            "notes": "notes",
+        },
+        "resource_hints": {
+            "skill_index_uri": ANALYSIS_BUNDLE_RUN_SKILL_INDEX_URI,
+            "provenance_schema_uri": ANALYSIS_BUNDLE_RUN_SCHEMA_URI,
+        },
+        "tool_calls": [],
+        "artifacts": [],
+        "caveats": [],
+    }
+
+
+def test_load_analysis_bundle_run_schema_matches_constants() -> None:
+    schema = load_analysis_bundle_run_schema()
+    assert schema["title"] == "SPEDAS Agent Kit analysis bundle run provenance"
+    assert tuple(schema["required"]) == ANALYSIS_BUNDLE_RUN_REQUIRED_TOP_LEVEL_KEYS
+    assert schema["properties"]["schema_version"]["enum"] == [
+        ANALYSIS_BUNDLE_RUN_SCHEMA_VERSION
+    ]
+    uri_enum = schema["properties"]["resource_hints"]["properties"][
+        "provenance_schema_uri"
+    ]["enum"]
+    assert uri_enum == [ANALYSIS_BUNDLE_RUN_SCHEMA_URI]
+
+
+def test_validate_analysis_bundle_run_accepts_minimal_seed_shape() -> None:
+    result = validate_analysis_bundle_run(_valid_analysis_bundle_run())
+    assert result == {"valid": True, "errors": []}
+
+
+def test_validate_analysis_bundle_run_allows_null_planning_fields() -> None:
+    record = _valid_analysis_bundle_run()
+    record["target"] = None
+    record["start"] = None
+    record["stop"] = None
+    assert validate_analysis_bundle_run(record) == {"valid": True, "errors": []}
+
+
+def test_validate_analysis_bundle_run_rejects_missing_required_key() -> None:
+    record = _valid_analysis_bundle_run()
+    del record["plan_path"]
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "plan_path" and e["code"] == "missing_required_key"
+        for e in result["errors"]
+    )
+
+
+def test_validate_analysis_bundle_run_rejects_wrong_schema_version() -> None:
+    record = _valid_analysis_bundle_run()
+    record["schema_version"] = "old-version"
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(e["code"] == "wrong_schema_version" for e in result["errors"])
+
+
+def test_validate_analysis_bundle_run_rejects_wrong_schema_hint() -> None:
+    record = _valid_analysis_bundle_run()
+    record["resource_hints"]["provenance_schema_uri"] = "spedas-preset://schemas/reproduction_provenance"
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "resource_hints.provenance_schema_uri"
+        and e["code"] == "wrong_resource_hint"
+        for e in result["errors"]
+    )
+
+
+@pytest.mark.parametrize("array_key", ["tool_calls", "artifacts", "caveats"])
+def test_validate_analysis_bundle_run_rejects_non_array_update_slots(array_key: str) -> None:
+    record = _valid_analysis_bundle_run()
+    record[array_key] = {"not": "an array"}
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == array_key and e["code"] == "wrong_type"
+        for e in result["errors"]
+    )
+
+
+def test_validate_analysis_bundle_run_rejects_missing_artifact_dir() -> None:
+    record = _valid_analysis_bundle_run()
+    del record["artifact_dirs"]["provenance"]
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "artifact_dirs.provenance"
+        and e["code"] == "missing_required_key"
+        for e in result["errors"]
+    )
+    assert "provenance" in ANALYSIS_BUNDLE_RUN_REQUIRED_ARTIFACT_DIRS
+
+
+def test_validate_analysis_bundle_run_rejects_path_fields_with_wrong_type() -> None:
+    record = _valid_analysis_bundle_run()
+    record["plan_path"] = ["requests/spedas_plan.json"]
+    record["artifact_dirs"]["data"] = ["data"]
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert {"plan_path", "artifact_dirs.data"} <= {
+        e["field"] for e in result["errors"] if e["code"] == "wrong_type"
+    }
+
+
+def test_validate_analysis_bundle_run_rejects_non_object() -> None:
+    result = validate_analysis_bundle_run("not a dict")
+    assert result["valid"] is False
+    assert result["errors"][0]["code"] == "not_an_object"
+
+
+def test_validate_analysis_bundle_run_does_not_mutate_input() -> None:
+    record = _valid_analysis_bundle_run()
+    snapshot = copy.deepcopy(record)
+    validate_analysis_bundle_run(record)
     assert record == snapshot
