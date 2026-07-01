@@ -76,7 +76,8 @@ For a first golden workflow, follow the runtime-agnostic sequence from
 3. **Create the analysis bundle**: call `create_spedas_analysis_bundle(...)` once
    the science question, time range, source, variables, and output directory are
    explicit, then keep the seeded `provenance/run.json` updated as tool calls
-   and artifacts accumulate.
+   and artifacts accumulate. Read `spedas-preset://schemas/analysis_bundle_run`
+   for the run-record shape.
 4. **Fetch/compute only after the plan is explicit**: use
    `fetch_data_product(...)` and any specialized analysis tools only after the
    runtime can explain the selected source and parameters.

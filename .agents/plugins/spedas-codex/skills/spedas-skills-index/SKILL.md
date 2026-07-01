@@ -59,5 +59,6 @@ Low-level / source-specific compat tools exist for maintenance only — skills d
 
 ## Universal rules (every skill obeys)
 - **Artifact-first:** bundle the run, pass `output_dir` everywhere, return paths + compact stats, never pasted arrays.
+- **Run provenance:** after `create_spedas_analysis_bundle(...)`, update the seeded `provenance/run.json` (`paths.run_provenance`) with compact `tool_calls`, `artifacts`, and `caveats`; read `spedas-preset://schemas/analysis_bundle_run` for the record shape.
 - **Plan before fetch:** know source_type, dataset_id, parameters, time range, output_dir first.
 - **New capability is a skill or a `source_type`, not a new tool.**

@@ -527,7 +527,7 @@ def test_create_spedas_analysis_bundle_writes_plan_files(tmp_path: Path):
     assert run_provenance["plan_path"] == data["paths"]["request_plan"]
     assert run_provenance["artifact_dirs"]["data"] == data["paths"]["data"]
     assert run_provenance["resource_hints"]["skill_index_uri"] == "spedas-skill://index"
-    assert run_provenance["resource_hints"]["provenance_schema_uri"] == "spedas-preset://schemas/reproduction_provenance"
+    assert run_provenance["resource_hints"]["provenance_schema_uri"] == "spedas-preset://schemas/analysis_bundle_run"
     assert run_provenance["tool_calls"] == []
     assert run_provenance["artifacts"] == []
     assert run_provenance["caveats"] == []
@@ -3833,11 +3833,15 @@ def test_server_exposes_event_presets_and_schema_as_mcp_resources(monkeypatch):
     by_uri = {str(resource.uri): resource for resource in resources}
     assert "spedas-preset://index" in by_uri
     assert "spedas-preset://schemas/reproduction_provenance" in by_uri
+    assert "spedas-preset://schemas/analysis_bundle_run" in by_uri
     assert by_uri["spedas-preset://index"].mimeType == "text/markdown"
     assert by_uri["spedas-preset://index"].meta["surface"] == "spedas_preset"
     schema_meta = by_uri["spedas-preset://schemas/reproduction_provenance"]
     assert schema_meta.mimeType == "application/json"
     assert schema_meta.meta["kind"] == "schema"
+    analysis_schema_meta = by_uri["spedas-preset://schemas/analysis_bundle_run"]
+    assert analysis_schema_meta.mimeType == "application/json"
+    assert analysis_schema_meta.meta["kind"] == "schema"
 
     # At least one individual preset resource is registered with JSON mime type.
     preset_uris = [u for u in by_uri if u.startswith("spedas-preset://events/")]
@@ -3861,6 +3865,13 @@ def test_event_preset_and_schema_resources_read(monkeypatch):
     schema = json.loads(schema_contents[0].content)
     assert schema["title"] == "SPEDAS Agent Kit reproduction provenance"
 
+    analysis_schema_contents = asyncio.run(
+        server.read_resource("spedas-preset://schemas/analysis_bundle_run")
+    )
+    analysis_schema = json.loads(analysis_schema_contents[0].content)
+    assert analysis_schema["title"] == "SPEDAS Agent Kit analysis bundle run provenance"
+    assert analysis_schema["properties"]["schema_version"]["enum"] == ["spedas-analysis-bundle-run-v1"]
+
     preset_contents = asyncio.run(
         server.read_resource(
             "spedas-preset://events/psp-e1-bale-2019-structured-slow-wind"
@@ -3883,6 +3894,10 @@ def test_overview_advertises_preset_resources(monkeypatch):
     assert (
         presets["provenance_schema_resource"]
         == "spedas-preset://schemas/reproduction_provenance"
+    )
+    assert (
+        presets["analysis_bundle_run_schema_resource"]
+        == "spedas-preset://schemas/analysis_bundle_run"
     )
     assert presets["count"] >= 30
     assert "paper" in presets["provenance_required_keys"]

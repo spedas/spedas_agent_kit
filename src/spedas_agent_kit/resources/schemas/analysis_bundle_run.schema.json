@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "spedas-agent-kit://schemas/analysis_bundle_run.schema.json",
+  "title": "SPEDAS Agent Kit analysis bundle run provenance",
+  "description": "Machine-readable shape for the provenance/run.json record seeded by create_spedas_analysis_bundle. The record captures request context, artifact directories, MCP/resource hints, and append-only notes about tool calls, artifacts, and caveats as an analysis workflow progresses. Validation is shape-only; it does not assert that the science result is complete or paper-quality.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "created_by",
+    "created_at",
+    "study_name",
+    "science_goal",
+    "target",
+    "start",
+    "stop",
+    "requested_data_sources",
+    "recommended_sources",
+    "plan_path",
+    "artifact_dirs",
+    "resource_hints",
+    "tool_calls",
+    "artifacts",
+    "caveats"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["spedas-analysis-bundle-run-v1"],
+      "description": "Schema version written by create_spedas_analysis_bundle."
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Producer of the seed record, normally spedas_agent_kit.create_spedas_analysis_bundle."
+    },
+    "created_at": {
+      "type": "string",
+      "description": "UTC ISO-8601 timestamp for bundle creation."
+    },
+    "study_name": {"type": "string"},
+    "science_goal": {"type": "string"},
+    "target": {"type": ["string", "null"]},
+    "start": {"type": ["string", "null"]},
+    "stop": {"type": ["string", "null"]},
+    "requested_data_sources": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "recommended_sources": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "plan_path": {
+      "type": "string",
+      "description": "Path to requests/spedas_plan.json generated with the bundle."
+    },
+    "artifact_dirs": {
+      "type": "object",
+      "description": "Named bundle directories such as requests, data, plots, provenance, and notes.",
+      "additionalProperties": {"type": "string"}
+    },
+    "resource_hints": {
+      "type": "object",
+      "required": ["skill_index_uri", "provenance_schema_uri"],
+      "additionalProperties": true,
+      "properties": {
+        "skill_index_uri": {
+          "type": "string",
+          "enum": ["spedas-skill://index"]
+        },
+        "provenance_schema_uri": {
+          "type": "string",
+          "enum": ["spedas-preset://schemas/analysis_bundle_run"]
+        }
+      }
+    },
+    "tool_calls": {
+      "type": "array",
+      "description": "Append one compact object per consequential MCP/tool call: name, selected arguments, status, output paths, warnings, and timestamps when useful.",
+      "items": {"type": "object"}
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "Append one compact object per generated data, plot, table, notebook, or report artifact: path, role, source tool, hash/size when known, and validation notes.",
+      "items": {"type": "object"}
+    },
+    "caveats": {
+      "type": "array",
+      "description": "Append caveat objects or strings for data-access, calibration, interval, proxy, or validation limitations.",
+      "items": {"type": ["object", "string"]}
+    }
+  }
+}

@@ -53,8 +53,10 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised by entrypoint guard
     raise ImportError("Install MCP support with: pip install 'spedas-agent-kit[mcp]'") from exc
 
-#: MCP resource URI for the canonical reproduction-provenance JSON schema.
+#: MCP resource URI for the canonical paper-reproduction provenance JSON schema.
 SPEDAS_PROVENANCE_SCHEMA_URI = "spedas-preset://schemas/reproduction_provenance"
+#: MCP resource URI for analysis-bundle provenance/run.json records.
+SPEDAS_ANALYSIS_RUN_SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
 
 logger = logging.getLogger(__name__)
 
@@ -1347,6 +1349,25 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 .read_text(encoding="utf-8")
             )
 
+        @mcp.resource(
+            SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
+            name="spedas-analysis-bundle-run-schema",
+            title="SPEDAS Agent Kit analysis bundle run provenance schema",
+            description=(
+                "Machine-readable JSON schema for provenance/run.json records "
+                "seeded by create_spedas_analysis_bundle. Shape-only; agents "
+                "must still validate the science artifacts they record."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_preset", "kind": "schema"},
+        )
+        def spedas_analysis_run_schema_resource() -> str:
+            return (
+                resources.files("spedas_agent_kit.resources.schemas")
+                .joinpath("analysis_bundle_run.schema.json")
+                .read_text(encoding="utf-8")
+            )
+
     _register_event_preset_resources()
 
     def _register_tool(
@@ -1492,14 +1513,17 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 "index_resource": SPEDAS_PRESET_INDEX_URI,
                 "uri_pattern": f"{SPEDAS_PRESET_URI_PREFIX}{{preset_id}}",
                 "provenance_schema_resource": SPEDAS_PROVENANCE_SCHEMA_URI,
+                "reproduction_provenance_schema_resource": SPEDAS_PROVENANCE_SCHEMA_URI,
+                "analysis_bundle_run_schema_resource": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
                 "provenance_required_keys": list(PROVENANCE_REQUIRED_KEYS),
                 "note": (
                     "Solar-wind event preset seeds and the canonical "
                     "reproduction-provenance JSON schema are exposed as MCP "
                     "resources, not tools, so the default 13-tool surface stays "
-                    "compact. Read spedas-preset://index for the preset list and "
-                    "spedas-preset://schemas/reproduction_provenance for the "
-                    "machine-readable provenance shape. Presets are seeds, not a "
+                    "compact. Read spedas-preset://index for the preset list, "
+                    "spedas-preset://schemas/reproduction_provenance for paper "
+                    "reproduction provenance, and spedas-preset://schemas/analysis_bundle_run "
+                    "for analysis-bundle provenance/run.json records. Presets are seeds, not a "
                     "curated catalog; honor each preset's quality_labels/notes and "
                     "the rules in docs/examples/solar_wind_event_presets.md."
                 ),
@@ -1626,7 +1650,7 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                 "Use unified data-layer tools for new workflows; set SPEDAS_AGENT_KIT_COMPAT_TOOLS=1 only when an existing client requires legacy CDAWeb/PDS browse/load/parameter/fetch tool names; use manage_data_cache for all cache status and maintenance actions.",
                 "Use geometry tools directly when the request is SPICE-specific ephemeris, distance, or transform work; discover SPICE missions/frames via browse_data_sources/load_data_source with source_type='spice'.",
                 "For HAPI or FDSN/MTH5 data, start with browse_data_sources(source_type='hapi'/'fdsn'); follow its next_tools to the dedicated browse_hapi_catalog/fetch_hapi_data or browse_fdsn_datasets/fetch_fdsn_data tools. Those direct tools are hidden from list_tools by default; set SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1 to advertise them directly.",
-                "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
+                "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches; keep the seeded provenance/run.json aligned with spedas-preset://schemas/analysis_bundle_run as tool calls, artifacts, and caveats accumulate.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
             ],
             "guided_recipes": {

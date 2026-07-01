@@ -19,7 +19,7 @@ from .optional_backends import analysis_dependencies_available
 
 SPEDAS_ANALYSIS_RUN_PROVENANCE_VERSION = "spedas-analysis-bundle-run-v1"
 SPEDAS_SKILL_INDEX_URI = "spedas-skill://index"
-SPEDAS_PROVENANCE_SCHEMA_URI = "spedas-preset://schemas/reproduction_provenance"
+SPEDAS_ANALYSIS_RUN_SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
 
 
 SOURCE_PROFILES: dict[str, dict[str, Any]] = {
@@ -1423,7 +1423,7 @@ def create_analysis_bundle(
         "artifact_dirs": artifact_dirs,
         "resource_hints": {
             "skill_index_uri": SPEDAS_SKILL_INDEX_URI,
-            "provenance_schema_uri": SPEDAS_PROVENANCE_SCHEMA_URI,
+            "provenance_schema_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
         },
         "tool_calls": [],
         "artifacts": [],
