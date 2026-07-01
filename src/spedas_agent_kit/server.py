@@ -1655,12 +1655,26 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
             ],
             "guided_recipes": {
                 "overview_skill": "overview-geomagnetic-indices",
+                "overview_skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
                 "geomagnetic_indices": [
                     {
                         "intent": "Dst / ring-current context",
                         "preferred_source": "PySPEDAS Kyoto loader",
                         "dataset_or_loader": "pyspedas.projects.kyoto.dst",
                         "variables": ["kyoto_dst"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI2_H0_MRG1HR"],
+                            "parameters_to_browse": ["Dst"],
+                        },
+                        "external_runtime_route": {
+                            "loader": "pyspedas.projects.kyoto.dst",
+                            "not_an_mcp_tool": True,
+                            "available_only_if_runtime_can_import_pyspedas": True,
+                            "install_hint": "Use only in an external Python runtime with PySPEDAS import access; MCP-only clients should follow mcp_first_route.",
+                        },
                         "notes": "Kyoto WDC Dst; useful for Tsyganenko dst inputs when the runtime can call PySPEDAS directly.",
                     },
                     {
@@ -1668,12 +1682,38 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                         "preferred_source": "CDAWeb HAPI OMNI or PySPEDAS Kyoto AE",
                         "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN or pyspedas.projects.kyoto.load_ae",
                         "variables": ["AE_INDEX", "AL_INDEX", "AU_INDEX"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI_HRO_1MIN", "OMNI_HRO2_1MIN", "OMNI2_H0_MRG1HR"],
+                            "parameters_to_browse": ["AE_INDEX", "AL_INDEX", "AU_INDEX"],
+                        },
+                        "external_runtime_route": {
+                            "loader": "pyspedas.projects.kyoto.load_ae",
+                            "not_an_mcp_tool": True,
+                            "available_only_if_runtime_can_import_pyspedas": True,
+                            "install_hint": "Use only in an external Python runtime with PySPEDAS import access; MCP-only clients should follow mcp_first_route.",
+                        },
                     },
                     {
                         "intent": "Kp activity index",
                         "preferred_source": "PySPEDAS NOAA/GFZ loader",
                         "dataset_or_loader": "pyspedas.projects.noaa.noaa_load_kp",
                         "variables": ["Kp", "ap"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI2_H0_MRG1HR"],
+                            "parameters_to_browse": ["Kp", "ap"],
+                        },
+                        "external_runtime_route": {
+                            "loader": "pyspedas.projects.noaa.noaa_load_kp",
+                            "not_an_mcp_tool": True,
+                            "available_only_if_runtime_can_import_pyspedas": True,
+                            "install_hint": "Use only in an external Python runtime with PySPEDAS import access; MCP-only clients should follow mcp_first_route.",
+                        },
                         "notes": "Use pyspedas.geopack.kp2iopt to convert Kp for T89 iopt in PySPEDAS workflows.",
                     },
                     {
@@ -1681,6 +1721,13 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                         "preferred_source": "CDAWeb HAPI OMNI",
                         "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN",
                         "variables": ["SYM_H", "SYM_D", "ASY_H", "ASY_D"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI_HRO_1MIN", "OMNI_HRO2_1MIN"],
+                            "parameters_to_browse": ["SYM_H", "SYM_D", "ASY_H", "ASY_D"],
+                        },
                     },
                 ],
                 "mission_overview_starting_points": {

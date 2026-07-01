@@ -251,10 +251,25 @@ def test_overview_advertises_geomagnetic_index_recipe(monkeypatch):
     data = json.loads(_call_tool(server, "spedas_overview"))
     recipes = data["guided_recipes"]
     assert recipes["overview_skill"] == "overview-geomagnetic-indices"
+    assert recipes["overview_skill_resource"] == "spedas-skill://skills/overview-geomagnetic-indices"
     geomag = {entry["intent"]: entry for entry in recipes["geomagnetic_indices"]}
     assert any("Dst" in intent for intent in geomag)
     assert any("Kp" in entry["variables"] for entry in geomag.values())
     assert any("SYM_H" in entry["variables"] for entry in geomag.values())
+    allowed_mcp_tools = {"browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"}
+    for entry in geomag.values():
+        route = entry["mcp_first_route"]
+        assert route["skill_resource"] == "spedas-skill://skills/overview-geomagnetic-indices"
+        assert route["source_type"] == "cdaweb"
+        assert set(route["tools"]) <= allowed_mcp_tools
+        assert route["candidate_dataset_ids"]
+        assert route["parameters_to_browse"]
+        if "pyspedas." in entry.get("dataset_or_loader", ""):
+            external = entry["external_runtime_route"]
+            assert external["not_an_mcp_tool"] is True
+            assert external["available_only_if_runtime_can_import_pyspedas"] is True
+            assert external["loader"].startswith("pyspedas.")
+            assert "MCP-only clients should follow mcp_first_route" in external["install_hint"]
     assert "MMS1_FGM_SRVY_L2" in recipes["mission_overview_starting_points"]["MMS"]
     assert "THA_L2_FGM" in recipes["mission_overview_starting_points"]["THEMIS"]
 
