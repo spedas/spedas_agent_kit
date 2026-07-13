@@ -86,8 +86,16 @@ jobs:
     # points that the editable-install lanes above cannot see. The install pulls
     # only base dependencies (no optional science extras) and the smoke is
     # network-free: it never downloads CDAWeb/PDS data or SPICE kernels.
-    runs-on: ubuntu-latest
+    #
+    # Runs on an OS matrix so the built-wheel clean-install evidence covers both
+    # Linux and macOS. fail-fast is disabled so a failure on one OS still lets the
+    # other OS report its own result.
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
