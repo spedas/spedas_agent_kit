@@ -10,14 +10,17 @@ the extra is missing (mirroring the ``[mcp]`` guard in ``server.py``).
 
 from __future__ import annotations
 
+from ..installation import install_hint as _install_hint
+from ..installation import extras_identifier as _extras_identifier
+
 
 class AnalysisDependencyError(RuntimeError):
     """Raised when an optional analysis backend (pyspedas) is unavailable."""
 
 
 _INSTALL_HINT = (
-    "This tool requires the optional analysis backend. Install it with: "
-    "pip install 'spedas-agent-kit[analysis]' (provides pyspedas). "
+    f"This tool requires the optional {_extras_identifier('analysis')} backend "
+    f"(provides pyspedas). {_install_hint('analysis')} "
     "pyspedas is intentionally not part of the base install."
 )
 
@@ -44,8 +47,8 @@ def require_pyspedas():
 
 
 _MATPLOTLIB_HINT = (
-    "This tool requires the optional analysis backend. Install it with: "
-    "pip install 'spedas-agent-kit[analysis]' (provides matplotlib via pyspedas). "
+    f"This tool requires the optional {_extras_identifier('analysis')} backend "
+    f"(provides matplotlib via pyspedas). {_install_hint('analysis')} "
     "matplotlib is intentionally not part of the base install."
 )
 

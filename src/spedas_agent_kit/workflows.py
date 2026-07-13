@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .optional_backends import analysis_dependencies_available
+from .installation import install_hint as _install_hint
 
 
 SPEDAS_ANALYSIS_RUN_PROVENANCE_VERSION = "spedas-analysis-bundle-run-v1"
@@ -1158,9 +1159,10 @@ def _analysis_availability() -> dict[str, Any]:
             "below are unavailable as MCP tools."
         )
         info["fallback"] = (
-            "Install the optional analysis backend with "
-            "pip install 'spedas-agent-kit[analysis]' (provides pyspedas), or run the "
-            "listed pyspedas functions directly on the fetched CSV/CDF files."
+            "Install the optional analysis backend (provides pyspedas). "
+            f"{_install_hint('analysis')} "
+            "Or run the listed pyspedas functions directly on the fetched "
+            "CSV/CDF files."
         )
     return info
 

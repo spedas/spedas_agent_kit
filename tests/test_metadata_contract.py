@@ -26,6 +26,7 @@ future drift back toward "looks published on PyPI" fails CI.
 """
 from __future__ import annotations
 
+import ast
 import copy
 import re
 import sys
@@ -292,10 +293,17 @@ SOURCE_INSTALL_COMMANDS = (
 )
 
 # The misleading public-index command form this slice removed. Match only the
-# *command* (a `pip install` directive naming the distribution, optionally with an
-# extra), so plain identifier mentions like `spedas-agent-kit[hapi]` and the
-# source-relative `python -m pip install .` commands do not trip it.
-MISLEADING_PIP_INSTALL = re.compile(r"pip install\s+'?spedas-agent-kit")
+# *command* (a `pip`/`pip3 install` directive naming the distribution, optionally
+# quoted, flagged, and with an extra), so plain identifier mentions like
+# `spedas-agent-kit[hapi]` and the source-relative `python -m pip install .` /
+# `'.[analysis]'` commands do not trip it. Tolerates the pip3 spelling,
+# single/double quotes, the hyphen/underscore distribution spellings, and any
+# short/long option flags between `install` and the distribution (e.g. `-U`,
+# `--upgrade`) so drift cannot sneak back in under a cosmetic variant.
+MISLEADING_PIP_INSTALL = re.compile(
+    r"""pip3?\s+install\s+(?:-{1,2}\S+\s+)*["']?spedas[-_]agent[-_]kit""",
+    re.IGNORECASE,
+)
 
 
 def _pyproject_classifiers() -> list:
@@ -354,3 +362,107 @@ def test_readme_rejects_misleading_public_index_install_command():
     readme = _readme_text()
     hits = MISLEADING_PIP_INSTALL.findall(readme)
     assert hits == [], f"misleading public-index install command present: {hits}"
+
+
+# --------------------------------------------------------------------------- #
+# Runtime Python source may not emit the public-index command form either
+# (issue #209 slice #8). Every user-visible runtime install directive must route
+# through spedas_agent_kit.installation, which renders the source-checkout path
+# (`python -m pip install '.[...]'`). Plain `spedas-agent-kit[extra]` identifiers
+# and checkout-relative commands are allowed; the `pip install spedas-agent-kit`
+# command form is not, so runtime guidance cannot drift back toward a package
+# that is not published.
+# --------------------------------------------------------------------------- #
+RUNTIME_PKG = ROOT / "src" / "spedas_agent_kit"
+
+
+def _runtime_python_sources() -> list:
+    return sorted(RUNTIME_PKG.rglob("*.py"))
+
+
+def test_runtime_python_sources_exist_to_scan():
+    # Guard against a silently-empty scan (e.g. wrong ROOT): the package ships
+    # source, so the glob must find the known command producers.
+    sources = _runtime_python_sources()
+    names = {p.name for p in sources}
+    assert {"__init__.py", "server.py", "workflows.py", "installation.py"} <= names, names
+
+
+def test_runtime_python_sources_reject_public_index_install_command():
+    offenders = {}
+    for path in _runtime_python_sources():
+        hits = MISLEADING_PIP_INSTALL.findall(path.read_text(encoding="utf-8"))
+        if hits:
+            offenders[str(path.relative_to(ROOT))] = hits
+    assert offenders == {}, (
+        "runtime source emits the public-index install command form; route it "
+        f"through spedas_agent_kit.installation instead: {offenders}"
+    )
+
+
+def _string_constants(tree: ast.AST) -> list:
+    """Every ``str`` constant in the module (stdlib AST, no import/execution).
+
+    The parser folds *adjacent* string literals into a single ``ast.Constant``,
+    so a command literal split across source lines (e.g. ``"pip install -U "``
+    ``"'spedas-agent-kit[analysis]'"``) is reconciled into one rendered value the
+    regex can catch — which the raw line-by-line scan misses.
+    """
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+
+
+def test_runtime_ast_string_constants_reject_public_index_install_command():
+    # Scans rendered string constants (concatenation-aware) so split-literal
+    # command forms — like the pre-fix fieldmodels backend_outdated message —
+    # cannot evade the raw-source scan. Deterministic, stdlib-only, no execution.
+    offenders = {}
+    for path in _runtime_python_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hits = [s for s in _string_constants(tree) if MISLEADING_PIP_INSTALL.search(s)]
+        if hits:
+            offenders[str(path.relative_to(ROOT))] = hits
+    assert offenders == {}, (
+        "a runtime string constant renders the public-index install command form "
+        "(possibly split across adjacent literals); route it through "
+        f"spedas_agent_kit.installation instead: {offenders}"
+    )
+
+
+# Pin the *shape* of the anti-drift pattern so a future edit cannot silently
+# weaken it back to only matching a single cosmetic spelling. Every cosmetic
+# variant of the misleading public-index command must still be caught, and every
+# allowed form (plain identifier, checkout-relative command) must still pass.
+MISLEADING_VARIANTS_THAT_MUST_MATCH = (
+    "pip install spedas-agent-kit",
+    "pip install spedas-agent-kit[analysis]",
+    "pip install 'spedas-agent-kit[analysis]'",
+    'pip install "spedas-agent-kit[hapi]"',
+    "pip3 install spedas-agent-kit",
+    "pip install spedas_agent_kit",  # underscore distribution spelling
+    "PIP INSTALL SPEDAS-AGENT-KIT",  # case-insensitive
+    # Flags/options between `install` and the distribution (the exact pre-fix
+    # fieldmodels offender and its long-option twin).
+    "pip install -U 'spedas-agent-kit[analysis]'",
+    'pip install --upgrade "spedas_agent_kit[analysis]"',
+    "pip3 install -U --no-cache-dir spedas-agent-kit[analysis]",
+)
+ALLOWED_FORMS_THAT_MUST_NOT_MATCH = (
+    "spedas-agent-kit[analysis]",  # plain identifier mention
+    "python -m pip install .",  # checkout-relative base
+    "python -m pip install '.[analysis]'",  # checkout-relative extra
+    "python -m pip install '.[hapi,fdsn]'",
+)
+
+
+def test_misleading_pip_install_regex_catches_all_cosmetic_variants():
+    for text in MISLEADING_VARIANTS_THAT_MUST_MATCH:
+        assert MISLEADING_PIP_INSTALL.search(text), text
+
+
+def test_misleading_pip_install_regex_allows_identifier_and_checkout_forms():
+    for text in ALLOWED_FORMS_THAT_MUST_NOT_MATCH:
+        assert MISLEADING_PIP_INSTALL.search(text) is None, text

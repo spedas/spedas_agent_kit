@@ -30,6 +30,8 @@ from __future__ import annotations
 from typing import Any
 import importlib.util
 
+from ..installation import missing_backend_message as _missing_backend_message
+
 
 class DataSourceDependencyError(RuntimeError):
     """Raised when an optional data-source backend is unavailable.
@@ -70,7 +72,7 @@ def _missing_dependency_error(exc: DataSourceDependencyError) -> dict[str, Any]:
     return _error(
         str(exc),
         code="missing_dependency",
-        hint=f"Install the optional backend with: pip install 'spedas-agent-kit[{exc.extra}]'.",
+        hint=_missing_backend_message(exc.extra),
         extra=exc.extra,
     )
 

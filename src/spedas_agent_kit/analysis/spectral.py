@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from . import AnalysisDependencyError, require_pyspedas
+from ..installation import install_hint as _install_hint
 
 # Continuous-wavelet families exposed by the wavelet tool. These map onto the
 # PyWavelets continuous wavelets that pyspedas' wavelet() supports, plus the
@@ -373,7 +374,7 @@ def wavelet_transform(
     except Exception as exc:  # pragma: no cover - exercised via monkeypatch
         return _error(
             "This tool requires PyWavelets (installed with the analysis extra). "
-            "Install it with: pip install 'spedas-agent-kit[analysis]'. "
+            f"{_install_hint('analysis')} "
             f"(import error: {exc})",
             code="dependency_missing",
         )
