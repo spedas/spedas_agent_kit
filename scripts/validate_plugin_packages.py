@@ -8,6 +8,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPATIBILITY = ROOT / "plugins" / "spedas-agent-kit-compatibility.json"
 SERVER_JSON = ROOT / "server.json"
+PYPROJECT = ROOT / "pyproject.toml"
+INIT_PY = ROOT / "src" / "spedas_agent_kit" / "__init__.py"
+
+# Core package identity that must agree across pyproject, the package __version__,
+# server.json, and the declared console entry point. These are the "core" surfaces
+# (not the bundled Claude/Codex wrapper plugin versions, which are validated for
+# presence/format separately and are not forced to equal the core version).
+CORE_PACKAGE_NAME = "spedas-agent-kit"
+CORE_CONSOLE_SCRIPT = "spedas-agent-kit"
+CORE_ENTRY_POINT_TARGET = "spedas_agent_kit:main"
 
 
 def load_json(path: Path) -> dict:
@@ -15,6 +25,132 @@ def load_json(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # pragma: no cover - failure path prints useful context
         raise SystemExit(f"Invalid JSON {path}: {exc}") from exc
+
+
+def load_toml(path: Path) -> dict:
+    try:
+        import tomllib  # Python 3.11+ standard library
+    except ModuleNotFoundError:  # Python 3.10: dev-only tomli backport
+        import tomli as tomllib  # type: ignore[no-redef]
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - failure path prints useful context
+        raise SystemExit(f"Invalid TOML {path}: {exc}") from exc
+
+
+def parse_init_version(init_source: str) -> str:
+    """Extract ``__version__`` from ``__init__.py`` source via AST.
+
+    Reading the assignment statically avoids importing the package (and thus the
+    server / optional analysis stack) merely to learn its declared version.
+    """
+    import ast
+
+    module = ast.parse(init_source)
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__version__":
+                    value = node.value
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        return value.value
+    raise SystemExit(
+        "src/spedas_agent_kit/__init__.py: no string __version__ assignment found"
+    )
+
+
+def check_core_metadata_contract(
+    *,
+    pyproject: dict,
+    server_manifest: dict,
+    init_version: str,
+) -> list[str]:
+    """Return human-readable mismatch messages for the core metadata contract.
+
+    Pure over already-parsed inputs so the consistency rules can be exercised
+    in-memory. ``pyproject`` ``[project].version`` is treated as the single
+    source of truth for the core package version; every message names the
+    mismatched field/surface. An empty list means the contract holds.
+    """
+    errors: list[str] = []
+    project = pyproject.get("project", {})
+    proj_name = project.get("name")
+    proj_version = project.get("version")
+
+    if proj_name != CORE_PACKAGE_NAME:
+        errors.append(
+            f"pyproject [project].name {proj_name!r} != expected core package name "
+            f"{CORE_PACKAGE_NAME!r}"
+        )
+
+    if not isinstance(proj_version, str) or not proj_version:
+        errors.append(f"pyproject [project].version missing or not a string: {proj_version!r}")
+    else:
+        if init_version != proj_version:
+            errors.append(
+                f"src/spedas_agent_kit/__init__.py __version__ {init_version!r} != "
+                f"pyproject [project].version {proj_version!r}"
+            )
+        top_version = server_manifest.get("version")
+        if top_version != proj_version:
+            errors.append(
+                f"server.json top-level version {top_version!r} != "
+                f"pyproject [project].version {proj_version!r}"
+            )
+
+    scripts = project.get("scripts", {})
+    target = scripts.get(CORE_CONSOLE_SCRIPT)
+    if not isinstance(target, str):
+        errors.append(
+            f"pyproject [project.scripts] missing {CORE_CONSOLE_SCRIPT!r} console script"
+        )
+    elif target.replace(" ", "") != CORE_ENTRY_POINT_TARGET:
+        errors.append(
+            f"pyproject [project.scripts].{CORE_CONSOLE_SCRIPT} console entry target "
+            f"{target!r} != expected {CORE_ENTRY_POINT_TARGET!r}"
+        )
+
+    pypi_packages = [
+        pkg
+        for pkg in server_manifest.get("packages", [])
+        if isinstance(pkg, dict) and pkg.get("registryType") == "pypi"
+    ]
+    if not pypi_packages:
+        errors.append("server.json: no pypi package entry found")
+    for pkg in pypi_packages:
+        if pkg.get("identifier") != CORE_PACKAGE_NAME:
+            errors.append(
+                f"server.json pypi package identifier {pkg.get('identifier')!r} != "
+                f"expected {CORE_PACKAGE_NAME!r}"
+            )
+        if isinstance(proj_version, str) and proj_version and pkg.get("version") != proj_version:
+            errors.append(
+                f"server.json pypi package version {pkg.get('version')!r} != "
+                f"pyproject [project].version {proj_version!r}"
+            )
+        transport = pkg.get("transport", {})
+        transport_type = transport.get("type") if isinstance(transport, dict) else None
+        if transport_type != "stdio":
+            errors.append(
+                f"server.json pypi package transport.type {transport_type!r} != expected 'stdio'"
+            )
+    return errors
+
+
+def validate_core_metadata_contract() -> None:
+    """Fail if the core package name/version/console/server metadata drift apart."""
+    pyproject = load_toml(PYPROJECT)
+    server_manifest = load_json(SERVER_JSON)
+    init_version = parse_init_version(INIT_PY.read_text(encoding="utf-8"))
+    errors = check_core_metadata_contract(
+        pyproject=pyproject,
+        server_manifest=server_manifest,
+        init_version=init_version,
+    )
+    if errors:
+        raise SystemExit(
+            "Core metadata consistency contract failed:\n  - " + "\n  - ".join(errors)
+        )
 
 
 def require(path: Path) -> None:
@@ -117,6 +253,7 @@ def validate_codex() -> None:
 
 
 def main() -> int:
+    validate_core_metadata_contract()
     _validate_server_manifest_env_flags()
     validate_claude()
     validate_codex()

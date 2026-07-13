@@ -62,6 +62,10 @@ fdsn = ["pyspedas>=2.0", "mth5>=0.4.0", "obspy>=1.4"]
 dev = [
     "pytest>=7.0",
     "mcp>=1.26.0,<2",
+    # TOML parser backport used only by scripts/validate_plugin_packages.py on
+    # Python 3.10 (3.11+ uses the stdlib tomllib). Dev/CI-only; deliberately not a
+    # runtime dependency so base installs stay lean.
+    "tomli>=1.1.0; python_version < '3.11'",
 ]
 
 [project.urls]
