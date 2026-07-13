@@ -82,8 +82,6 @@ jobs:
     # network-free: it never downloads CDAWeb/PDS data or SPICE kernels.
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      WHEEL_VENV: ${{ runner.temp }}/spedas-agent-kit-wheel-venv
 
     steps:
       - uses: actions/checkout@v4
@@ -100,15 +98,15 @@ jobs:
         run: twine check dist/*
       - name: Create a clean venv and install the built wheel (not -e ., not src)
         run: |
-          python -m venv "$WHEEL_VENV"
-          "$WHEEL_VENV/bin/python" -m pip install --upgrade pip
+          python -m venv "$RUNNER_TEMP/spedas-agent-kit-wheel-venv"
+          "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" -m pip install --upgrade pip
           # Install the built wheel by artifact path: base dependencies only, no
           # optional extras, no source tree. The glob resolves to the single wheel.
-          "$WHEEL_VENV/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" -m pip install dist/*.whl
       - name: Smoke-test the installed wheel (entry point + packaged resources)
         # Runs the installed console entry point over MCP stdio and verifies the
         # canonical base tools plus packaged skills/schemas/presets are readable.
         # Fails loudly if package data, dependencies, or the entry point are broken.
         run: >-
-          "$WHEEL_VENV/bin/python" scripts/smoke_installed_artifact.py
+          "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" scripts/smoke_installed_artifact.py
           --repo-root "$GITHUB_WORKSPACE" --timeout-seconds 60 --json
