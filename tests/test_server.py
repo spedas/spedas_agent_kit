@@ -4004,3 +4004,223 @@ def test_overview_advertises_preset_resources(monkeypatch):
     assert "paper" in presets["provenance_required_keys"]
     assert "default 13-tool surface stays compact" in presets["note"]
     assert any("spedas-preset://index" in step for step in overview["workflow"])
+
+
+# --- Issue #209: deterministic capability-manifest resource -----------------
+
+CAPABILITY_MANIFEST_URI = "spedas-manifest://v1/capabilities"
+
+
+def _read_manifest(server):
+    contents = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))
+    return json.loads(contents[0].content)
+
+
+def test_capability_manifest_resource_is_enumerated_with_narrow_metadata(monkeypatch):
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _dist_version
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    # Adding the manifest resource must not change the default tool surface.
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert CAPABILITY_MANIFEST_URI in by_uri
+    entry = by_uri[CAPABILITY_MANIFEST_URI]
+    assert entry.mimeType == "application/json"
+    assert entry.meta["surface"] == "spedas_manifest"
+    assert entry.meta["kind"] == "capabilities"
+
+    manifest = _read_manifest(server)
+    assert manifest["schema"] == "spedas-manifest-capabilities-v1"
+    assert manifest["schema_version"] == "v1"
+    assert manifest["server"] == "spedas-agent-kit"
+    assert manifest["package"]["name"] == "spedas-agent-kit"
+    # Version must come from installed distribution metadata when present, and the
+    # explicit "unknown" sentinel in a source-only environment with no dist-info.
+    try:
+        expected_version = _dist_version("spedas-agent-kit")
+    except PackageNotFoundError:
+        expected_version = "unknown"
+    assert manifest["package"]["version"] == expected_version
+
+
+def test_capability_manifest_json_is_stable_and_has_no_timestamp(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    first = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    second = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    # Reading twice is byte-identical (deterministic, no generated_at/timestamp).
+    assert first == second
+    assert "generated_at" not in first
+    assert "timestamp" not in first
+    # Parseable JSON.
+    json.loads(first)
+
+
+def test_capability_manifest_default_tool_inventory_matches_live_list_tools(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    live_tools = asyncio.run(server.list_tools())
+    live_names = sorted(tool.name for tool in live_tools)
+
+    manifest = _read_manifest(server)
+    assert manifest["tools"]["total"] == 13
+    assert manifest["tools"]["names"] == live_names
+    # Default surface is entirely primary; grouped names must round-trip.
+    assert set(manifest["tools"]["by_surface"]) == {"primary"}
+    assert manifest["tools"]["by_surface"]["primary"] == live_names
+    # Gate booleans reflect the default (all off) surface.
+    assert manifest["gates"]["analysis_tools"]["enabled"] is False
+    assert manifest["gates"]["compat_tools"]["enabled"] is False
+    assert manifest["gates"]["compat_tools"]["env_var"] == "SPEDAS_AGENT_KIT_COMPAT_TOOLS"
+    assert manifest["gates"]["datasource_tools"]["enabled"] is False
+    assert manifest["gates"]["datasource_tools"]["env_var"] == "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS"
+
+
+def test_capability_manifest_reflects_analysis_gate(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=True)
+
+    live_names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
+    manifest = _read_manifest(server)
+    assert manifest["gates"]["analysis_tools"]["enabled"] is True
+    assert manifest["tools"]["names"] == live_names
+    # Analysis tools register on the "advanced" surface.
+    assert set(ANALYSIS_TOOL_NAMES) <= set(manifest["tools"]["by_surface"].get("advanced", []))
+    assert manifest["tools"]["total"] == len(live_names)
+
+
+def test_capability_manifest_reflects_compat_gate(monkeypatch):
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    live_names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
+    manifest = _read_manifest(server)
+    assert manifest["gates"]["compat_tools"]["enabled"] is True
+    assert manifest["tools"]["names"] == live_names
+    assert COMPAT_CDAWEB_PDS_TOOLS <= set(manifest["tools"]["by_surface"].get("compat", []))
+
+
+def test_capability_manifest_reflects_datasource_gate(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", "1")
+    server = create_server(include_analysis_tools=False)
+
+    live_names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
+    manifest = _read_manifest(server)
+    assert manifest["gates"]["datasource_tools"]["enabled"] is True
+    assert manifest["tools"]["names"] == live_names
+    assert DATASOURCE_HAPI_FDSN_TOOLS <= set(manifest["tools"]["by_surface"].get("datasource", []))
+    # The datasource gate flips the canonical optional-backend advertised flags.
+    assert manifest["optional_backends"]["hapi"]["advertised"] is True
+    assert manifest["optional_backends"]["fdsn"]["advertised"] is True
+
+
+def test_capability_manifest_reflects_combined_gate_surfaces(monkeypatch):
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", "1")
+    server = create_server(include_analysis_tools=True)
+
+    live_tools = asyncio.run(server.list_tools())
+    expected_by_surface = {}
+    for tool in live_tools:
+        expected_by_surface.setdefault(tool.meta["surface"], []).append(tool.name)
+    expected_by_surface = {
+        surface: sorted(names) for surface, names in expected_by_surface.items()
+    }
+
+    manifest = _read_manifest(server)
+    assert manifest["tools"]["by_surface"] == expected_by_surface
+    assert set(expected_by_surface) == {"primary", "advanced", "compat", "datasource"}
+    assert manifest["gates"]["analysis_tools"]["enabled"] is True
+    assert manifest["gates"]["compat_tools"]["enabled"] is True
+    assert manifest["gates"]["datasource_tools"]["enabled"] is True
+
+
+def test_capability_manifest_catalog_facts_come_from_canonical_structures(monkeypatch):
+    from spedas_agent_kit.resources.event_presets import list_event_presets
+    from spedas_agent_kit.resources.skill_catalog import list_packaged_skills
+    from spedas_agent_kit.server import _optional_backend_availability
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    manifest = _read_manifest(server)
+
+    resources = manifest["resources"]
+    assert resources["skills"]["count"] == len(list_packaged_skills())
+    assert resources["skills"]["index_uri"] == "spedas-skill://index"
+    assert resources["skills"]["uri_prefix"] == "spedas-skill://skills/"
+    assert resources["event_presets"]["count"] == len(list_event_presets())
+    assert resources["event_presets"]["index_uri"] == "spedas-preset://index"
+    assert resources["schemas"]["reproduction_provenance_uri"] == (
+        "spedas-preset://schemas/reproduction_provenance"
+    )
+    assert resources["schemas"]["analysis_bundle_run_uri"] == (
+        "spedas-preset://schemas/analysis_bundle_run"
+    )
+    # Optional-backend payload is the canonical structure, not a re-derived copy.
+    expected_backends = _optional_backend_availability(
+        include_analysis_tools=False, datasource_tools_enabled=False
+    )
+    assert manifest["optional_backends"] == expected_backends
+
+
+def test_installed_package_version_reports_both_branches(monkeypatch):
+    import importlib.metadata as _metadata
+
+    from spedas_agent_kit.server import _installed_package_version
+
+    # The helper imports ``version`` at call time from importlib.metadata, so patch
+    # the module attribute to exercise each branch deterministically.
+    monkeypatch.setattr(_metadata, "version", lambda name: "1.2.3")
+    assert _installed_package_version() == "1.2.3"
+
+    def _raise(name):
+        raise _metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(_metadata, "version", _raise)
+    assert _installed_package_version() == "unknown"
+
+
+def test_build_capability_manifest_is_pure_and_deterministic():
+    from spedas_agent_kit.server import _build_capability_manifest
+
+    kwargs = dict(
+        package_version="9.9.9",
+        tool_surface_pairs=[("b_tool", "primary"), ("a_tool", "primary"), ("z_tool", "advanced")],
+        include_analysis_tools=True,
+        compat_tools_enabled=False,
+        datasource_tools_enabled=False,
+        optional_backends={"analysis": {"available": True}},
+        packaged_skills=["s1", "s2"],
+        event_presets=["p1", "p2", "p3"],
+    )
+    first = _build_capability_manifest(**kwargs)
+    second = _build_capability_manifest(**kwargs)
+    assert first == second
+    assert first["package"]["version"] == "9.9.9"
+    assert first["tools"]["total"] == 3
+    assert first["tools"]["names"] == ["a_tool", "b_tool", "z_tool"]
+    assert first["tools"]["by_surface"] == {
+        "primary": ["a_tool", "b_tool"],
+        "advanced": ["z_tool"],
+    }
+    assert first["resources"]["skills"]["count"] == 2
+    assert first["resources"]["event_presets"]["count"] == 3
+    # No timestamp/generated_at leaks into the pure payload.
+    serialized = json.dumps(first, sort_keys=True)
+    assert "generated_at" not in serialized
+    assert "timestamp" not in serialized
