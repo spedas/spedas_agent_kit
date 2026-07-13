@@ -134,3 +134,42 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1
           "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" scripts/smoke_base_imports.py
           --repo-root "$GITHUB_WORKSPACE" --json
+      - name: Create a clean venv and install the built sdist (not ., not -e ., not the wheel)
+        # Second clean-install witness for the OTHER built artifact type: the
+        # source distribution. `twine check` above validates sdist metadata but
+        # never asks pip to build+install dist/*.tar.gz, so a broken source-archive
+        # inclusion set (missing package data or undeclared deps) can slip through
+        # while the checkout and the separately built wheel both pass. This venv is
+        # distinct from spedas-agent-kit-wheel-venv and installs the explicit tarball
+        # path only — never `.`, `-e .`, or dist/*.whl — so the installed result is
+        # derived from the sdist. --no-cache-dir avoids reusing pip's cached project
+        # wheel. Ubuntu-only: the smokes below assume POSIX venv/entry-point layout.
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python -m venv "$RUNNER_TEMP/spedas-agent-kit-sdist-venv"
+          "$RUNNER_TEMP/spedas-agent-kit-sdist-venv/bin/python" -m pip install --upgrade pip
+          # Install the built sdist by artifact path so pip runs its isolated
+          # PEP 517 build of the tarball. The glob resolves to the single sdist.
+          "$RUNNER_TEMP/spedas-agent-kit-sdist-venv/bin/python" -m pip install --no-cache-dir dist/*.tar.gz
+      - name: Smoke-test the installed sdist build (entry point + packaged resources)
+        # Reuses the installed-artifact probe against the sdist-derived install:
+        # runs the installed console entry point over MCP stdio and verifies the
+        # canonical base tools plus packaged skills/schemas/presets are readable.
+        # Fails loudly if the source archive omitted package data, dependencies, or
+        # the entry point. The probe is install-origin-neutral; the explicit tarball
+        # install command above is what makes this an sdist witness.
+        if: matrix.os == 'ubuntu-latest'
+        run: >-
+          "$RUNNER_TEMP/spedas-agent-kit-sdist-venv/bin/python" scripts/smoke_installed_artifact.py
+          --repo-root "$GITHUB_WORKSPACE" --timeout-seconds 60 --json
+      - name: Assert base sdist startup loads no optional heavy backends (#209)
+        # In-process, no-write/no-download companion smoke in the SAME clean base
+        # sdist venv: import the package, start + list the base server, and fail
+        # if pyspedas/matplotlib/pywt/hapiclient/mth5/obspy were imported.
+        # PYTHONDONTWRITEBYTECODE keeps the run from writing __pycache__ into the
+        # installed site-packages.
+        if: matrix.os == 'ubuntu-latest'
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1
+          "$RUNNER_TEMP/spedas-agent-kit-sdist-venv/bin/python" scripts/smoke_base_imports.py
+          --repo-root "$GITHUB_WORKSPACE" --json
