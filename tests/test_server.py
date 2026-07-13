@@ -4224,3 +4224,424 @@ def test_build_capability_manifest_is_pure_and_deterministic():
     serialized = json.dumps(first, sort_keys=True)
     assert "generated_at" not in serialized
     assert "timestamp" not in serialized
+
+
+# --- Issue #209 Workstream H: v1 primary/server error contract --------------
+
+ERROR_CONTRACT_URI = "spedas-manifest://v1/error-contract"
+
+
+def _read_error_contract(server):
+    contents = asyncio.run(server.read_resource(ERROR_CONTRACT_URI))
+    return json.loads(contents[0].content)
+
+
+def _emitted_server_error_codes():
+    """Re-derive the codes ``server.py`` actually emits from its own error paths.
+
+    Covers every channel: the first positional literal passed to
+    ``_error_response``, string constants assigned to a ``code`` variable (the
+    ``_no_data_response`` classifier), the ``_EXCEPTION_CODES`` table, the literal
+    tuple returns of ``_classify_exception``, and dict ``"code"`` literals (the
+    ``needs_confirmation`` gate). The pure documentation builder
+    ``_build_error_contract`` is excluded — it describes the contract, it does not
+    emit it. This keeps the published vocabulary honest instead of hand-waved.
+    """
+    import ast
+    import inspect
+
+    from spedas_agent_kit import server as srv
+
+    tree = ast.parse(inspect.getsource(srv))
+
+    def _str(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    emitted: set[str] = set()
+
+    class _Collector(ast.NodeVisitor):
+        def __init__(self):
+            self.func = None
+
+        def visit_FunctionDef(self, node):
+            if node.name == "_build_error_contract":
+                return  # documentation of the contract, not an emitter
+            outer, self.func = self.func, node.name
+            self.generic_visit(node)
+            self.func = outer
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            if name == "_error_response" and node.args:
+                literal = _str(node.args[0])
+                if literal is not None:
+                    emitted.add(literal)
+            self.generic_visit(node)
+
+        def visit_Assign(self, node):
+            if any(isinstance(t, ast.Name) and t.id == "code" for t in node.targets):
+                for sub in ast.walk(node.value):
+                    literal = _str(sub)
+                    if literal is not None:
+                        emitted.add(literal)
+            self.generic_visit(node)
+
+        def visit_Return(self, node):
+            if (
+                self.func == "_classify_exception"
+                and isinstance(node.value, ast.Tuple)
+                and node.value.elts
+            ):
+                literal = _str(node.value.elts[0])
+                if literal is not None:
+                    emitted.add(literal)
+            self.generic_visit(node)
+
+        def visit_Dict(self, node):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == "code":
+                    literal = _str(value)
+                    if literal is not None:
+                        emitted.add(literal)
+            self.generic_visit(node)
+
+    _Collector().visit(tree)
+
+    # The _EXCEPTION_CODES table drives _classify_exception's ``return code, hint``.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == "_EXCEPTION_CODES" for t in targets):
+                for inner in getattr(node.value, "elts", []):
+                    if isinstance(inner, ast.Tuple) and len(inner.elts) >= 2:
+                        literal = _str(inner.elts[1])
+                        if literal is not None:
+                            emitted.add(literal)
+    return emitted
+
+
+def _emitted_codes_in_package(package_dir):
+    """Every ``code=``/``"code":`` string literal emitted under a source subtree."""
+    import ast
+    from pathlib import Path
+
+    codes: set[str] = set()
+    for path in sorted(Path(package_dir).glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg == "code" and isinstance(kw.value, ast.Constant):
+                        if isinstance(kw.value.value, str):
+                            codes.add(kw.value.value)
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "code" for t in node.targets
+            ):
+                for sub in ast.walk(node.value):
+                    if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                        codes.add(sub.value)
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "code"
+                        and isinstance(value, ast.Constant)
+                        and isinstance(value.value, str)
+                    ):
+                        codes.add(value.value)
+    return codes
+
+
+def test_error_contract_resource_is_enumerated_with_narrow_metadata(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    # Adding the error-contract resource must not change the default tool surface.
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert ERROR_CONTRACT_URI in by_uri
+    entry = by_uri[ERROR_CONTRACT_URI]
+    assert entry.mimeType == "application/json"
+    assert entry.meta["surface"] == "spedas_manifest"
+    assert entry.meta["kind"] == "error_contract"
+
+    contract = _read_error_contract(server)
+    assert contract["schema"] == "spedas-error-contract-v1"
+    assert contract["schema_version"] == "v1"
+    assert contract["contract"] == "spedas-error-contract-v1"
+    assert contract["server"] == "spedas-agent-kit"
+    # Field semantics for the additive envelope are documented.
+    fields = contract["envelope"]["fields"]
+    for required in ("status", "code", "message", "contract", "contract_version", "retryable", "hint", "suggested_action"):
+        assert required in fields
+
+
+def test_error_contract_json_is_deterministic_and_timestamp_free(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    first = asyncio.run(server.read_resource(ERROR_CONTRACT_URI))[0].content
+    second = asyncio.run(server.read_resource(ERROR_CONTRACT_URI))[0].content
+    # Reading twice is byte-identical (pure payload, no generated_at/timestamp).
+    assert first == second
+    assert "generated_at" not in first
+    assert "timestamp" not in first
+    json.loads(first)
+
+
+def test_build_error_contract_is_pure_and_deterministic():
+    from spedas_agent_kit.server import _build_error_contract
+
+    first = _build_error_contract()
+    second = _build_error_contract()
+    assert first == second
+    # Every canonical code carries a boolean retryable default and a summary.
+    for code, meta in first["codes"].items():
+        assert isinstance(meta["retryable"], bool)
+        assert isinstance(meta["summary"], str) and meta["summary"]
+    # No timestamp leaks into the pure payload.
+    serialized = json.dumps(first, sort_keys=True)
+    assert "generated_at" not in serialized
+    assert "timestamp" not in serialized
+    # Mutating one caller-owned payload cannot poison later resource builds.
+    first["scope"]["not_covered"]["analysis_tools"]["codes"].append("poison")
+    third = _build_error_contract()
+    assert "poison" not in third["scope"]["not_covered"]["analysis_tools"]["codes"]
+
+
+def test_error_contract_vocabulary_matches_emitted_server_codes():
+    """The published vocabulary/aliases/gate must equal the codes server.py really
+    emits — no invented codes, no silently-dropped ones (issue #209)."""
+    from spedas_agent_kit.server import (
+        _PRIMARY_ERROR_CODE_ALIASES,
+        _PRIMARY_ERROR_CODES,
+        _PRIMARY_GATE_RESPONSES,
+    )
+
+    published = (
+        set(_PRIMARY_ERROR_CODES)
+        | set(_PRIMARY_ERROR_CODE_ALIASES)
+        | set(_PRIMARY_GATE_RESPONSES)
+    )
+    emitted = _emitted_server_error_codes()
+    assert emitted == published, {
+        "only_emitted": sorted(emitted - published),
+        "only_published": sorted(published - emitted),
+    }
+    # The sole recognized alias is the plural argument-validation code.
+    assert set(_PRIMARY_ERROR_CODE_ALIASES) == {"invalid_arguments"}
+    assert _PRIMARY_ERROR_CODE_ALIASES["invalid_arguments"]["canonical"] == "invalid_argument"
+    # The only non-error gate response is the kernel-download confirmation.
+    assert set(_PRIMARY_GATE_RESPONSES) == {"kernel_download_required"}
+    assert _PRIMARY_GATE_RESPONSES["kernel_download_required"]["status"] == "needs_confirmation"
+
+
+def test_error_contract_scope_is_honest_about_optional_modules():
+    """The disclosed optional-module codes must be demonstrably emitted by the
+    named helpers and stay disjoint from the normalized primary vocabulary."""
+    from pathlib import Path
+
+    import spedas_agent_kit
+    from spedas_agent_kit.server import _PRIMARY_ERROR_CODES, _build_error_contract
+
+    package_root = Path(spedas_agent_kit.__file__).resolve().parent
+    analysis_emitted = _emitted_codes_in_package(package_root / "analysis")
+    datasource_emitted = _emitted_codes_in_package(package_root / "datasources")
+
+    scope = _build_error_contract()["scope"]["not_covered"]
+    analysis_codes = set(scope["analysis_tools"]["codes"])
+    datasource_codes = set(scope["datasource_tools"]["codes"])
+
+    # Not hand-waved: each disclosed code is really emitted by that subtree.
+    assert analysis_codes <= analysis_emitted, sorted(analysis_codes - analysis_emitted)
+    assert datasource_codes <= datasource_emitted, sorted(datasource_codes - datasource_emitted)
+    # The scope boundary is real: none of the disclosed optional codes are in the
+    # normalized primary vocabulary (that is why they are "not covered").
+    assert analysis_codes.isdisjoint(_PRIMARY_ERROR_CODES)
+    assert datasource_codes.isdisjoint(_PRIMARY_ERROR_CODES)
+    # The dependency_missing (analysis) vs missing_dependency (datasources) drift
+    # is disclosed honestly rather than claimed as normalized.
+    assert "dependency_missing" in analysis_codes
+    assert "missing_dependency" in datasource_codes
+    # Legacy code-less cache tools and protocol-level failures are disclosed too.
+    assert "manage_spice_kernels" in scope["legacy_cache_tools"]["tools"]
+    assert "unknown tool names" in scope["mcp_protocol_errors"]["examples"]
+
+
+def test_capability_manifest_cross_links_error_contract(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    manifest = json.loads(
+        asyncio.run(server.read_resource("spedas-manifest://v1/capabilities"))[0].content
+    )
+    assert manifest["resources"]["contracts"]["error_contract_uri"] == ERROR_CONTRACT_URI
+
+
+def test_error_response_carries_additive_v1_fields():
+    raw = _error_response("invalid_argument", "bad value")
+    payload = json.loads(raw)
+    # Pre-existing keys are unchanged.
+    assert payload["status"] == "error"
+    assert payload["code"] == "invalid_argument"
+    assert payload["message"] == "bad value"
+    # Additive v1 contract fields.
+    assert payload["contract"] == "spedas-error-contract-v1"
+    assert payload["contract_version"] == "v1"
+    # retryable defaults safely to False and is a real boolean.
+    assert payload["retryable"] is False
+
+
+def test_error_response_retryable_override_is_boolean():
+    payload = json.loads(_error_response("backend_error", "x", retryable=True))
+    assert payload["retryable"] is True
+    payload_false = json.loads(_error_response("backend_error", "x"))
+    assert payload_false["retryable"] is False
+
+
+def test_error_response_hint_compat_and_suggested_action():
+    # With a hint: hint is retained (backward compatible) and suggested_action
+    # mirrors it as the machine-readable recovery step.
+    with_hint = json.loads(_error_response("invalid_argument", "x", hint="do Y"))
+    assert with_hint["hint"] == "do Y"
+    assert with_hint["suggested_action"] == "do Y"
+    # Without a hint: neither key is present (no invented action).
+    without_hint = json.loads(_error_response("invalid_argument", "x"))
+    assert "hint" not in without_hint
+    assert "suggested_action" not in without_hint
+
+
+def test_error_response_v1_fields_do_not_leak_paths_or_urls():
+    raw = _error_response(
+        "unknown_source_id",
+        "Source 'MMS1' not found in /Users/x/cache/MMS1.json see https://errors.example/2",
+        hint="Did you mean 'mms'?",
+        source_id="MMS1",
+    )
+    payload = json.loads(raw)
+    # Additive fields present, and the sanitizer still redacts path/URL leaks.
+    assert payload["contract"] == "spedas-error-contract-v1"
+    assert payload["retryable"] is False
+    assert "/Users/" not in raw
+    assert "http" not in raw
+
+
+def _v1_fields_ok(payload):
+    assert payload["status"] == "error"
+    assert payload["contract"] == "spedas-error-contract-v1"
+    assert payload["contract_version"] == "v1"
+    assert isinstance(payload["retryable"], bool)
+
+
+def test_representative_error_paths_carry_v1_fields_without_leaks(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    # invalid_argument (unknown source_type routing)
+    invalid = json.loads(_call_tool(server, "load_data_source", {"source_type": "bogus", "source_id": "x"}))
+    _v1_fields_ok(invalid)
+    assert invalid["code"] == "invalid_argument"
+
+    # unknown_source_id (network-free catalog lookup) — no path leak
+    unknown = json.loads(_call_tool(server, "load_data_source", {"source_type": "cdaweb", "source_id": "MMS1"}))
+    _v1_fields_ok(unknown)
+    assert unknown["code"] == "unknown_source_id"
+    assert "/Users/" not in json.dumps(unknown)
+
+    # gated: use_dedicated_tool (HAPI routed to its dedicated tool) — carries hint,
+    # so suggested_action must be present too.
+    gated = json.loads(_call_tool(server, "load_data_source", {"source_type": "hapi", "source_id": "x"}))
+    _v1_fields_ok(gated)
+    assert gated["code"] == "use_dedicated_tool"
+    assert gated["suggested_action"] == gated["hint"]
+
+    # unsupported_spice_target (network-free geometry preflight)
+    spice = json.loads(_call_tool(server, "get_ephemeris", {"target": "NONEXISTENT_BODY", "time": "2020-01-01T00:00:00"}))
+    _v1_fields_ok(spice)
+    assert spice["code"] == "unsupported_spice_target"
+
+
+def test_size_guard_error_carries_v1_fields():
+    oversized = json.dumps({"status": "success", "payload": "X" * (_MAX_RESPONSE_BYTES + 5000)})
+    guarded = json.loads(_size_guarded(oversized, source_type="cdaweb"))
+    _v1_fields_ok(guarded)
+    assert guarded["code"] == "response_too_large"
+    assert guarded["suggested_action"] == guarded["hint"]
+
+
+def test_safe_tool_exception_classification_carries_v1_fields():
+    from spedas_agent_kit.server import _safe_tool
+
+    @_safe_tool
+    def boom():
+        raise ValueError("bad /Users/secret/path.json argument")
+
+    payload = json.loads(boom())
+    _v1_fields_ok(payload)
+    # ValueError classifies to invalid_argument (issue #27) and the path is redacted.
+    assert payload["code"] == "invalid_argument"
+    assert payload["tool"] == "boom"
+    assert "/Users/" not in json.dumps(payload)
+
+
+def test_arg_validation_guard_alias_carries_v1_fields():
+    """The FastMCP argument-validation guard emits the plural ``invalid_arguments``
+    alias and must still carry the additive v1 fields (issues #57/#209)."""
+    server = create_server(include_analysis_tools=True)
+    raw = _call_tool(server, "render_tplot", {
+        "input_files": "not-a-list",
+        "output_file": 123,
+        "dpi": "abc",
+    })
+    payload = json.loads(raw)
+    _v1_fields_ok(payload)
+    assert payload["code"] == "invalid_arguments"
+    assert "errors.pydantic.dev" not in raw
+
+
+def test_contract_scope_matches_known_tool_validation_and_unknown_tool_boundary(monkeypatch):
+    """Known-tool argument validation is covered, but unknown-tool protocol errors
+    bypass the application envelope exactly as the public scope states."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    # A known tool with missing required arguments is intercepted by the server's
+    # sanitized call_tool guard and therefore carries the v1 application contract.
+    known_tool = json.loads(_call_tool(server, "load_data_source", {}))
+    _v1_fields_ok(known_tool)
+    assert known_tool["code"] == "invalid_arguments"
+
+    # An unknown name is rejected by FastMCP before any application tool/error
+    # helper runs, so it is a protocol ToolError rather than a v1 JSON envelope.
+    with pytest.raises(ToolError, match="Unknown tool"):
+        asyncio.run(server.call_tool("definitely_not_a_tool", {}))
+
+    scope = _read_error_contract(server)["scope"]["not_covered"]
+    assert "unknown tool names" in scope["mcp_protocol_errors"]["examples"]
+
+
+def test_success_responses_do_not_carry_error_contract_fields(monkeypatch):
+    """Adding the additive error fields must not touch success payloads (#209)."""
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    for tool in ("spedas_overview", "browse_data_sources"):
+        payload = json.loads(_call_tool(server, tool))
+        assert payload["status"] == "success"
+        assert "contract" not in payload
+        assert "contract_version" not in payload
+        assert "retryable" not in payload
+        assert "suggested_action" not in payload

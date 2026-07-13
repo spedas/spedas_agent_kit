@@ -14,6 +14,7 @@ CDAWeb, PDS, and SPICE/geometry.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import logging
 import math
@@ -61,6 +62,13 @@ SPEDAS_ANALYSIS_RUN_SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
 SPEDAS_MANIFEST_CAPABILITIES_URI = "spedas-manifest://v1/capabilities"
 #: Stable v1 schema identifier for the capability manifest payload.
 SPEDAS_MANIFEST_SCHEMA_ID = "spedas-manifest-capabilities-v1"
+#: MCP resource URI for the deterministic v1 primary/server error contract (#209).
+SPEDAS_MANIFEST_ERROR_CONTRACT_URI = "spedas-manifest://v1/error-contract"
+#: Stable identifier stamped into the error-contract resource and into every
+#: additive v1 error envelope emitted by :func:`_error_response`.
+SPEDAS_ERROR_CONTRACT_ID = "spedas-error-contract-v1"
+#: Error-contract schema version (matches the ``v1`` manifest namespace).
+SPEDAS_ERROR_CONTRACT_VERSION = "v1"
 #: Canonical distribution name used for dynamic installed-version lookup.
 _DISTRIBUTION_NAME = "spedas-agent-kit"
 
@@ -470,6 +478,7 @@ def _error_response(
     message: str,
     *,
     hint: str | None = None,
+    retryable: bool = False,
     sanitize: bool = True,
     **extra: Any,
 ) -> str:
@@ -481,14 +490,38 @@ def _error_response(
     by default so backend internals never leak (issues #25/#27). Pass
     ``sanitize=False`` only for messages the server itself authored that are
     known to be path-free.
+
+    The envelope additionally carries the additive, backward-compatible v1
+    contract fields (issue #209 Workstream H), documented by the
+    ``spedas-manifest://v1/error-contract`` resource:
+
+    * ``contract``/``contract_version`` — versioned identifier so clients can
+      pin the shape they branch on.
+    * ``retryable`` — a boolean stating whether retrying the identical call may
+      succeed. It defaults to ``False`` (safe) and is only ``True`` when a caller
+      that genuinely knows the failure is transient passes ``retryable=True``.
+    * ``suggested_action`` — client-facing recovery guidance, mirroring ``hint``
+      when present. It is prose, never an executable command; ``hint`` is retained
+      unchanged for compatibility.
+
+    No pre-existing key is removed or renamed; the new keys are additive.
     """
     payload: dict[str, Any] = {
         "status": "error",
         "code": code,
         "message": _sanitize_message(message) if sanitize else message,
+        # Additive v1 contract fields (issue #209). See the error-contract
+        # resource for the canonical vocabulary and field semantics.
+        "contract": SPEDAS_ERROR_CONTRACT_ID,
+        "contract_version": SPEDAS_ERROR_CONTRACT_VERSION,
+        "retryable": bool(retryable),
     }
     if hint is not None:
         payload["hint"] = hint
+        # suggested_action is client-facing recovery guidance; it currently
+        # mirrors the human hint (server-authored and already path-free), is never
+        # an executable command, and keeps hint for backward compatibility.
+        payload["suggested_action"] = hint
     if sanitize:
         # Honor the docstring contract: redact paths/URLs from string extras too,
         # so backend internals cannot leak through context fields (issues
@@ -499,6 +532,329 @@ def _error_response(
     else:
         payload.update(extra)
     return _json(payload)
+
+
+# --- Issue #209 Workstream H: v1 primary/server error contract --------------
+#
+# Single in-code source of truth for the machine-readable error contract exposed
+# at ``spedas-manifest://v1/error-contract`` and reflected by the additive fields
+# ``_error_response`` stamps into every primary/server-generated error envelope.
+# Keeping the vocabulary next to the emitter prevents the published contract and
+# the real responses from drifting apart.
+#
+# Scope is deliberately narrow and honest: these are the codes the *server's own*
+# error paths emit — ``_error_response`` call sites, the ``_no_data_response``
+# classifier, the ``_classify_exception``/``_safe_tool`` wrapper, the response
+# size guard, and the SPICE geometry preflight. Optional analysis/datasource
+# helpers keep their own separate vocabularies and are intentionally *not*
+# normalized in this slice (disclosed under ``scope`` in the contract).
+
+#: Canonical ``code -> {retryable, summary}`` for the primary/server error
+#: surface. ``retryable`` is the conservative *default* for that code; the
+#: authoritative per-response value is the boolean ``_error_response`` stamps.
+_PRIMARY_ERROR_CODES: dict[str, dict[str, Any]] = {
+    "invalid_argument": {
+        "retryable": False,
+        "summary": (
+            "An argument was missing, malformed, out of range, or the wrong "
+            "type. Also the classification for ValueError/KeyError/TypeError "
+            "raised inside a tool body. Fix the arguments before retrying."
+        ),
+    },
+    "unknown_source_id": {
+        "retryable": False,
+        "summary": (
+            "The requested source_id was not found in the catalog for this "
+            "source_type. Discover valid IDs before retrying."
+        ),
+    },
+    "unknown_dataset": {
+        "retryable": False,
+        "summary": (
+            "The dataset could not be fetched or was not found by the backend. "
+            "Discover a valid dataset_id first."
+        ),
+    },
+    "unknown_parameter": {
+        "retryable": False,
+        "summary": (
+            "One or more requested parameters were not found for the dataset. "
+            "List parameters and retry with valid names."
+        ),
+    },
+    "no_data": {
+        "retryable": False,
+        "summary": (
+            "The fetch returned no data and the cause could not be classified "
+            "more specifically."
+        ),
+    },
+    "no_data_in_range": {
+        "retryable": False,
+        "summary": (
+            "No data were available for the dataset in the requested time range. "
+            "Choose a range inside the coverage window."
+        ),
+    },
+    "resource_not_found": {
+        "retryable": False,
+        "summary": (
+            "A requested resource (file, catalog, or cache entry) does not "
+            "exist. Discover valid IDs first."
+        ),
+    },
+    "backend_error": {
+        "retryable": False,
+        "summary": (
+            "A backend operation failed (permission, timeout, or an "
+            "unclassified error). Some causes such as timeouts are transient, "
+            "but the server does not currently distinguish them, so retryable "
+            "defaults to false."
+        ),
+    },
+    "geometry_error": {
+        "retryable": False,
+        "summary": (
+            "A SPICE/geometry lookup failed (for example an unresolvable body "
+            "or frame). Check names and whether the needed kernels are loaded."
+        ),
+    },
+    "unsupported_spice_target": {
+        "retryable": False,
+        "summary": (
+            "A name is not a resolvable SPICE target/observer/frame. Use a "
+            "supported body/frame; not every mission body has loaded kernels."
+        ),
+    },
+    "use_dedicated_tool": {
+        "retryable": False,
+        "summary": (
+            "The requested operation must go through a different (often gated) "
+            "tool. Follow suggested_action to reach it."
+        ),
+    },
+    "response_too_large": {
+        "retryable": False,
+        "summary": (
+            "The response exceeded the MCP stdio size guard and was withheld. "
+            "Narrow the request (filter, smaller time range, fewer parameters, "
+            "or write bulk data to a file) before retrying."
+        ),
+    },
+}
+
+#: Recognized legacy aliases the *primary/server* surface still emits, mapped to
+#: their canonical code. Only ``invalid_arguments`` qualifies: the FastMCP
+#: argument-validation guard emits the plural form (issue #57), and it is kept
+#: for backward compatibility rather than silently renamed.
+_PRIMARY_ERROR_CODE_ALIASES: dict[str, dict[str, Any]] = {
+    "invalid_arguments": {
+        "canonical": "invalid_argument",
+        "emitted_by": "_install_argument_validation_guard",
+        "note": (
+            "The FastMCP argument-validation guard (issue #57) reports pre-body "
+            "argument-validation failures with the plural code. Retained for "
+            "backward compatibility; treat it as invalid_argument."
+        ),
+    },
+}
+
+#: Server-generated ``status`` values, as ordered ``(status, description)`` pairs.
+#: Kept as pairs (not a dict literal) so the source never contains a bare
+#: quoted ``error`` dict key, which the legacy-shape static guard (issue #27)
+#: forbids; :func:`_build_error_contract` still exposes them as a
+#: ``status -> description`` map for clients.
+_PRIMARY_STATUS_VALUES: tuple[tuple[str, str], ...] = (
+    ("success", "The tool completed; the payload carries results and/or paths."),
+    ("error", "The tool failed; branch on the machine-readable code."),
+    (
+        "needs_confirmation",
+        "A guarded action is paused awaiting explicit caller opt-in; not a failure.",
+    ),
+)
+
+#: Non-error, server-generated gate responses. These carry code/hint but are
+#: emitted by a dedicated builder, not ``_error_response``, so they do not carry
+#: the additive v1 envelope fields.
+_PRIMARY_GATE_RESPONSES: dict[str, dict[str, Any]] = {
+    "kernel_download_required": {
+        "status": "needs_confirmation",
+        "summary": (
+            "A geometry call is paused because required SPICE kernels are not "
+            "cached (issue #29). Re-call with allow_kernel_download=True or load "
+            "the kernels first."
+        ),
+    },
+}
+
+#: Honest disclosure that optional analysis/datasource helpers and some legacy
+#: cache tools are NOT part of the normalized v1 primary vocabulary. The listed
+#: codes are demonstrably emitted by the named helpers (verified by tests) and
+#: are none of them members of ``_PRIMARY_ERROR_CODES``.
+_PRIMARY_ERROR_CONTRACT_SCOPE: dict[str, Any] = {
+    "covered": (
+        "The primary/server-generated error surface: errors emitted by "
+        "_error_response and its server-side helpers (the no-data classifier, "
+        "the exception classifier / _safe_tool wrapper, the response size guard, "
+        "and the SPICE geometry preflight)."
+    ),
+    "not_covered": {
+        "analysis_tools": {
+            "helper": "spedas_agent_kit.analysis._error",
+            "codes": [
+                "backend_outdated",
+                "dependency_missing",
+                "empty_after_trange",
+                "needs_input",
+                "parameters_required",
+                "position_domain_error",
+                "unsupported",
+            ],
+            "note": (
+                "Optional analysis tools (coords/plotting/fieldmodels/particles/"
+                "spectral) keep their own vocabulary via a separate _error "
+                "helper and are not normalized in this slice."
+            ),
+        },
+        "datasource_tools": {
+            "helper": "spedas_agent_kit.datasources._missing_dependency_error",
+            "codes": ["missing_dependency"],
+            "note": (
+                "Optional HAPI/FDSN adapters use missing_dependency (the "
+                "opposite word order from analysis's dependency_missing); "
+                "intentionally not normalized here."
+            ),
+        },
+        "legacy_cache_tools": {
+            "tools": [
+                "manage_cdaweb_cache",
+                "manage_pds_cache",
+                "manage_spice_kernels",
+                "manage_data_cache",
+            ],
+            "note": (
+                "Some compat/legacy cache-management actions return "
+                "{status: error, message} without a machine-readable code and "
+                "are outside the v1 contract in this slice."
+            ),
+        },
+        "mcp_protocol_errors": {
+            "examples": [
+                "unknown tool names",
+                "resource lookup failures handled by FastMCP",
+                "JSON-RPC or transport failures before an application tool runs",
+            ],
+            "note": (
+                "FastMCP/MCP protocol errors that never reach the server's "
+                "application error helpers are raised or transported by the MCP "
+                "runtime and do not carry this JSON envelope. Argument-validation "
+                "failures for known tools are covered because the server installs "
+                "a sanitized call_tool boundary guard."
+            ),
+        },
+    },
+    "disclaimer": (
+        "This contract does not claim issue #209 or Workstream H is complete, "
+        "nor that every optional helper is normalized."
+    ),
+}
+
+
+def _build_error_contract() -> dict[str, Any]:
+    """Assemble the deterministic v1 error-contract payload from the canonical
+    in-code vocabulary above.
+
+    Pure: reads only module constants, takes no environment or MCP input, carries
+    no timestamp/``generated_at``, and (serialized with ``sort_keys=True``) is
+    byte-stable across reads. It is the single machine-readable description of the
+    envelope :func:`_error_response` emits, so a client can branch on codes and
+    ``retryable`` instead of parsing prose.
+    """
+    return {
+        "schema": SPEDAS_ERROR_CONTRACT_ID,
+        "schema_version": SPEDAS_ERROR_CONTRACT_VERSION,
+        "contract": SPEDAS_ERROR_CONTRACT_ID,
+        "server": "spedas-agent-kit",
+        "envelope": {
+            "description": (
+                "Additive JSON object returned by primary/server-generated "
+                "errors. The v1 fields are additive; pre-existing fields "
+                "(status, code, message, hint, and code-specific context "
+                "extras) are unchanged and never renamed."
+            ),
+            "fields": {
+                "status": (
+                    "Always \"error\" for this envelope. \"success\" and "
+                    "\"needs_confirmation\" appear on non-error responses."
+                ),
+                "code": (
+                    "Machine-readable member of the canonical vocabulary below "
+                    "(or a documented alias). Branch on this, not on prose."
+                ),
+                "message": (
+                    "Human-readable single-line summary. Absolute paths and "
+                    "external URLs are redacted (issues #25/#27)."
+                ),
+                "contract": (
+                    "Stable contract identifier; equals "
+                    f"\"{SPEDAS_ERROR_CONTRACT_ID}\"."
+                ),
+                "contract_version": (
+                    f"Contract schema version; equals "
+                    f"\"{SPEDAS_ERROR_CONTRACT_VERSION}\"."
+                ),
+                "retryable": (
+                    "Boolean: whether retrying the identical call may succeed. "
+                    "Defaults to false; see retryability."
+                ),
+                "hint": (
+                    "Optional human recovery guidance. Retained for backward "
+                    "compatibility."
+                ),
+                "suggested_action": (
+                    "Optional client-facing recovery guidance; present only when "
+                    "a hint is available, currently mirrors it, and must never be "
+                    "executed as a command."
+                ),
+                "context_extras": (
+                    "Code-specific fields (for example source_type, source_id, "
+                    "allowed, response_bytes); string values are path/URL "
+                    "redacted."
+                ),
+            },
+        },
+        "statuses": {status: desc for status, desc in _PRIMARY_STATUS_VALUES},
+        "codes": {
+            code: dict(meta) for code, meta in _PRIMARY_ERROR_CODES.items()
+        },
+        "aliases": {
+            alias: dict(meta)
+            for alias, meta in _PRIMARY_ERROR_CODE_ALIASES.items()
+        },
+        "gate_responses": {
+            code: dict(meta) for code, meta in _PRIMARY_GATE_RESPONSES.items()
+        },
+        "retryability": {
+            "field": "retryable",
+            "default": False,
+            "semantics": (
+                "The boolean on each response is authoritative. It defaults to "
+                "false (safe) and is only true when a caller explicitly sets "
+                "retryable=True. The per-code \"retryable\" values are "
+                "conservative defaults, not a promise that a given occurrence "
+                "is transient."
+            ),
+        },
+        "suggested_action": {
+            "field": "suggested_action",
+            "semantics": (
+                "Present only when a hint is available; currently mirrors hint "
+                "as client-facing prose. It is never an executable command, and "
+                "hint is retained unchanged for backward compatibility."
+            ),
+        },
+        "scope": copy.deepcopy(_PRIMARY_ERROR_CONTRACT_SCOPE),
+    }
 
 
 
@@ -1322,6 +1678,9 @@ def _build_capability_manifest(
                 "reproduction_provenance_uri": SPEDAS_PROVENANCE_SCHEMA_URI,
                 "analysis_bundle_run_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
             },
+            "contracts": {
+                "error_contract_uri": SPEDAS_MANIFEST_ERROR_CONTRACT_URI,
+            },
         },
     }
 
@@ -1512,6 +1871,34 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
             return json.dumps(manifest, indent=2, sort_keys=True)
 
     _register_capability_manifest_resource()
+
+    def _register_error_contract_resource() -> None:
+        """Expose the deterministic v1 primary/server error contract (issue #209).
+
+        The reader serializes the pure :func:`_build_error_contract` payload, so
+        the machine-readable contract a client reads is the same in-code
+        vocabulary :func:`_error_response` stamps into real error envelopes. This
+        adds a single read-only resource and no tools, so the default 13-tool
+        surface is unchanged.
+        """
+
+        @mcp.resource(
+            SPEDAS_MANIFEST_ERROR_CONTRACT_URI,
+            name="spedas-error-contract",
+            title="SPEDAS Agent Kit primary error contract",
+            description=(
+                "Deterministic, machine-readable v1 contract for the "
+                "primary/server-generated error envelope: canonical code "
+                "vocabulary, retryability, suggested-action, recognized legacy "
+                "aliases, and explicit scope/limitations."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_manifest", "kind": "error_contract"},
+        )
+        def spedas_error_contract_resource() -> str:
+            return json.dumps(_build_error_contract(), indent=2, sort_keys=True)
+
+    _register_error_contract_resource()
 
     def _register_tool(
         *,
