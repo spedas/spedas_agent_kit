@@ -12,12 +12,16 @@ data or undeclared dependencies.
 It checks, network-free:
 
 1. ``spedas_agent_kit`` imports from an installed location (not repo ``src/``);
-2. the ``spedas-agent-kit`` console entry point is declared and its script is
+2. the installed distribution name/version and the imported package
+   ``__version__`` agree with the repository ``server.json`` core contract, so a
+   stale built wheel or an un-bumped ``server.json`` fails instead of silently
+   shipping mismatched metadata;
+3. the ``spedas-agent-kit`` console entry point is declared and its script is
    installed beside the running interpreter (or supplied via ``--console``);
-3. packaged data (skills ``SKILL.md``, provenance/analysis schemas, event
+4. packaged data (skills ``SKILL.md``, provenance/analysis schemas, event
    presets) is discoverable through ``importlib.resources`` from the installed
    package;
-4. launching the real console entry point over MCP stdio advertises the canonical
+5. launching the real console entry point over MCP stdio advertises the canonical
    base tools (from ``plugins/spedas-agent-kit-compatibility.json``) and exposes
    the packaged skills/schemas as readable MCP resources.
 
@@ -42,6 +46,10 @@ from typing import Any
 
 CONSOLE_SCRIPT = "spedas-agent-kit"
 ENTRY_POINT_TARGET = "spedas_agent_kit:main"
+# Canonical installed distribution name; must match server.json's pypi identifier
+# and the source pyproject [project].name (validated on the source side by
+# scripts/validate_plugin_packages.py).
+CORE_DISTRIBUTION = "spedas-agent-kit"
 
 # Canonical resource URIs that must be discoverable and readable from a base
 # (no optional extras) install. These mirror scripts/smoke_mcp_resources.py but
@@ -96,6 +104,77 @@ def _check_installed_location(repo_root: Path) -> str:
         "an editable/source checkout"
     )
     return str(pkg_file)  # pragma: no cover - unreachable
+
+
+def check_installed_metadata_contract(
+    *,
+    dist_name: str,
+    dist_version: str,
+    imported_version: str,
+    server_manifest: dict,
+) -> list[str]:
+    """Return mismatch messages tying the *installed* wheel to the repo contract.
+
+    Pure over already-gathered values (installed distribution name/version, the
+    imported package ``__version__``, and the parsed repo ``server.json``) so the
+    agreement rules can be unit tested without building or installing a wheel.
+    Every message names the mismatched surface; an empty list means agreement.
+    """
+    errors: list[str] = []
+    if dist_name != CORE_DISTRIBUTION:
+        errors.append(
+            f"installed distribution name {dist_name!r} != expected {CORE_DISTRIBUTION!r}"
+        )
+    if imported_version != dist_version:
+        errors.append(
+            f"imported spedas_agent_kit.__version__ {imported_version!r} != installed "
+            f"distribution version {dist_version!r}"
+        )
+    top_version = server_manifest.get("version")
+    if top_version != dist_version:
+        errors.append(
+            f"server.json top-level version {top_version!r} != installed distribution "
+            f"version {dist_version!r}"
+        )
+    pypi_packages = [
+        pkg
+        for pkg in server_manifest.get("packages", [])
+        if isinstance(pkg, dict) and pkg.get("registryType") == "pypi"
+    ]
+    if not pypi_packages:
+        errors.append("server.json: no pypi package entry found")
+    for pkg in pypi_packages:
+        if pkg.get("identifier") != dist_name:
+            errors.append(
+                f"server.json pypi package identifier {pkg.get('identifier')!r} != "
+                f"installed distribution name {dist_name!r}"
+            )
+        if pkg.get("version") != dist_version:
+            errors.append(
+                f"server.json pypi package version {pkg.get('version')!r} != installed "
+                f"distribution version {dist_version!r}"
+            )
+    return errors
+
+
+def _load_server_manifest(repo_root: Path) -> dict:
+    """Load the repo ``server.json`` used as the expected metadata contract."""
+    server_json = repo_root / "server.json"
+    if not server_json.is_file():
+        _fail(f"canonical server manifest not found: {server_json}")
+    return json.loads(server_json.read_text(encoding="utf-8"))
+
+
+def _installed_distribution() -> tuple[str, str]:
+    """Return the installed distribution ``(name, version)`` from wheel metadata."""
+    try:
+        dist = metadata.distribution(CORE_DISTRIBUTION)
+    except metadata.PackageNotFoundError:
+        _fail(
+            f"installed distribution '{CORE_DISTRIBUTION}' not found; this validator "
+            "must run where the built wheel is installed, not a source checkout"
+        )
+    return str(dist.metadata["Name"]), dist.version
 
 
 def _check_entry_point() -> str:
@@ -237,6 +316,27 @@ def main() -> int:
     try:
         base_tools = _canonical_base_tools(repo_root)
         payload["installed_package"] = _check_installed_location(repo_root)
+
+        # Tie the installed wheel's self-declared identity to the repo contract:
+        # installed distribution name/version, the imported package __version__,
+        # and server.json must all agree before the artifact is considered good.
+        import spedas_agent_kit  # already imported by _check_installed_location; cached
+
+        dist_name, dist_version = _installed_distribution()
+        imported_version = str(spedas_agent_kit.__version__)
+        server_manifest = _load_server_manifest(repo_root)
+        metadata_errors = check_installed_metadata_contract(
+            dist_name=dist_name,
+            dist_version=dist_version,
+            imported_version=imported_version,
+            server_manifest=server_manifest,
+        )
+        if metadata_errors:
+            _fail("installed metadata contract mismatch: " + "; ".join(metadata_errors))
+        payload["distribution_name"] = dist_name
+        payload["distribution_version"] = dist_version
+        payload["imported_version"] = imported_version
+
         payload["entry_point_target"] = _check_entry_point()
         console = _resolve_console(args.console)
         payload["console_script"] = console
@@ -296,6 +396,12 @@ def main() -> int:
         print(f"SPEDAS Agent Kit installed-artifact smoke: {'OK' if payload['ok'] else 'FAIL'}")
         if payload.get("installed_package"):
             print("installed package:", payload["installed_package"])
+        if payload.get("distribution_version"):
+            print(
+                "distribution:",
+                payload.get("distribution_name"),
+                payload["distribution_version"],
+            )
         if payload.get("console_script"):
             print("console script:", payload["console_script"])
         if payload.get("tool_count") is not None:
