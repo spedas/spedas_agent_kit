@@ -1,0 +1,2239 @@
+{
+  "env": {
+    "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS": "1"
+  },
+  "excludes_optional_analysis_tools": true,
+  "profile": "datasource",
+  "prompts": [],
+  "resource_templates": [],
+  "resources": [
+    {
+      "_meta": {
+        "kind": "capabilities",
+        "surface": "spedas_manifest"
+      },
+      "description": "Deterministic, machine-readable manifest of the live SPEDAS Agent Kit tool/resource surface, environment gates, and package identity.",
+      "mimeType": "application/json",
+      "name": "spedas-capability-manifest",
+      "title": "SPEDAS Agent Kit capability manifest",
+      "uri": "spedas-manifest://v1/capabilities"
+    },
+    {
+      "_meta": {
+        "kind": "error_contract",
+        "surface": "spedas_manifest"
+      },
+      "description": "Deterministic, machine-readable v1 contract for the primary/server-generated error envelope: canonical code vocabulary, retryability, suggested-action, recognized legacy aliases, and explicit scope/limitations.",
+      "mimeType": "application/json",
+      "name": "spedas-error-contract",
+      "title": "SPEDAS Agent Kit primary error contract",
+      "uri": "spedas-manifest://v1/error-contract"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "bastille-day-2000-wind-ace-magnetic-cloud-proxy-lepping-berdichevsky",
+        "surface": "spedas_preset"
+      },
+      "description": "Bastille Day Wind/ACE magnetic-cloud proxy (Lepping/Berdichevsky family)",
+      "mimeType": "application/json",
+      "name": "bastille-day-2000-wind-ace-magnetic-cloud-proxy-lepping-berdichevsky",
+      "title": "SPEDAS event preset: bastille-day-2000-wind-ace-magnetic-cloud-proxy-lepping-berdichevsky",
+      "uri": "spedas-preset://events/bastille-day-2000-wind-ace-magnetic-cloud-proxy-lepping-berdichevsky"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "cluster-rolled-up-kh-vortex-proxy-hasegawa-2004",
+        "surface": "spedas_preset"
+      },
+      "description": "Cluster rolled-up Kelvin-Helmholtz vortex proxy (Hasegawa et al. 2004)",
+      "mimeType": "application/json",
+      "name": "cluster-rolled-up-kh-vortex-proxy-hasegawa-2004",
+      "title": "SPEDAS event preset: cluster-rolled-up-kh-vortex-proxy-hasegawa-2004",
+      "uri": "spedas-preset://events/cluster-rolled-up-kh-vortex-proxy-hasegawa-2004"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "cluster-turbulent-reconnection-proxy-retino-2007",
+        "surface": "spedas_preset"
+      },
+      "description": "Cluster turbulent-reconnection proxy (Retinò et al. 2007)",
+      "mimeType": "application/json",
+      "name": "cluster-turbulent-reconnection-proxy-retino-2007",
+      "title": "SPEDAS event preset: cluster-turbulent-reconnection-proxy-retino-2007",
+      "uri": "spedas-preset://events/cluster-turbulent-reconnection-proxy-retino-2007"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "geotail-reconnection-structure-route-scout-nagai-2013",
+        "surface": "spedas_preset"
+      },
+      "description": "Geotail reconnection-structure route scout (Nagai et al. 2013)",
+      "mimeType": "application/json",
+      "name": "geotail-reconnection-structure-route-scout-nagai-2013",
+      "title": "SPEDAS event preset: geotail-reconnection-structure-route-scout-nagai-2013",
+      "uri": "spedas-preset://events/geotail-reconnection-structure-route-scout-nagai-2013"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "halloween-2003-extreme-speed-solar-wind-skoug-2004",
+        "surface": "spedas_preset"
+      },
+      "description": "Halloween 2003 extreme-speed solar wind (Skoug et al. 2004)",
+      "mimeType": "application/json",
+      "name": "halloween-2003-extreme-speed-solar-wind-skoug-2004",
+      "title": "SPEDAS event preset: halloween-2003-extreme-speed-solar-wind-skoug-2004",
+      "uri": "spedas-preset://events/halloween-2003-extreme-speed-solar-wind-skoug-2004"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "july-2012-stereo-a-extreme-icme-liu-2014",
+        "surface": "spedas_preset"
+      },
+      "description": "July 2012 STEREO-A extreme ICME (Liu et al. 2014)",
+      "mimeType": "application/json",
+      "name": "july-2012-stereo-a-extreme-icme-liu-2014",
+      "title": "SPEDAS event preset: july-2012-stereo-a-extreme-icme-liu-2014",
+      "uri": "spedas-preset://events/july-2012-stereo-a-extreme-icme-liu-2014"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "mms-asymmetric-magnetopause-electron-current-heating-proxy-graham-2016",
+        "surface": "spedas_preset"
+      },
+      "description": "MMS asymmetric magnetopause electron-current/heating proxy (Graham et al. 2016)",
+      "mimeType": "application/json",
+      "name": "mms-asymmetric-magnetopause-electron-current-heating-proxy-graham-2016",
+      "title": "SPEDAS event preset: mms-asymmetric-magnetopause-electron-current-heating-proxy-graham-2016",
+      "uri": "spedas-preset://events/mms-asymmetric-magnetopause-electron-current-heating-proxy-graham-2016"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "mms-asymmetric-reconnection-electron-jet-proxy-khotyaintsev-2016",
+        "surface": "spedas_preset"
+      },
+      "description": "MMS asymmetric reconnection electron-jet proxy (Khotyaintsev et al. 2016)",
+      "mimeType": "application/json",
+      "name": "mms-asymmetric-reconnection-electron-jet-proxy-khotyaintsev-2016",
+      "title": "SPEDAS event preset: mms-asymmetric-reconnection-electron-jet-proxy-khotyaintsev-2016",
+      "uri": "spedas-preset://events/mms-asymmetric-reconnection-electron-jet-proxy-khotyaintsev-2016"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "mms-electron-only-reconnection-availability-scout-phan-2018",
+        "surface": "spedas_preset"
+      },
+      "description": "MMS electron-only reconnection availability scout (Phan et al. 2018)",
+      "mimeType": "application/json",
+      "name": "mms-electron-only-reconnection-availability-scout-phan-2018",
+      "title": "SPEDAS event preset: mms-electron-only-reconnection-availability-scout-phan-2018",
+      "uri": "spedas-preset://events/mms-electron-only-reconnection-availability-scout-phan-2018"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "mms-electron-scattering-bouncing-diffusion-region-proxy-lavraud-2016",
+        "surface": "spedas_preset"
+      },
+      "description": "MMS electron scattering/bouncing near diffusion region proxy (Lavraud et al. 2016)",
+      "mimeType": "application/json",
+      "name": "mms-electron-scattering-bouncing-diffusion-region-proxy-lavraud-2016",
+      "title": "SPEDAS event preset: mms-electron-scattering-bouncing-diffusion-region-proxy-lavraud-2016",
+      "uri": "spedas-preset://events/mms-electron-scattering-bouncing-diffusion-region-proxy-lavraud-2016"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "mms-symmetric-magnetotail-edr-diagnostics-proxy-torbert-2018",
+        "surface": "spedas_preset"
+      },
+      "description": "MMS symmetric magnetotail EDR diagnostics proxy (Torbert et al. 2018)",
+      "mimeType": "application/json",
+      "name": "mms-symmetric-magnetotail-edr-diagnostics-proxy-torbert-2018",
+      "title": "SPEDAS event preset: mms-symmetric-magnetotail-edr-diagnostics-proxy-torbert-2018",
+      "uri": "spedas-preset://events/mms-symmetric-magnetotail-edr-diagnostics-proxy-torbert-2018"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-e1-bale-2019-structured-slow-wind",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP Encounter-1 structured slow wind (Bale et al. 2019)",
+      "mimeType": "application/json",
+      "name": "psp-e1-bale-2019-structured-slow-wind",
+      "title": "SPEDAS event preset: psp-e1-bale-2019-structured-slow-wind",
+      "uri": "spedas-preset://events/psp-e1-bale-2019-structured-slow-wind"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-e1-chhiber-2020-pvi-intermittent-structures",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP Encounter-1 PVI/intermittent structures (Chhiber et al. 2020)",
+      "mimeType": "application/json",
+      "name": "psp-e1-chhiber-2020-pvi-intermittent-structures",
+      "title": "SPEDAS event preset: psp-e1-chhiber-2020-pvi-intermittent-structures",
+      "uri": "spedas-preset://events/psp-e1-chhiber-2020-pvi-intermittent-structures"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-e1-dudokdewit-2020-switchbacks",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP Encounter-1 switchbacks (Dudok de Wit et al. 2020)",
+      "mimeType": "application/json",
+      "name": "psp-e1-dudokdewit-2020-switchbacks",
+      "title": "SPEDAS event preset: psp-e1-dudokdewit-2020-switchbacks",
+      "uri": "spedas-preset://events/psp-e1-dudokdewit-2020-switchbacks"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-e1-horbury-2020-sharp-alfvenic-impulses",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP Encounter-1 sharp Alfvénic impulses (Horbury et al. 2020)",
+      "mimeType": "application/json",
+      "name": "psp-e1-horbury-2020-sharp-alfvenic-impulses",
+      "title": "SPEDAS event preset: psp-e1-horbury-2020-sharp-alfvenic-impulses",
+      "uri": "spedas-preset://events/psp-e1-horbury-2020-sharp-alfvenic-impulses"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-e1-kasper-2019-alfvenic-velocity-spikes",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP Encounter-1 Alfvénic velocity spikes (Kasper et al. 2019)",
+      "mimeType": "application/json",
+      "name": "psp-e1-kasper-2019-alfvenic-velocity-spikes",
+      "title": "SPEDAS event preset: psp-e1-kasper-2019-alfvenic-velocity-spikes",
+      "uri": "spedas-preset://events/psp-e1-kasper-2019-alfvenic-velocity-spikes"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-enhanced-energy-transfer-cascade-rate-2020",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP enhanced energy-transfer/cascade-rate paper (2020)",
+      "mimeType": "application/json",
+      "name": "psp-enhanced-energy-transfer-cascade-rate-2020",
+      "title": "SPEDAS event preset: psp-enhanced-energy-transfer-cascade-rate-2020",
+      "uri": "spedas-preset://events/psp-enhanced-energy-transfer-cascade-rate-2020"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-inner-heliosphere-turbulence-evolution-2020",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP inner-heliosphere turbulence evolution (2020)",
+      "mimeType": "application/json",
+      "name": "psp-inner-heliosphere-turbulence-evolution-2020",
+      "title": "SPEDAS event preset: psp-inner-heliosphere-turbulence-evolution-2020",
+      "uri": "spedas-preset://events/psp-inner-heliosphere-turbulence-evolution-2020"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "psp-magnetic-field-line-switchbacks-near-sun-2020",
+        "surface": "spedas_preset"
+      },
+      "description": "PSP magnetic field line switchbacks near the Sun (2020)",
+      "mimeType": "application/json",
+      "name": "psp-magnetic-field-line-switchbacks-near-sun-2020",
+      "title": "SPEDAS event preset: psp-magnetic-field-line-switchbacks-near-sun-2020",
+      "uri": "spedas-preset://events/psp-magnetic-field-line-switchbacks-near-sun-2020"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "rbsp-local-acceleration-smoke-reeves-2013",
+        "surface": "spedas_preset"
+      },
+      "description": "RBSP local-acceleration smoke (Reeves et al. 2013)",
+      "mimeType": "application/json",
+      "name": "rbsp-local-acceleration-smoke-reeves-2013",
+      "title": "SPEDAS event preset: rbsp-local-acceleration-smoke-reeves-2013",
+      "uri": "spedas-preset://events/rbsp-local-acceleration-smoke-reeves-2013"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "rbsp-third-radiation-belt-smoke-baker-2013",
+        "surface": "spedas_preset"
+      },
+      "description": "RBSP third-radiation-belt smoke (Baker et al. 2013)",
+      "mimeType": "application/json",
+      "name": "rbsp-third-radiation-belt-smoke-baker-2013",
+      "title": "SPEDAS event preset: rbsp-third-radiation-belt-smoke-baker-2013",
+      "uri": "spedas-preset://events/rbsp-third-radiation-belt-smoke-baker-2013"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "sep-2010-jan-17-longitudinal-spread-reduced-proxy-dresing",
+        "surface": "spedas_preset"
+      },
+      "description": "2010 Jan 17 SEP longitudinal-spread reduced proxy (Dresing et al.)",
+      "mimeType": "application/json",
+      "name": "sep-2010-jan-17-longitudinal-spread-reduced-proxy-dresing",
+      "title": "SPEDAS event preset: sep-2010-jan-17-longitudinal-spread-reduced-proxy-dresing",
+      "uri": "spedas-preset://events/sep-2010-jan-17-longitudinal-spread-reduced-proxy-dresing"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "september-2017-storm-goes-xrs-gic-driver-route-scout",
+        "surface": "spedas_preset"
+      },
+      "description": "September 2017 storm operational context (GOES XRS / GIC-driver preprint route scout)",
+      "mimeType": "application/json",
+      "name": "september-2017-storm-goes-xrs-gic-driver-route-scout",
+      "title": "SPEDAS event preset: september-2017-storm-goes-xrs-gic-driver-route-scout",
+      "uri": "spedas-preset://events/september-2017-storm-goes-xrs-gic-driver-route-scout"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "st-patricks-day-2015-storm-context-ionosphere-perturbation",
+        "surface": "spedas_preset"
+      },
+      "description": "St. Patrick's Day 2015 storm context (ionosphere-assimilation and perturbation-source studies)",
+      "mimeType": "application/json",
+      "name": "st-patricks-day-2015-storm-context-ionosphere-perturbation",
+      "title": "SPEDAS event preset: st-patricks-day-2015-storm-context-ionosphere-perturbation",
+      "uri": "spedas-preset://events/st-patricks-day-2015-storm-context-ionosphere-perturbation"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "stereo-2007-may-icme-proxy-liu",
+        "surface": "spedas_preset"
+      },
+      "description": "2007 May STEREO ICME proxy (Liu et al.)",
+      "mimeType": "application/json",
+      "name": "stereo-2007-may-icme-proxy-liu",
+      "title": "SPEDAS event preset: stereo-2007-may-icme-proxy-liu",
+      "uri": "spedas-preset://events/stereo-2007-may-icme-proxy-liu"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "stereo-2010-aug-cme-cme-interaction-insitu-proxy-lugaz-temmer",
+        "surface": "spedas_preset"
+      },
+      "description": "2010 Aug CME-CME interaction in-situ proxy (Lugaz/Temmer family)",
+      "mimeType": "application/json",
+      "name": "stereo-2010-aug-cme-cme-interaction-insitu-proxy-lugaz-temmer",
+      "title": "SPEDAS event preset: stereo-2010-aug-cme-cme-interaction-insitu-proxy-lugaz-temmer",
+      "uri": "spedas-preset://events/stereo-2010-aug-cme-cme-interaction-insitu-proxy-lugaz-temmer"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "stereo-wind-2007-may-magnetic-cloud-shock-sheath-proxy-mostl",
+        "surface": "spedas_preset"
+      },
+      "description": "2007 May STEREO/Wind magnetic-cloud shock-sheath proxy (Möstl et al.)",
+      "mimeType": "application/json",
+      "name": "stereo-wind-2007-may-magnetic-cloud-shock-sheath-proxy-mostl",
+      "title": "SPEDAS event preset: stereo-wind-2007-may-magnetic-cloud-shock-sheath-proxy-mostl",
+      "uri": "spedas-preset://events/stereo-wind-2007-may-magnetic-cloud-shock-sheath-proxy-mostl"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "themis-dipolarization-front-proxy-runov-2009",
+        "surface": "spedas_preset"
+      },
+      "description": "THEMIS dipolarization-front proxy (Runov et al. 2009)",
+      "mimeType": "application/json",
+      "name": "themis-dipolarization-front-proxy-runov-2009",
+      "title": "SPEDAS event preset: themis-dipolarization-front-proxy-runov-2009",
+      "uri": "spedas-preset://events/themis-dipolarization-front-proxy-runov-2009"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "themis-substorm-onset-proxy-angelopoulos-2008",
+        "surface": "spedas_preset"
+      },
+      "description": "THEMIS substorm onset proxy (Angelopoulos et al. 2008)",
+      "mimeType": "application/json",
+      "name": "themis-substorm-onset-proxy-angelopoulos-2008",
+      "title": "SPEDAS event preset: themis-substorm-onset-proxy-angelopoulos-2008",
+      "uri": "spedas-preset://events/themis-substorm-onset-proxy-angelopoulos-2008"
+    },
+    {
+      "_meta": {
+        "kind": "preset",
+        "preset_id": "themis-whistler-wave-context-proxy-cattell-2008",
+        "surface": "spedas_preset"
+      },
+      "description": "THEMIS whistler wave-context proxy (Cattell et al. 2008)",
+      "mimeType": "application/json",
+      "name": "themis-whistler-wave-context-proxy-cattell-2008",
+      "title": "SPEDAS event preset: themis-whistler-wave-context-proxy-cattell-2008",
+      "uri": "spedas-preset://events/themis-whistler-wave-context-proxy-cattell-2008"
+    },
+    {
+      "_meta": {
+        "kind": "index",
+        "surface": "spedas_preset"
+      },
+      "description": "Index of packaged solar-wind event preset seeds and their resource URIs.",
+      "mimeType": "text/markdown",
+      "name": "spedas-event-presets-index",
+      "title": "SPEDAS Agent Kit solar-wind event presets index",
+      "uri": "spedas-preset://index"
+    },
+    {
+      "_meta": {
+        "kind": "schema",
+        "surface": "spedas_preset"
+      },
+      "description": "Machine-readable JSON schema for provenance/run.json records seeded by create_spedas_analysis_bundle. Shape-only; agents must still validate the science artifacts they record.",
+      "mimeType": "application/json",
+      "name": "spedas-analysis-bundle-run-schema",
+      "title": "SPEDAS Agent Kit analysis bundle run provenance schema",
+      "uri": "spedas-preset://schemas/analysis_bundle_run"
+    },
+    {
+      "_meta": {
+        "kind": "schema",
+        "surface": "spedas_preset"
+      },
+      "description": "Canonical machine-readable JSON schema for paper-reproduction provenance records. Shape-only; does not assert reproduction quality.",
+      "mimeType": "application/json",
+      "name": "spedas-reproduction-provenance-schema",
+      "title": "SPEDAS Agent Kit reproduction provenance schema",
+      "uri": "spedas-preset://schemas/reproduction_provenance"
+    },
+    {
+      "_meta": {
+        "kind": "index",
+        "surface": "spedas_skill"
+      },
+      "description": "Index of packaged SPEDAS Agent Kit research skills and their resource URIs.",
+      "mimeType": "text/markdown",
+      "name": "spedas-packaged-skills-index",
+      "title": "SPEDAS Agent Kit packaged skills index",
+      "uri": "spedas-skill://index"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "apply-rotation-matrix",
+        "surface": "spedas_skill"
+      },
+      "description": "Apply a saved (N,3,3) rotation-matrix stack to a 3-vector time-series — the missing last step that makes generate_fac_matrix, sliding-window MVA, and model-LMN outputs actually usable. Rotates a vector CSV into FAC/LMN/boundary-normal coordinates via pyspedas tvector_rotate (qslerp-interpolated). Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "apply-rotation-matrix",
+      "title": "SPEDAS skill: apply-rotation-matrix",
+      "uri": "spedas-skill://skills/apply-rotation-matrix"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "boundary-minimum-variance",
+        "surface": "spedas_skill"
+      },
+      "description": "Analyze a magnetic boundary crossing (magnetopause, bow shock, current sheet, discontinuity) with minimum-variance analysis (MVA) to find the LMN boundary-normal frame, judge the result's reliability from the eigenvalue ratio, and render the rotated field. Composes existing spedas tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "boundary-minimum-variance",
+      "title": "SPEDAS skill: boundary-minimum-variance",
+      "uri": "spedas-skill://skills/boundary-minimum-variance"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "coordinate-frame-tour",
+        "surface": "spedas_skill"
+      },
+      "description": "Discover which SPICE coordinate frame fits a science question and transform vectors/time series into it — \"what frame should I use for CME propagation / magnetospheric work / solar-wind turbulence, and how do I convert into it?\" Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "coordinate-frame-tour",
+      "title": "SPEDAS skill: coordinate-frame-tour",
+      "uri": "spedas-skill://skills/coordinate-frame-tour"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "coordinate-transform-recipes",
+        "surface": "spedas_skill"
+      },
+      "description": "Route PySPEDAS/IDL SPEDAS coordinate-transform requests (cotrans, FAC, MVA, LMN, quaternions, frame metadata) into the right Agent Kit skill/tool path without inventing new MCP tools. Bridges tplot coordinate metadata, SPICE frame transforms, and matrix-based rotations while preserving artifacts and provenance.",
+      "mimeType": "text/markdown",
+      "name": "coordinate-transform-recipes",
+      "title": "SPEDAS skill: coordinate-transform-recipes",
+      "uri": "spedas-skill://skills/coordinate-transform-recipes"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "dual-spacecraft-timing",
+        "surface": "spedas_skill"
+      },
+      "description": "Solve for a planar boundary's normal direction n and phase speed V from one discontinuity crossing seen at multiple spacecraft (the classic 4-s/c timing / CVA method) — fetch each spacecraft's position at the crossing, pair it with that spacecraft's crossing time, and solve the timing system by least squares. Use when you have a boundary/shock/discontinuity crossing time at >=4 (or 2-3, degenerate) spacecraft and want the normal and speed. Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "dual-spacecraft-timing",
+      "title": "SPEDAS skill: dual-spacecraft-timing",
+      "uri": "spedas-skill://skills/dual-spacecraft-timing"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "erg-arase-radiation-belt-waves",
+        "surface": "spedas_skill"
+      },
+      "description": "ERG/Arase radiation-belt, wave-particle, PWE/MGF/particle, and ground-conjugate route-scout workflows. Use when a researcher asks for Arase/ERG chorus, EMIC, PWE/HFA/OFA, MEP-e/HEP/XEP/LEP particle flux, orbit/attitude, ISEE/MAGDAS/STEL magnetometer, OMTI all-sky imager, VLF, or pulsating-aurora context. This skill is a conservative route map and overclaim guardrail; it points to existing analysis skills for polarization, pitch-angle, velocity-slice, PSD, and coherence.",
+      "mimeType": "text/markdown",
+      "name": "erg-arase-radiation-belt-waves",
+      "title": "SPEDAS skill: erg-arase-radiation-belt-waves",
+      "uri": "spedas-skill://skills/erg-arase-radiation-belt-waves"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "field-line-footpoint",
+        "surface": "spedas_skill"
+      },
+      "description": "Trace a magnetic field line from a spacecraft position to its ionospheric footpoint (or magnetic equator / L-shell apex) with a Tsyganenko/IGRF model — the magnetosphere conjugacy / ground-conjunction workflow, e.g. \"where does this spacecraft map to on the ground?\" or \"find the conjugate ground station.\" Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "field-line-footpoint",
+      "title": "SPEDAS skill: field-line-footpoint",
+      "uri": "spedas-skill://skills/field-line-footpoint"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "hodogram",
+        "surface": "spedas_skill"
+      },
+      "description": "Plot a magnetic-field (or any vector) hodogram — one component against another as a parametric x-y curve — to read off wave polarization and rotation sense, classically in the minimum-variance (LMN) frame. Use for \"is this a linear/circular/elliptical fluctuation, and which way does B rotate across this boundary?\" Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "hodogram",
+      "title": "SPEDAS skill: hodogram",
+      "uri": "spedas-skill://skills/hodogram"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "magnetopause-lmn-analysis",
+        "surface": "spedas_skill"
+      },
+      "description": "Full magnetopause / bow-shock crossing study — fetch magnetic field + ion plasma moments, find the boundary-normal (LMN) frame with minimum-variance analysis, rotate the field, add spacecraft position context, and render the crossing. The flagship boundary-crossing skill; composes existing tools, adds none. Generalizes docs/examples/mms_magnetopause_workflow.md.",
+      "mimeType": "text/markdown",
+      "name": "magnetopause-lmn-analysis",
+      "title": "SPEDAS skill: magnetopause-lmn-analysis",
+      "uri": "spedas-skill://skills/magnetopause-lmn-analysis"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "mms-basic-workflows",
+        "surface": "spedas_skill"
+      },
+      "description": "Plan MMS FGM/MEC/EDP/SCM/FPI/HPCA route-scout and overview workflows as Agent Kit skill/resource recipes without expanding the default MCP tool surface.",
+      "mimeType": "text/markdown",
+      "name": "mms-basic-workflows",
+      "title": "SPEDAS skill: mms-basic-workflows",
+      "uri": "spedas-skill://skills/mms-basic-workflows"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "model-lmn-boundary",
+        "surface": "spedas_skill"
+      },
+      "description": "Build a model-based (Shue magnetopause) LMN boundary-normal frame from B + spacecraft position and rotate B into LMN — the model counterpart to data-driven MVA. Use for a magnetopause crossing when you want a boundary normal independent of the field rotation, or to cross-check an MVA normal. Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "model-lmn-boundary",
+      "title": "SPEDAS skill: model-lmn-boundary",
+      "uri": "spedas-skill://skills/model-lmn-boundary"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "multi-spacecraft-gradients",
+        "surface": "spedas_skill"
+      },
+      "description": "Four-spacecraft magnetic-gradient workflow for curlometer current density, linear gradient/curl/divergence and field-line curvature, and FOTE magnetic-null finding. Reuses existing data/coordinate/artifact tools plus PySPEDAS backends; adds no MCP tools. Requires four spacecraft magnetic-field vectors and positions in a common GSE timeline/frame, and reports tetrahedron-quality caveats before interpreting results.",
+      "mimeType": "text/markdown",
+      "name": "multi-spacecraft-gradients",
+      "title": "SPEDAS skill: multi-spacecraft-gradients",
+      "uri": "spedas-skill://skills/multi-spacecraft-gradients"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "neutral-sheet-distance",
+        "surface": "spedas_skill"
+      },
+      "description": "Compute a spacecraft's distance to the magnetotail neutral/current sheet (and whether it is north or south of it) from a GSM position time-series, using PySPEDAS neutral-sheet models — for plasma-sheet / current-sheet crossing studies in the tail. Use when asked \"how far is the s/c from the neutral sheet?\", \"is it north or south of the current sheet?\", or \"did it cross the neutral sheet?\". Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "neutral-sheet-distance",
+      "title": "SPEDAS skill: neutral-sheet-distance",
+      "uri": "spedas-skill://skills/neutral-sheet-distance"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "omni-kyoto-noaa-smoke-workflows",
+        "surface": "spedas_skill"
+      },
+      "description": "Build lightweight OMNI/Kyoto/NOAA space-weather context and cache-only smoke workflows through Agent Kit resources, with MCP-first CDAWeb routes and clearly marked external PySPEDAS loader fallbacks.",
+      "mimeType": "text/markdown",
+      "name": "omni-kyoto-noaa-smoke-workflows",
+      "title": "SPEDAS skill: omni-kyoto-noaa-smoke-workflows",
+      "uri": "spedas-skill://skills/omni-kyoto-noaa-smoke-workflows"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "overview-geomagnetic-indices",
+        "surface": "spedas_skill"
+      },
+      "description": "Resolve IDL-SPEDAS-style overview and geomagnetic-index intents to concrete SPEDAS Agent Kit data-source calls and dataset/parameter choices (THEMIS/MMS/RBSP overview context; Dst, AE/AL/AU, Kp, SYM-H).",
+      "mimeType": "text/markdown",
+      "name": "overview-geomagnetic-indices",
+      "title": "SPEDAS skill: overview-geomagnetic-indices",
+      "uri": "spedas-skill://skills/overview-geomagnetic-indices"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "paper-reproduction",
+        "surface": "spedas_skill"
+      },
+      "description": "Reproduce a published heliophysics paper or figure with SPEDAS Agent Kit by turning paper evidence into a narrow data plan, artifact bundle, provenance record, and actionable Agent Kit feedback.",
+      "mimeType": "text/markdown",
+      "name": "paper-reproduction",
+      "title": "SPEDAS skill: paper-reproduction",
+      "uri": "spedas-skill://skills/paper-reproduction"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "particle-distribution-recipes",
+        "surface": "spedas_skill"
+      },
+      "description": "Preflight and route real 3D particle distribution artifacts for moments, spectra, pitch-angle distributions, and velocity-space slices without expanding the default Agent Kit MCP tool surface.",
+      "mimeType": "text/markdown",
+      "name": "particle-distribution-recipes",
+      "title": "SPEDAS skill: particle-distribution-recipes",
+      "uri": "spedas-skill://skills/particle-distribution-recipes"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "particle-velocity-slice",
+        "surface": "spedas_skill"
+      },
+      "description": "Produce a 2D velocity-space distribution slice (spd_slice2d) from a 3D particle distribution — the iconic SPEDAS plot for spotting beams, crescents, and non-Maxwellian ion/electron structure that moments and 1D spectra hide. Use when you have a 3D distribution artifact and want a vx–vy slice in a chosen plane (xy/xz/yz, BV, BE, perp) with interpolation and optional bulk-velocity subtraction. Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "particle-velocity-slice",
+      "title": "SPEDAS skill: particle-velocity-slice",
+      "uri": "spedas-skill://skills/particle-velocity-slice"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "pitch-angle-distribution",
+        "surface": "spedas_skill"
+      },
+      "description": "Compute the field-aligned pitch-angle distribution (PAD) of a particle population over an interval to classify it as beam / pancake / isotropic or look for a loss cone — bridge a 3D distribution to an artifact, pair a co-temporal B field, run the pitch-angle spectrum, and render the PAD spectrogram. Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "pitch-angle-distribution",
+      "title": "SPEDAS skill: pitch-angle-distribution",
+      "uri": "spedas-skill://skills/pitch-angle-distribution"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "power-spectral-density",
+        "surface": "spedas_skill"
+      },
+      "description": "Compute the quick-look 1-D power spectral density (FFT/Welch PSD) of one scalar channel over a single stationary interval — the spectrum-vs-frequency picture (no time axis) for reading off a spectral slope or peak. Use when you want \"what's the PSD slope / spectral peak of this interval?\" rather than its time evolution. Composes existing spedas tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "power-spectral-density",
+      "title": "SPEDAS skill: power-spectral-density",
+      "uri": "spedas-skill://skills/power-spectral-density"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "psp-solar-wind-switchbacks",
+        "surface": "spedas_skill"
+      },
+      "description": "Reproduce Parker Solar Probe Encounter-1 solar-wind and switchback papers with FIELDS/SWEAP planning, cadence alignment, deflection-angle proxies, Alfvénic velocity-spike caveats, and artifact/provenance output.",
+      "mimeType": "text/markdown",
+      "name": "psp-solar-wind-switchbacks",
+      "title": "SPEDAS skill: psp-solar-wind-switchbacks",
+      "uri": "spedas-skill://skills/psp-solar-wind-switchbacks"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "psp-solo-heliophysics-workflows",
+        "surface": "spedas_skill"
+      },
+      "description": "Route-scout PSP / Solar Orbiter heliospheric in-situ workflows: FIELDS/SWEAP/Solo MAG/SWA/RPW/EPD load planning, switchback and radial-alignment comparisons, cadence/frame caveats, SPICE geometry handoff, and links to existing turbulence/ICME skills without expanding the default MCP tool surface.",
+      "mimeType": "text/markdown",
+      "name": "psp-solo-heliophysics-workflows",
+      "title": "SPEDAS skill: psp-solo-heliophysics-workflows",
+      "uri": "spedas-skill://skills/psp-solo-heliophysics-workflows"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "pyspedas-load-planning",
+        "surface": "spedas_skill"
+      },
+      "description": "Plan PySPEDAS mission/product/time data loads through Agent Kit's compact MCP surface, preserving time clipping, cache, variable naming, and provenance hygiene without adding mission-specific tools.",
+      "mimeType": "text/markdown",
+      "name": "pyspedas-load-planning",
+      "title": "SPEDAS skill: pyspedas-load-planning",
+      "uri": "spedas-skill://skills/pyspedas-load-planning"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "pytplot-plotting-options",
+        "surface": "spedas_skill"
+      },
+      "description": "Choose artifact-first PyTplot/SPEDAS plotting options for line plots, spectrograms, limits, legends, markers, annotations, and saved figure outputs without expanding the default Agent Kit MCP tool surface.",
+      "mimeType": "text/markdown",
+      "name": "pytplot-plotting-options",
+      "title": "SPEDAS skill: pytplot-plotting-options",
+      "uri": "spedas-skill://skills/pytplot-plotting-options"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "solar-wind-icme-storm",
+        "surface": "spedas_skill"
+      },
+      "description": "Build artifact-first OMNI/Wind/ACE/STEREO solar-wind storm and ICME reproductions with event presets, variable alias normalization, standard overview panels, and quality caveats.",
+      "mimeType": "text/markdown",
+      "name": "solar-wind-icme-storm",
+      "title": "SPEDAS skill: solar-wind-icme-storm",
+      "uri": "spedas-skill://skills/solar-wind-icme-storm"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "solar-wind-turbulence-intermittency",
+        "surface": "spedas_skill"
+      },
+      "description": "Guide PSP/Solar Orbiter/Wind solar-wind intermittency workflows: compute PVI and vector increments, export event tables, and document proxy-vs-paper-quality energy-transfer/third-order-law assumptions without adding a new MCP tool.",
+      "mimeType": "text/markdown",
+      "name": "solar-wind-turbulence-intermittency",
+      "title": "SPEDAS skill: solar-wind-turbulence-intermittency",
+      "uri": "spedas-skill://skills/solar-wind-turbulence-intermittency"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "solar-wind-turbulence-spectrum",
+        "surface": "spedas_skill"
+      },
+      "description": "Compute and inspect the magnetic-field turbulence spectrum of an in-situ solar-wind interval (PSP, Solar Orbiter, Wind, etc.) — fetch B, derive |B|, run a dynamic power spectrum and a wavelet transform, render the spectrograms, and check for a Kolmogorov f^-5/3 inertial range. Composes existing spedas tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "solar-wind-turbulence-spectrum",
+      "title": "SPEDAS skill: solar-wind-turbulence-spectrum",
+      "uri": "spedas-skill://skills/solar-wind-turbulence-spectrum"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "spectral-cross-coherence",
+        "surface": "spedas_skill"
+      },
+      "description": "Measure magnitude-squared coherence and cross-phase between two scalar channels over a stationary interval — \"are these two signals coherent at frequency f, and what's the phase lag?\" (two components of B, B vs density, wave-mode identification, propagation). Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "spectral-cross-coherence",
+      "title": "SPEDAS skill: spectral-cross-coherence",
+      "uri": "spedas-skill://skills/spectral-cross-coherence"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "spedas-agent-kit-anatomy",
+        "surface": "spedas_skill"
+      },
+      "description": "The maintenance + navigation convention for the spedas_agent_kit repo, adapting the LingTai anatomy system. The codebase is mapped by a tree of ANATOMY.md files rooted at the repo's ANATOMY.md; this skill is the convention, those files are the content. Reach for this skill when: - You (a coding agent) are about to read or change spedas_agent_kit code and want to navigate by structure instead of grep — descend the anatomy tree from the repo root. - You are adding/changing a tool, a data source, an analysis function, or a skill, and need the maintenance rules (where it goes, what to update in the same commit, how to verify it). - You are writing or fixing an ANATOMY.md and need the template + citation discipline. How to use: 1. Read this file once — you are learning the convention. 2. Open the repo-root ANATOMY.md. Use its Components/Composition to find the folder whose anatomy answers your question; descend. 3. Read the cited code (file:line). The anatomy navigates; the code is truth. 4. If anatomy disagreed with code, fix the anatomy in the SAME commit. Reading and maintaining are the same act.",
+      "mimeType": "text/markdown",
+      "name": "spedas-agent-kit-anatomy",
+      "title": "SPEDAS skill: spedas-agent-kit-anatomy",
+      "uri": "spedas-skill://skills/spedas-agent-kit-anatomy"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "spedas-heritage-vocabulary",
+        "surface": "spedas_skill"
+      },
+      "description": "Translate IDL SPEDAS, PySPEDAS, tplot, GUI plugin, and SPEDAS-J vocabulary into coherent Agent Kit skills/resources while marking external routines as not MCP tools.",
+      "mimeType": "text/markdown",
+      "name": "spedas-heritage-vocabulary",
+      "title": "SPEDAS skill: spedas-heritage-vocabulary",
+      "uri": "spedas-skill://skills/spedas-heritage-vocabulary"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "spedas-skills-index",
+        "surface": "spedas_skill"
+      },
+      "description": "Start here. Routes a heliophysics intent to the right spedas skill and the first tool to call, so an agent needs to know one thing up front instead of memorizing the runtime MCP tool list. Read this, then load one focused skill.",
+      "mimeType": "text/markdown",
+      "name": "spedas-skills-index",
+      "title": "SPEDAS skill: spedas-skills-index",
+      "uri": "spedas-skill://skills/spedas-skills-index"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "spedas-workflow",
+        "surface": "spedas_skill"
+      },
+      "description": "Use the spedas-agent-kit MCP server through the unified SPEDAS data layer and science workflow layer.",
+      "mimeType": "text/markdown",
+      "name": "spedas-workflow",
+      "title": "SPEDAS skill: spedas-workflow",
+      "uri": "spedas-skill://skills/spedas-workflow"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "spice-conjunction-finder",
+        "surface": "spedas_skill"
+      },
+      "description": "Find times when two spacecraft/bodies are close (a conjunction) over an interval — scan ephemerides, compute pairwise separation coarse-then-fine from exported trajectories, apply a distance threshold, and optionally render separation vs time (plotting requires the [analysis] extra).",
+      "mimeType": "text/markdown",
+      "name": "spice-conjunction-finder",
+      "title": "SPEDAS skill: spice-conjunction-finder",
+      "uri": "spedas-skill://skills/spice-conjunction-finder"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "themis-workflows",
+        "surface": "spedas_skill"
+      },
+      "description": "Plan THEMIS mission route-scout, substorm/dipolarization, magnetotail, state/orbit, particle, and wave-context workflows as Agent Kit skill/resource recipes without expanding the default MCP tool surface.",
+      "mimeType": "text/markdown",
+      "name": "themis-workflows",
+      "title": "SPEDAS skill: themis-workflows",
+      "uri": "spedas-skill://skills/themis-workflows"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "timeseries-cleaning",
+        "surface": "spedas_skill"
+      },
+      "description": "Pre-analysis conditioning of a fetched vector/scalar time-series — despike, de-flag fill values, smooth, subtract a background average, and interpolate gaps onto a uniform grid before spectra/MVA/moments. Use as the first step feeding the turbulence, MVA/LMN, or polarization skills, especially for messy or irregular-cadence data. Composes existing tools; adds no new tool.",
+      "mimeType": "text/markdown",
+      "name": "timeseries-cleaning",
+      "title": "SPEDAS skill: timeseries-cleaning",
+      "uri": "spedas-skill://skills/timeseries-cleaning"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "tplot-data-lifecycle",
+        "surface": "spedas_skill"
+      },
+      "description": "Manage PySPEDAS/tplot variable state as an artifact-first lifecycle from load to inspect, derive, plot, export, and cleanup while avoiding raw-array chat output and name collisions.",
+      "mimeType": "text/markdown",
+      "name": "tplot-data-lifecycle",
+      "title": "SPEDAS skill: tplot-data-lifecycle",
+      "uri": "spedas-skill://skills/tplot-data-lifecycle"
+    },
+    {
+      "_meta": {
+        "kind": "skill",
+        "skill_name": "wave-polarization",
+        "surface": "spedas_skill"
+      },
+      "description": "Characterize the polarization of a 3-component magnetic-field wave interval (whistlers, EMIC, chorus, ULF) — degree of polarization, wave-normal angle, ellipticity, helicity, and 3-axis power vs time & frequency, via pyspedas twavpol (Means/Samson method). Composes existing tools; adds no new tool. The wave-domain companion to solar-wind-turbulence-spectrum.",
+      "mimeType": "text/markdown",
+      "name": "wave-polarization",
+      "title": "SPEDAS skill: wave-polarization",
+      "uri": "spedas-skill://skills/wave-polarization"
+    }
+  ],
+  "tools": [
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Primary data layer: browse parameters/metadata using source_type rather than source-specific tool names.\n\nFor wide products (issue #137) use parameter_query to narrow by\nname/description/units, and/or limit/offset to page through the\nparameter list. A ``parameter_page`` summary ({total, returned, offset,\nlimit, has_more, query}) is added to the payload when any of these are\nsupplied. Without them the response is unchanged for back-compat.",
+      "inputSchema": {
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Ids"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "parameter_query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parameter Query"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "dataset_id"
+        ],
+        "title": "browse_data_parametersArguments",
+        "type": "object"
+      },
+      "name": "browse_data_parameters",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "browse_data_parametersOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Primary data layer: browse SPEDAS source categories (CDAWeb, PDS, SPICE).",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Query"
+          },
+          "source_type": {
+            "default": "all",
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "title": "browse_data_sourcesArguments",
+        "type": "object"
+      },
+      "name": "browse_data_sources",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "browse_data_sourcesOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "datasource"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Data layer (FDSN/MTH5): list magnetotelluric magnetic stations in a time range.\n\nBackend: pyspedas.mth5 (optional spedas-agent-kit[fdsn] extra; wraps mth5 +\nobspy). Queries EarthScope FDSN for stations that expose three same-band\nmagnetic channels (e.g. LFE/LFN/LFZ) within trange=['YYYY-MM-DD',\n'YYYY-MM-DD']; optional network/station code filters and usa_only restrict\nthe search. Returns {status, trange, station_count, stations: [{network,\nstation, time_range, channels}...]}. Returns a missing_dependency error\n(install spedas-agent-kit[fdsn]) when mth5/obspy are absent. This tool is\ndemoted out of the default surface (issue #87); discover it via\nbrowse_data_sources(source_type=\"fdsn\") or set\nSPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1 to advertise it directly.",
+      "inputSchema": {
+        "properties": {
+          "network": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Network"
+          },
+          "station": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Station"
+          },
+          "trange": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Trange",
+            "type": "array"
+          },
+          "usa_only": {
+            "default": false,
+            "title": "Usa Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "trange"
+        ],
+        "title": "browse_fdsn_datasetsArguments",
+        "type": "object"
+      },
+      "name": "browse_fdsn_datasets",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "browse_fdsn_datasetsOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "datasource"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Data layer (HAPI): list datasets advertised by any HAPI-compliant server.\n\nBackend: hapiclient (optional spedas-agent-kit[hapi] extra). Works against\nCDAWeb, PDS-PPI, ISWA, LISIRD, and university HAPI servers. Pass the HAPI\nbase URL (ends in /hapi), e.g. 'https://cdaweb.gsfc.nasa.gov/hapi';\noptionally filter ids/titles with query. ``max_results`` defaults to 500\nso unfiltered large catalogs stay response-size safe. Returns\n{status, server, dataset_count, total_dataset_count, datasets_truncated,\ntitle_count, datasets}. ``title`` is present only when the server\nprovides it. Returns a missing_dependency error (install\nspedas-agent-kit[hapi]) when hapiclient is absent — base install and list_tools\nstill work without it. This tool is demoted out of the default surface\n(issue #87); discover it via browse_data_sources(source_type=\"hapi\") or set\nSPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1 to advertise it directly.",
+      "inputSchema": {
+        "properties": {
+          "max_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 500,
+            "title": "Max Results"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Query"
+          },
+          "server_url": {
+            "title": "Server Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_url"
+        ],
+        "title": "browse_hapi_catalogArguments",
+        "type": "object"
+      },
+      "name": "browse_hapi_catalog",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "browse_hapi_catalogOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Compare CDAWeb, PDS, and SPICE roles for a SPEDAS Agent Kit science request.",
+      "inputSchema": {
+        "properties": {
+          "science_goal": {
+            "default": "",
+            "title": "Science Goal",
+            "type": "string"
+          }
+        },
+        "title": "compare_cdaweb_pds_spiceArguments",
+        "type": "object"
+      },
+      "name": "compare_cdaweb_pds_spice",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "compare_cdaweb_pds_spiceOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Compute distance between two SPICE targets over a time range.\n\nBoth targets are validated against the SPICE registry before any backend\ncall (unsupported names return ``unsupported_spice_target``, issue #26),\nand the call returns a ``kernel_download_required`` confirmation rather\nthan silently downloading uncached kernels unless\n``allow_kernel_download=True`` (issue #29).",
+      "inputSchema": {
+        "properties": {
+          "allow_kernel_download": {
+            "default": false,
+            "title": "Allow Kernel Download",
+            "type": "boolean"
+          },
+          "step": {
+            "default": "1h",
+            "title": "Step",
+            "type": "string"
+          },
+          "target1": {
+            "title": "Target1",
+            "type": "string"
+          },
+          "target2": {
+            "title": "Target2",
+            "type": "string"
+          },
+          "time_end": {
+            "title": "Time End",
+            "type": "string"
+          },
+          "time_start": {
+            "title": "Time Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target1",
+          "target2",
+          "time_start",
+          "time_end"
+        ],
+        "title": "compute_distanceArguments",
+        "type": "object"
+      },
+      "name": "compute_distance",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "compute_distanceOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Create a lightweight request/provenance bundle for a planned SPEDAS analysis.",
+      "inputSchema": {
+        "properties": {
+          "data_sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Sources"
+          },
+          "output_dir": {
+            "title": "Output Dir",
+            "type": "string"
+          },
+          "science_goal": {
+            "default": "",
+            "title": "Science Goal",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop"
+          },
+          "study_name": {
+            "title": "Study Name",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target"
+          }
+        },
+        "required": [
+          "study_name",
+          "output_dir"
+        ],
+        "title": "create_spedas_analysis_bundleArguments",
+        "type": "object"
+      },
+      "name": "create_spedas_analysis_bundle",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "create_spedas_analysis_bundleOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Primary data layer: fetch CDAWeb/PDS measurement or archive products; route SPICE geometry to geometry tools.",
+      "inputSchema": {
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "format": {
+            "default": "csv",
+            "enum": [
+              "csv",
+              "json"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Dir"
+          },
+          "parameters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop"
+          }
+        },
+        "required": [
+          "source_type",
+          "dataset_id",
+          "parameters"
+        ],
+        "title": "fetch_data_productArguments",
+        "type": "object"
+      },
+      "name": "fetch_data_product",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "fetch_data_productOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "datasource"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Data layer (FDSN/MTH5): fetch a calibrated 3-component MT magnetic series to a file.\n\nBackend: pyspedas.mth5 load_fdsn (optional spedas-agent-kit[fdsn] extra). Downloads\nan MTH5 file from EarthScope for network/station over trange, calibrates\ncounts -> nT, enforces 3-component Hx/Hy/Hz geometry, writes the time-series\n(time column plus one column per channel) to output_dir as CSV/JSON, and\nreturns only {status, file_path, format, network, station, trange, rows,\nchannels, units?} — never inline arrays or the raw MTH5 payload. Discover\nnetwork/station with browse_fdsn_datasets. Returns resource_not_found when\nno qualifying 3-component data exist in the window, or a missing_dependency\nerror (install spedas-agent-kit[fdsn]) when mth5/obspy are absent.",
+      "inputSchema": {
+        "properties": {
+          "format": {
+            "default": "csv",
+            "enum": [
+              "csv",
+              "json"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "network": {
+            "title": "Network",
+            "type": "string"
+          },
+          "output_dir": {
+            "title": "Output Dir",
+            "type": "string"
+          },
+          "station": {
+            "title": "Station",
+            "type": "string"
+          },
+          "trange": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Trange",
+            "type": "array"
+          }
+        },
+        "required": [
+          "trange",
+          "network",
+          "station",
+          "output_dir"
+        ],
+        "title": "fetch_fdsn_dataArguments",
+        "type": "object"
+      },
+      "name": "fetch_fdsn_data",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "fetch_fdsn_dataOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "datasource"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Data layer (HAPI): fetch a HAPI dataset slice to a file (artifact-first).\n\nBackend: hapiclient (optional spedas-agent-kit[hapi] extra). Loads the named\nparameters from dataset_id on server_url over [start, stop) (stop is\nexclusive per the HAPI spec), writes a flat CSV/JSON table (time column\nplus one column per scalar parameter and name[i] columns for vector/\nspectral parameters) to output_dir, and returns only\n{status, file_path, format, server, dataset_id, time_range, rows,\nparameters_meta} — never inline arrays. parameters_meta carries per-\nparameter units/description/type/size/spectral flags. Discover dataset_id\nwith browse_hapi_catalog. Returns a missing_dependency error (install\nspedas-agent-kit[hapi]) when hapiclient is absent.",
+      "inputSchema": {
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "format": {
+            "default": "csv",
+            "enum": [
+              "csv",
+              "json"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "output_dir": {
+            "title": "Output Dir",
+            "type": "string"
+          },
+          "parameters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "server_url": {
+            "title": "Server Url",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          },
+          "stop": {
+            "title": "Stop",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_url",
+          "dataset_id",
+          "parameters",
+          "start",
+          "stop",
+          "output_dir"
+        ],
+        "title": "fetch_hapi_dataArguments",
+        "type": "object"
+      },
+      "name": "fetch_hapi_data",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "fetch_hapi_dataOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Get single-time state inline or timeseries trajectory written to CSV.\n\nValidates ``target``/``observer`` against the SPICE mission registry\nbefore any backend call: an unsupported name (e.g. ``MMS1``) returns a\nstructured ``unsupported_spice_target`` error with alternatives instead of\nan opaque \"Cannot resolve body name\" (issue #26). If the required SPICE\nkernels are not already cached, the call returns a ``needs_confirmation``\n``kernel_download_required`` response rather than silently downloading\n100 MB-1 GB of kernels; pass ``allow_kernel_download=True`` (or pre-load\nwith ``manage_data_cache(source_type='spice', action='load', mission=...)``) to proceed\n(issue #29).",
+      "inputSchema": {
+        "properties": {
+          "allow_kernel_download": {
+            "default": false,
+            "title": "Allow Kernel Download",
+            "type": "boolean"
+          },
+          "frame": {
+            "default": "ECLIPJ2000",
+            "title": "Frame",
+            "type": "string"
+          },
+          "observer": {
+            "default": "SUN",
+            "title": "Observer",
+            "type": "string"
+          },
+          "output_file": {
+            "default": "",
+            "title": "Output File",
+            "type": "string"
+          },
+          "step": {
+            "default": "1h",
+            "title": "Step",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          },
+          "time_end": {
+            "default": "",
+            "title": "Time End",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "time"
+        ],
+        "title": "get_ephemerisArguments",
+        "type": "object"
+      },
+      "name": "get_ephemeris",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_ephemerisOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Primary data layer: load source context for a CDAWeb observatory, PDS mission, or SPICE mission/frame.\n\nCDAWeb defaults to a compact, paginated structured catalog so agents can\npick concrete ``dataset_id`` values without receiving the large legacy\nhuman prompt. Pass ``mode=\"full\"`` or ``include_full_prompt=True`` to\nopt into the previous full prompt payload. Use ``limit``/``offset`` plus\n``instrument`` or ``dataset_query`` to page/filter large observatories.",
+      "inputSchema": {
+        "properties": {
+          "dataset_query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Query"
+          },
+          "include_full_prompt": {
+            "default": false,
+            "title": "Include Full Prompt",
+            "type": "boolean"
+          },
+          "instrument": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Instrument"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit"
+          },
+          "mode": {
+            "default": "compact",
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id"
+        ],
+        "title": "load_data_sourceArguments",
+        "type": "object"
+      },
+      "name": "load_data_source",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "load_data_sourceOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Primary data layer: manage cache status/maintenance by source_type.\n\nThis unified cache manager covers the source-specific cache-manager\nkwargs: CDAWeb uses ``category``, ``observatory``, ``dataset_ids``,\n``older_than_days``, ``dry_run``, and ``detail``; PDS uses\n``category``, ``mission``, ``dataset_ids``, ``older_than_days``,\n``dry_run``, ``detail``, and ``force``; SPICE uses ``mission`` and\n``filenames``. Backend cache roots are still configured by the MCP\nserver environment, not per call.",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "default": "status",
+            "title": "Action",
+            "type": "string"
+          },
+          "cache_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Dir"
+          },
+          "category": {
+            "default": "all",
+            "title": "Category",
+            "type": "string"
+          },
+          "dataset_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Ids"
+          },
+          "detail": {
+            "default": false,
+            "title": "Detail",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "filenames": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Filenames"
+          },
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
+          "mission": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mission"
+          },
+          "observatory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Observatory"
+          },
+          "older_than_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Older Than Days"
+          },
+          "source_type": {
+            "default": "all",
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "title": "manage_data_cacheArguments",
+        "type": "object"
+      },
+      "name": "manage_data_cache",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "manage_data_cacheOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Plan a SPEDAS science workflow before choosing data-layer or geometry calls.\n\nInfers ISO dates and mission names from ``science_goal`` when ``start``,\n``stop``, or ``target`` are omitted; explicit parameters always win and\ninferred values are reported under ``inferred`` for transparency.",
+      "inputSchema": {
+        "properties": {
+          "data_sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Sources"
+          },
+          "observables": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Observables"
+          },
+          "science_goal": {
+            "title": "Science Goal",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target"
+          }
+        },
+        "required": [
+          "science_goal"
+        ],
+        "title": "plan_spedas_observationArguments",
+        "type": "object"
+      },
+      "name": "plan_spedas_observation",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "plan_spedas_observationOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Recommend whether a SPEDAS request should start with CDAWeb, PDS, SPICE, or a mix.\n\nPass the natural-language science goal as ``question``. ``query`` is accepted\nas a backward-compatible alias so callers familiar with\n``browse_data_sources(query=...)`` are not silently given empty results;\n``question`` takes precedence when both are provided.",
+      "inputSchema": {
+        "properties": {
+          "observables": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Observables"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Query"
+          },
+          "question": {
+            "default": "",
+            "title": "Question",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target"
+          }
+        },
+        "title": "search_spedas_data_sourcesArguments",
+        "type": "object"
+      },
+      "name": "search_spedas_data_sources",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "search_spedas_data_sourcesOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": null
+      },
+      "description": "Describe available SPEDAS Agent Kit capabilities and the recommended workflow.",
+      "inputSchema": {
+        "properties": {},
+        "title": "spedas_overviewArguments",
+        "type": "object"
+      },
+      "name": "spedas_overview",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "spedas_overviewOutput",
+        "type": "object"
+      },
+      "title": null
+    },
+    {
+      "_meta": {
+        "surface": "primary"
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": null
+      },
+      "description": "Transform a 3D vector between SPICE coordinate frames.\n\nFrame transforms always furnish the generic SPICE kernels, and RTN\ntransforms additionally need the ``spacecraft`` mission's kernels. To\navoid a silent 100 MB+ generic-kernel download on first use, the call\nreturns a ``kernel_download_required`` confirmation when required kernels\nare not cached unless ``allow_kernel_download=True`` (issue #29). A named\n``spacecraft`` that is not SPICE-supported returns\n``unsupported_spice_target`` (issue #26).",
+      "inputSchema": {
+        "properties": {
+          "allow_kernel_download": {
+            "default": false,
+            "title": "Allow Kernel Download",
+            "type": "boolean"
+          },
+          "from_frame": {
+            "title": "From Frame",
+            "type": "string"
+          },
+          "spacecraft": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Spacecraft"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          },
+          "to_frame": {
+            "title": "To Frame",
+            "type": "string"
+          },
+          "vector": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Vector",
+            "type": "array"
+          }
+        },
+        "required": [
+          "vector",
+          "time",
+          "from_frame",
+          "to_frame"
+        ],
+        "title": "transform_coordinatesArguments",
+        "type": "object"
+      },
+      "name": "transform_coordinates",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "transform_coordinatesOutput",
+        "type": "object"
+      },
+      "title": null
+    }
+  ]
+}

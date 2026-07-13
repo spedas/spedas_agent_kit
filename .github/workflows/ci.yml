@@ -34,6 +34,12 @@ jobs:
         run: python scripts/smoke_mcp_list_tools.py --json
       - name: Run MCP resource smoke
         run: python scripts/smoke_mcp_resources.py --json
+      - name: Check MCP surface contract (base/compat/datasource profiles)
+        # One invocation checks all three env-gated profiles against the
+        # checked-in snapshots in tests/contracts/mcp_surface/ and fails with a
+        # readable unified diff on drift. This lane installs no [analysis] extra,
+        # so it captures exactly the base-install surface those snapshots pin.
+        run: python scripts/check_mcp_surface_contract.py
       - name: Run analysis-bundle provenance smoke
         run: python scripts/smoke_analysis_bundle.py --json
 
