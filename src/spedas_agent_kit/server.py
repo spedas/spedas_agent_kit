@@ -57,6 +57,12 @@ except ImportError as exc:  # pragma: no cover - exercised by entrypoint guard
 SPEDAS_PROVENANCE_SCHEMA_URI = "spedas-preset://schemas/reproduction_provenance"
 #: MCP resource URI for analysis-bundle provenance/run.json records.
 SPEDAS_ANALYSIS_RUN_SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
+#: MCP resource URI for the deterministic machine-readable capability manifest.
+SPEDAS_MANIFEST_CAPABILITIES_URI = "spedas-manifest://v1/capabilities"
+#: Stable v1 schema identifier for the capability manifest payload.
+SPEDAS_MANIFEST_SCHEMA_ID = "spedas-manifest-capabilities-v1"
+#: Canonical distribution name used for dynamic installed-version lookup.
+_DISTRIBUTION_NAME = "spedas-agent-kit"
 
 logger = logging.getLogger(__name__)
 
@@ -1225,6 +1231,101 @@ def _spice_geometry_preflight(
     return _kernel_download_required_error(mission_keys, preflight, tool=tool)
 
 
+def _installed_package_version() -> str:
+    """Return the installed spedas-agent-kit distribution version, or ``"unknown"``.
+
+    The version is read from installed distribution metadata rather than the
+    ``spedas_agent_kit.__version__`` source literal so the capability manifest
+    reflects the artifact actually running. If distribution metadata is genuinely
+    unavailable (e.g. an editable checkout without an installed dist-info), a
+    non-version ``"unknown"`` sentinel is reported instead of duplicating a
+    hard-coded literal.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(_DISTRIBUTION_NAME)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _build_capability_manifest(
+    *,
+    package_version: str,
+    tool_surface_pairs: list[tuple[str, str]],
+    include_analysis_tools: bool,
+    compat_tools_enabled: bool,
+    datasource_tools_enabled: bool,
+    optional_backends: dict[str, dict[str, Any]],
+    packaged_skills: list,
+    event_presets: list,
+) -> dict[str, Any]:
+    """Assemble the deterministic capability-manifest payload from explicit inputs.
+
+    Pure and separately testable: every input is passed in (no environment or MCP
+    reads happen here) so the payload is a deterministic function of its arguments.
+    ``tool_surface_pairs`` is the live ``(tool_name, surface)`` inventory from
+    ``mcp.list_tools()`` and each tool's ``meta["surface"]``; the caller supplies
+    the already-computed ``create_server`` gate state and the canonical
+    ``optional_backends`` payload rather than recomputing them here.
+
+    The result carries no timestamp or ``generated_at`` and, serialized with
+    ``sort_keys=True``, is byte-stable across reads.
+    """
+    by_surface: dict[str, list[str]] = {}
+    for name, surface in tool_surface_pairs:
+        by_surface.setdefault(surface, []).append(name)
+    for names in by_surface.values():
+        names.sort()
+
+    all_names = sorted(name for name, _surface in tool_surface_pairs)
+
+    return {
+        "schema": SPEDAS_MANIFEST_SCHEMA_ID,
+        "schema_version": "v1",
+        "server": "spedas-agent-kit",
+        "package": {
+            "name": _DISTRIBUTION_NAME,
+            "version": package_version,
+        },
+        "tools": {
+            "total": len(all_names),
+            "names": all_names,
+            "by_surface": by_surface,
+        },
+        "gates": {
+            "analysis_tools": {
+                "enabled": bool(include_analysis_tools),
+            },
+            "compat_tools": {
+                "enabled": bool(compat_tools_enabled),
+                "env_var": "SPEDAS_AGENT_KIT_COMPAT_TOOLS",
+            },
+            "datasource_tools": {
+                "enabled": bool(datasource_tools_enabled),
+                "env_var": "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS",
+            },
+        },
+        "optional_backends": optional_backends,
+        "resources": {
+            "skills": {
+                "count": len(packaged_skills),
+                "index_uri": SPEDAS_SKILL_INDEX_URI,
+                "uri_prefix": SPEDAS_SKILL_URI_PREFIX,
+            },
+            "event_presets": {
+                "count": len(event_presets),
+                "index_uri": SPEDAS_PRESET_INDEX_URI,
+                "uri_prefix": SPEDAS_PRESET_URI_PREFIX,
+            },
+            "schemas": {
+                "reproduction_provenance_uri": SPEDAS_PROVENANCE_SCHEMA_URI,
+                "analysis_bundle_run_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
+            },
+        },
+    }
+
+
 def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
     """Create and configure the unified SPEDAS Agent Kit server.
 
@@ -1369,6 +1470,48 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
             )
 
     _register_event_preset_resources()
+
+    def _register_capability_manifest_resource() -> None:
+        """Expose a deterministic machine-readable manifest of the live surface.
+
+        The reader awaits ``mcp.list_tools()`` so the tool inventory reflects the
+        actually-registered server (including the compat/datasource gates) instead
+        of a second hard-coded name list, groups names by each tool's existing
+        ``meta["surface"]``, and hands the already-computed ``create_server`` gate
+        state plus canonical ``optional_backends``/skill/preset structures to the
+        pure :func:`_build_capability_manifest` builder.
+        """
+
+        @mcp.resource(
+            SPEDAS_MANIFEST_CAPABILITIES_URI,
+            name="spedas-capability-manifest",
+            title="SPEDAS Agent Kit capability manifest",
+            description=(
+                "Deterministic, machine-readable manifest of the live SPEDAS Agent "
+                "Kit tool/resource surface, environment gates, and package identity."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_manifest", "kind": "capabilities"},
+        )
+        async def spedas_capability_manifest_resource() -> str:
+            live_tools = await mcp.list_tools()
+            tool_surface_pairs = [
+                (tool.name, (tool.meta or {}).get("surface", "unknown"))
+                for tool in live_tools
+            ]
+            manifest = _build_capability_manifest(
+                package_version=_installed_package_version(),
+                tool_surface_pairs=tool_surface_pairs,
+                include_analysis_tools=include_analysis_tools,
+                compat_tools_enabled=compat_tools_enabled,
+                datasource_tools_enabled=datasource_tools_enabled,
+                optional_backends=optional_backends,
+                packaged_skills=list_packaged_skills(),
+                event_presets=list_event_presets(),
+            )
+            return json.dumps(manifest, indent=2, sort_keys=True)
+
+    _register_capability_manifest_resource()
 
     def _register_tool(
         *,
