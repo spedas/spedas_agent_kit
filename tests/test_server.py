@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 
 from spedas_agent_kit import __version__
+from spedas_agent_kit.installation import install_hint as _install_hint
 from spedas_agent_kit.server import (
     ANALYSIS_TOOL_NAMES,
     COMPAT_TOOL_NAMES,
@@ -152,7 +153,7 @@ def test_analysis_tools_are_gated_when_analysis_extra_is_absent(monkeypatch):
 
     data = json.loads(_call_tool(server, "spedas_overview"))
     assert data["capability_groups"]["analysis"]["tools"] == []
-    assert "install with spedas-agent-kit[analysis]" in data["capability_groups"]["analysis"]["status"]
+    assert "optional analysis extra unavailable" in data["capability_groups"]["analysis"]["status"]
 
 
 def test_analysis_tools_register_when_analysis_extra_is_available(monkeypatch):
@@ -207,12 +208,12 @@ def test_optional_backend_availability_metadata_when_base_deps_missing(monkeypat
     by_type = {entry["source_type"]: entry for entry in sources["source_types"]}
     assert by_type["hapi"]["available"] is False
     assert by_type["hapi"]["requires_extra"] == "hapi"
-    assert by_type["hapi"]["install_hint"] == "pip install 'spedas-agent-kit[hapi]'"
+    assert by_type["hapi"]["install_hint"] == _install_hint("hapi")
     assert by_type["hapi"]["direct_tool_gate"]["env_flag"] == "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1"
     assert by_type["hapi"]["direct_tool_gate"]["advertised"] is False
     assert by_type["fdsn"]["available"] is False
     assert by_type["fdsn"]["requires_extra"] == "fdsn"
-    assert by_type["fdsn"]["install_hint"] == "pip install 'spedas-agent-kit[fdsn]'"
+    assert by_type["fdsn"]["install_hint"] == _install_hint("fdsn")
     assert by_type["fdsn"]["direct_tool_gate"]["env_flag"] == "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1"
     assert by_type["fdsn"]["direct_tool_gate"]["advertised"] is False
 
@@ -4212,7 +4213,7 @@ def test_build_capability_manifest_is_pure_and_deterministic():
             "analysis": {
                 "available": True,
                 "requires_extra": "analysis",
-                "install_hint": "pip install 'spedas-agent-kit[analysis]'",
+                "install_hint": _install_hint("analysis"),
             }
         },
         packaged_skills=["s1", "s2"],
@@ -4441,7 +4442,7 @@ def test_build_installation_profiles_omits_absent_optional_backends():
         datasource_tools_enabled=False,
         optional_backends={"analysis": {
             "requires_extra": "analysis",
-            "install_hint": "pip install 'spedas-agent-kit[analysis]'",
+            "install_hint": _install_hint("analysis"),
             "available": True,
         }},
         resource_summary={"skills": {"count": 1}},

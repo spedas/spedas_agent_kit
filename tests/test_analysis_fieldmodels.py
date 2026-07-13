@@ -27,6 +27,7 @@ import numpy as np
 import pytest
 
 from spedas_agent_kit.analysis import fieldmodels
+from spedas_agent_kit.installation import install_hint as _install_hint
 
 
 # --------------------------------------------------------------------------
@@ -724,7 +725,21 @@ def test_eval_igrf_outdated_geopack(positions_npz, tmp_path, monkeypatch):
     assert out["status"] == "error"
     assert out["code"] == "backend_outdated"
     assert "tigrf" in out["missing"]
-    assert "update" in out["message"].lower()
+    # The remediation guidance must be honest source-checkout guidance, not a
+    # public-index update command for the unpublished distribution.
+    message = out["message"]
+    # Preserved backend context.
+    assert "pyspedas>=2.0" in message
+    assert "ttrace2endpoint" in message
+    # Source-only Alpha / not-on-PyPI framing.
+    assert "Source-only Alpha" in message
+    assert "not published on PyPI" in message
+    # The only runnable instruction is the checkout-relative command.
+    assert "python -m pip install '.[analysis]'" in message
+    assert _install_hint("analysis") in message
+    # No public-index install/update command for the distribution survives.
+    assert "pip install -U 'spedas-agent-kit[analysis]'" not in message
+    assert "pip install spedas-agent-kit" not in message.replace("'", "")
 
 
 def test_eval_t89_trace_outdated_geopack(positions_npz, tmp_path, monkeypatch):

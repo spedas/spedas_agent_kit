@@ -47,12 +47,13 @@ from .optional_backends import (
     analysis_dependencies_available as _analysis_dependencies_available,
     module_available as _module_available,
 )
+from .installation import install_hint as _install_hint
 
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
 except ImportError as exc:  # pragma: no cover - exercised by entrypoint guard
-    raise ImportError("Install MCP support with: pip install 'spedas-agent-kit[mcp]'") from exc
+    raise ImportError(f"MCP support is required. {_install_hint('mcp')}") from exc
 
 #: MCP resource URI for the canonical paper-reproduction provenance JSON schema.
 SPEDAS_PROVENANCE_SCHEMA_URI = "spedas-preset://schemas/reproduction_provenance"
@@ -201,7 +202,7 @@ def _optional_backend_availability(
         payload: dict[str, Any] = {
             "available": available,
             "requires_extra": extra,
-            "install_hint": f"pip install 'spedas-agent-kit[{extra}]'",
+            "install_hint": _install_hint(extra),
             "tools": (
                 list(tools)
                 if available or registration in ("always_registered", "gated_optional")
@@ -1718,7 +1719,7 @@ def _build_installation_profiles(
         "base": {
             "install": {
                 "requires_extra": None,
-                "install_hint": "pip install spedas-agent-kit",
+                "install_hint": _install_hint(),
                 "effect": "installs the base server and its primary tool surface",
             },
             "registration": _gate(kind="always", enabled=True, env_var=None),
@@ -1800,7 +1801,7 @@ def _build_installation_profiles(
     profiles["compatibility"] = {
         "install": {
             "requires_extra": None,
-            "install_hint": "pip install spedas-agent-kit",
+            "install_hint": _install_hint(),
             "effect": "no extra required; part of the base install",
         },
         "registration": {
@@ -1831,8 +1832,8 @@ def _build_installation_profiles(
             "declared": [],
             "note": (
                 "No aggregate 'recommended' or 'all' extra is declared. Install "
-                "each optional extra explicitly (for example "
-                "'pip install spedas-agent-kit[hapi] spedas-agent-kit[fdsn]')."
+                "each optional extra explicitly from the source checkout. "
+                f"For example: {_install_hint(('hapi', 'fdsn'))}"
             ),
         },
     }
@@ -2330,10 +2331,10 @@ def create_server(*, include_analysis_tools: bool | None = None) -> FastMCP:
                     "status": (
                         "available; optional pyspedas/matplotlib backend installed"
                         if include_analysis_tools
-                        else "not registered; install with spedas-agent-kit[analysis]"
+                        else "not registered; optional analysis extra unavailable"
                     ),
                     "tools": list(ANALYSIS_TOOL_NAMES) if include_analysis_tools else [],
-                    "install_hint": "pip install 'spedas-agent-kit[analysis]'",
+                    "install_hint": _install_hint("analysis"),
                     "available": optional_backends["analysis"]["available"],
                     "requires_extra": optional_backends["analysis"]["requires_extra"],
                     "registration": optional_backends["analysis"]["registration"],

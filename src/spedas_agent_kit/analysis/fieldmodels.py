@@ -39,6 +39,8 @@ from pathlib import Path
 from typing import Any
 
 from . import AnalysisDependencyError, require_pyspedas
+from ..installation import install_hint as _install_hint
+from ..installation import extras_identifier as _extras_identifier
 
 # Field models exposed by these tools, mapped to their geopack tplot wrappers.
 # IGRF is the cheap, parameter-free intrinsic field; the Tsyganenko models add an
@@ -104,9 +106,10 @@ class GeopackVersionError(AnalysisDependencyError):
         super().__init__(
             "The installed pyspedas is missing required geopack APIs: "
             f"{self.missing}. These field-model / tracing entry points were added "
-            "in newer pyspedas releases. Update with: pip install -U "
-            "'spedas-agent-kit[analysis]' (pyspedas>=2.0 with geopack ttrace2endpoint / "
-            "tigrf)."
+            "in newer pyspedas releases (pyspedas>=2.0 with geopack "
+            "ttrace2endpoint / tigrf), which the optional "
+            f"{_extras_identifier('analysis')} extra pins. Reinstall that extra "
+            f"from an up-to-date source checkout. {_install_hint('analysis')}"
         )
 
 

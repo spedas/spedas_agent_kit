@@ -64,6 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from . import AnalysisDependencyError, require_pyspedas
+from ..installation import install_hint as _install_hint
 
 # Per-slice distribution fields consumed by the pyspedas particle algorithms.
 # ``data``/``energy``/``theta``/``phi``/``dtheta``/``dphi``/``denergy``/``bins``
@@ -881,7 +882,7 @@ def build_particle_distribution_artifact(
         return _error(
             str(exc),
             code="dependency_missing",
-            hint="Install optional analysis dependencies with: pip install 'spedas-agent-kit[analysis]'",
+            hint=_install_hint("analysis"),
         )
     except ParticleBackendError as exc:
         return _error(str(exc), code="unsupported", valid_converters=sorted(_DIST_CONVERTERS))
@@ -1125,7 +1126,7 @@ def load_particle_distribution_artifact(
         return _error(
             str(exc),
             code="dependency_missing",
-            hint="Install optional analysis dependencies with: pip install 'spedas-agent-kit[analysis]'",
+            hint=_install_hint("analysis"),
         )
     except ParticleBackendError as exc:
         return _error(str(exc), code="unsupported", valid_converters=sorted(_DIST_CONVERTERS))
