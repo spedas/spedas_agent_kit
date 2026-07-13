@@ -78,6 +78,23 @@ logger = logging.getLogger(__name__)
 HAPI_TOOL_NAMES = ("browse_hapi_catalog", "fetch_hapi_data")
 FDSN_TOOL_NAMES = ("browse_fdsn_datasets", "fetch_fdsn_data")
 
+#: Canonical legacy CDAWeb/PDS compatibility tool names, in registration order.
+#: These ship with the base install (no extra) but are registered/advertised in
+#: MCP ``list_tools`` only when ``SPEDAS_AGENT_KIT_COMPAT_TOOLS=1``; see
+#: :func:`_compat_tools_enabled` and the ``_compat_tool`` decorator. Kept beside
+#: the datasource name tuples so the capability manifest anchors the installation
+#: matrix to a single source of truth instead of a second inline list.
+COMPAT_TOOL_NAMES = (
+    "browse_observatories",
+    "load_observatory",
+    "browse_parameters",
+    "fetch_data",
+    "browse_pds_missions",
+    "load_pds_mission",
+    "browse_pds_parameters",
+    "fetch_pds_data",
+)
+
 _CURATED_CDAWEB_SOURCES: tuple[dict[str, Any], ...] = (
     {
         "id": "omni",
@@ -1605,6 +1622,222 @@ def _installed_package_version() -> str:
         return "unknown"
 
 
+def _build_installation_profiles(
+    *,
+    primary_tool_names: list[str],
+    include_analysis_tools: bool,
+    compat_tools_enabled: bool,
+    datasource_tools_enabled: bool,
+    optional_backends: dict[str, dict[str, Any]],
+    resource_summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Assemble the deterministic ``installation_profiles`` matrix for the manifest.
+
+    This makes the pip-extra -> tool -> resource relationship authoritative and
+    machine-readable so a client can decide what to install *before* installing.
+    It is pure: it reads only the values passed in (the live primary tool names,
+    the already-computed ``create_server`` gate booleans, the canonical
+    ``optional_backends`` payload, and the manifest's own resource summary) and
+    the module-level canonical name tuples, so serialized with ``sort_keys=True``
+    it is byte-stable.
+
+    The crucial HAPI/FDSN honesty is preserved by giving every profile two
+    *independent* concerns rather than collapsing them:
+
+    * ``install`` — what the pip extra changes: whether the *backend* becomes
+      importable/usable. Installing ``[hapi]`` or ``[fdsn]`` does **not** by
+      itself register any MCP tool.
+    * ``registration`` — how the tool is advertised in ``list_tools``. For HAPI
+      and FDSN this is the *shared* ``SPEDAS_AGENT_KIT_DATASOURCE_TOOLS`` gate,
+      which advertises/registers **all four** direct datasource tools together
+      regardless of which backend extras are present; a call into a tool whose
+      backend is missing returns a structured ``missing_dependency`` error.
+
+    Resource facts are stated canonically once (packaged resources ship with the
+    base install; optional profiles add none) instead of repeating every URI per
+    profile; the authoritative resource catalog/count lives in the manifest's
+    ``resources`` block, echoed here as ``resource_summary``.
+    """
+
+    def _gate(*, kind: str, enabled: bool, env_var: str | None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"kind": kind, "enabled": bool(enabled)}
+        if env_var is not None:
+            payload["env_var"] = env_var
+        return payload
+
+    def _optional_profile(
+        key: str,
+        *,
+        summary: str,
+        canonical_tool_names: tuple[str, ...],
+        registration: dict[str, Any],
+    ) -> dict[str, Any]:
+        backend = optional_backends[key]
+        return {
+            "install": {
+                "requires_extra": backend["requires_extra"],
+                "install_hint": backend["install_hint"],
+                # What the extra buys: backend usability, NOT tool registration.
+                "effect": "makes the backend importable/usable",
+                "backend_available": backend["available"],
+                "missing_modules": list(backend.get("missing_modules", [])),
+            },
+            "registration": registration,
+            "canonical_tool_names": list(canonical_tool_names),
+            "backend": {
+                "canonical_key": key,
+                "usable_when": "the extra is installed and its backend imports",
+                "call_behavior_when_unavailable": backend.get(
+                    "call_behavior",
+                    "tool calls return a structured missing_dependency error until the extra is installed",
+                ),
+            },
+            "resources": {"adds": [], "note": "adds no packaged resources"},
+            "summary": summary,
+        }
+
+    resources_note = (
+        "Packaged MCP resources ship with the base install; optional extras and "
+        "env gates add tools only, never resources."
+    )
+    base_resources = {
+        "shipped_with": "base",
+        "catalog": "resources",
+        "adds": [],
+        "note": resources_note,
+    }
+
+    datasource_gate_note = (
+        "The SPEDAS_AGENT_KIT_DATASOURCE_TOOLS gate is shared: setting it "
+        "advertises/registers ALL FOUR direct HAPI+FDSN datasource tools "
+        "together, independent of which backend extras are installed. A missing "
+        "backend still returns a structured missing_dependency error when called."
+    )
+
+    profiles: dict[str, Any] = {
+        "base": {
+            "install": {
+                "requires_extra": None,
+                "install_hint": "pip install spedas-agent-kit",
+                "effect": "installs the base server and its primary tool surface",
+            },
+            "registration": _gate(kind="always", enabled=True, env_var=None),
+            "primary_tool_names": list(primary_tool_names),
+            "resources": base_resources,
+            "summary": (
+                "Base install. Registers the default primary tool surface and "
+                "ships all packaged MCP resources."
+            ),
+        },
+    }
+
+    # Optional-backend profiles are emitted only for backends the caller actually
+    # supplied in ``optional_backends`` (the real ``create_server`` caller always
+    # supplies analysis/hapi/fdsn, so the full matrix appears in production). This
+    # keeps every profile anchored to the canonical backend payload instead of
+    # re-deriving or inventing backend facts.
+    if "analysis" in optional_backends:
+        profiles["analysis"] = _optional_profile(
+            "analysis",
+            summary=(
+                "Optional [analysis] extra. Its tools register automatically when "
+                "the analysis backend is importable; there is no env gate."
+            ),
+            canonical_tool_names=ANALYSIS_TOOL_NAMES,
+            registration={
+                "kind": "auto_when_backend_available",
+                "enabled": bool(include_analysis_tools),
+                "env_var": None,
+                "note": (
+                    "Registers when the [analysis] stack imports; no environment "
+                    "flag is involved."
+                ),
+            },
+        )
+    if "hapi" in optional_backends:
+        profiles["hapi"] = _optional_profile(
+            "hapi",
+            summary=(
+                "Optional [hapi] extra makes the HAPI backend usable. The two HAPI "
+                "tools are advertised only under the shared datasource env gate; "
+                "otherwise reach them via the unified discovery path."
+            ),
+            canonical_tool_names=HAPI_TOOL_NAMES,
+            registration={
+                "kind": "shared_env_gate",
+                "enabled": bool(datasource_tools_enabled),
+                "env_var": "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS",
+                "shared_with": ["hapi", "fdsn"],
+                "advertises_tools": list(HAPI_TOOL_NAMES + FDSN_TOOL_NAMES),
+                "discover_via": optional_backends["hapi"].get(
+                    "discover_via", "browse_data_sources(source_type='hapi')"
+                ),
+                "note": datasource_gate_note,
+            },
+        )
+    if "fdsn" in optional_backends:
+        profiles["fdsn"] = _optional_profile(
+            "fdsn",
+            summary=(
+                "Optional [fdsn] extra makes the FDSN/MTH5 backend usable. The two "
+                "FDSN tools are advertised only under the shared datasource env "
+                "gate; otherwise reach them via the unified discovery path."
+            ),
+            canonical_tool_names=FDSN_TOOL_NAMES,
+            registration={
+                "kind": "shared_env_gate",
+                "enabled": bool(datasource_tools_enabled),
+                "env_var": "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS",
+                "shared_with": ["hapi", "fdsn"],
+                "advertises_tools": list(HAPI_TOOL_NAMES + FDSN_TOOL_NAMES),
+                "discover_via": optional_backends["fdsn"].get(
+                    "discover_via", "browse_data_sources(source_type='fdsn')"
+                ),
+                "note": datasource_gate_note,
+            },
+        )
+
+    profiles["compatibility"] = {
+        "install": {
+            "requires_extra": None,
+            "install_hint": "pip install spedas-agent-kit",
+            "effect": "no extra required; part of the base install",
+        },
+        "registration": {
+            "kind": "env_gate",
+            "enabled": bool(compat_tools_enabled),
+            "env_var": "SPEDAS_AGENT_KIT_COMPAT_TOOLS",
+            "note": (
+                "The eight legacy CDAWeb/PDS tools are defined in the base "
+                "install but advertised only when SPEDAS_AGENT_KIT_COMPAT_TOOLS=1."
+            ),
+        },
+        "canonical_tool_names": list(COMPAT_TOOL_NAMES),
+        "resources": {"adds": [], "note": "adds no packaged resources"},
+        "summary": (
+            "Legacy compatibility tools. Not an extra: they ship with the base "
+            "install and add eight legacy tool names only under the compat env "
+            "gate."
+        ),
+    }
+
+    return {
+        "profiles": profiles,
+        "resource_policy": {
+            "note": resources_note,
+            "catalog": resource_summary,
+        },
+        "bundles": {
+            "declared": [],
+            "note": (
+                "No aggregate 'recommended' or 'all' extra is declared. Install "
+                "each optional extra explicitly (for example "
+                "'pip install spedas-agent-kit[hapi] spedas-agent-kit[fdsn]')."
+            ),
+        },
+    }
+
+
 def _build_capability_manifest(
     *,
     package_version: str,
@@ -1636,6 +1869,39 @@ def _build_capability_manifest(
 
     all_names = sorted(name for name, _surface in tool_surface_pairs)
 
+    resources_block = {
+        "skills": {
+            "count": len(packaged_skills),
+            "index_uri": SPEDAS_SKILL_INDEX_URI,
+            "uri_prefix": SPEDAS_SKILL_URI_PREFIX,
+        },
+        "event_presets": {
+            "count": len(event_presets),
+            "index_uri": SPEDAS_PRESET_INDEX_URI,
+            "uri_prefix": SPEDAS_PRESET_URI_PREFIX,
+        },
+        "schemas": {
+            "reproduction_provenance_uri": SPEDAS_PROVENANCE_SCHEMA_URI,
+            "analysis_bundle_run_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
+        },
+        "contracts": {
+            "error_contract_uri": SPEDAS_MANIFEST_ERROR_CONTRACT_URI,
+        },
+    }
+
+    # Canonical, machine-readable install/tool/resource matrix. It reuses the
+    # live primary surface, the already-computed gate booleans, and the canonical
+    # ``optional_backends``/resource structures rather than adding a second MCP
+    # resource or a checked-in JSON snapshot.
+    installation_profiles = _build_installation_profiles(
+        primary_tool_names=by_surface.get("primary", []),
+        include_analysis_tools=include_analysis_tools,
+        compat_tools_enabled=compat_tools_enabled,
+        datasource_tools_enabled=datasource_tools_enabled,
+        optional_backends=optional_backends,
+        resource_summary=resources_block,
+    )
+
     return {
         "schema": SPEDAS_MANIFEST_SCHEMA_ID,
         "schema_version": "v1",
@@ -1663,25 +1929,8 @@ def _build_capability_manifest(
             },
         },
         "optional_backends": optional_backends,
-        "resources": {
-            "skills": {
-                "count": len(packaged_skills),
-                "index_uri": SPEDAS_SKILL_INDEX_URI,
-                "uri_prefix": SPEDAS_SKILL_URI_PREFIX,
-            },
-            "event_presets": {
-                "count": len(event_presets),
-                "index_uri": SPEDAS_PRESET_INDEX_URI,
-                "uri_prefix": SPEDAS_PRESET_URI_PREFIX,
-            },
-            "schemas": {
-                "reproduction_provenance_uri": SPEDAS_PROVENANCE_SCHEMA_URI,
-                "analysis_bundle_run_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
-            },
-            "contracts": {
-                "error_contract_uri": SPEDAS_MANIFEST_ERROR_CONTRACT_URI,
-            },
-        },
+        "installation_profiles": installation_profiles,
+        "resources": resources_block,
     }
 
 

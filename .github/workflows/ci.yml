@@ -116,3 +116,13 @@ jobs:
         run: >-
           "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" scripts/smoke_installed_artifact.py
           --repo-root "$GITHUB_WORKSPACE" --timeout-seconds 60 --json
+      - name: Assert base wheel startup loads no optional heavy backends (#209)
+        # In-process, no-write/no-download companion smoke in the SAME clean base
+        # wheel venv: import the package, start + list the base server, and fail
+        # if pyspedas/matplotlib/pywt/hapiclient/mth5/obspy were imported. Kept
+        # separate from the cleanup-bearing smokes above. PYTHONDONTWRITEBYTECODE
+        # keeps the run from writing __pycache__ into the installed site-packages.
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1
+          "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" scripts/smoke_base_imports.py
+          --repo-root "$GITHUB_WORKSPACE" --json

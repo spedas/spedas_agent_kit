@@ -8,6 +8,7 @@ from pathlib import Path
 from spedas_agent_kit import __version__
 from spedas_agent_kit.server import (
     ANALYSIS_TOOL_NAMES,
+    COMPAT_TOOL_NAMES,
     FDSN_TOOL_NAMES,
     HAPI_TOOL_NAMES,
     create_server,
@@ -4204,7 +4205,16 @@ def test_build_capability_manifest_is_pure_and_deterministic():
         include_analysis_tools=True,
         compat_tools_enabled=False,
         datasource_tools_enabled=False,
-        optional_backends={"analysis": {"available": True}},
+        # Minimal but realistic optional-backend payload shape: the installation
+        # matrix reads the canonical requires_extra/install_hint/available fields
+        # from it, matching what create_server always supplies.
+        optional_backends={
+            "analysis": {
+                "available": True,
+                "requires_extra": "analysis",
+                "install_hint": "pip install 'spedas-agent-kit[analysis]'",
+            }
+        },
         packaged_skills=["s1", "s2"],
         event_presets=["p1", "p2", "p3"],
     )
@@ -4224,6 +4234,224 @@ def test_build_capability_manifest_is_pure_and_deterministic():
     serialized = json.dumps(first, sort_keys=True)
     assert "generated_at" not in serialized
     assert "timestamp" not in serialized
+
+
+# --- Issue #209 Workstream V: authoritative installation profiles -----------
+
+
+def test_compat_tool_names_constant_matches_live_compat_surface(monkeypatch):
+    """COMPAT_TOOL_NAMES must be the exact live compat surface, in registration order.
+
+    Anchors the canonical constant the installation matrix reports to the tools
+    the compat gate actually registers, so a future compat tool add/remove/rename
+    cannot silently drift the published profile.
+    """
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    live_compat = [
+        tool.name
+        for tool in asyncio.run(server.list_tools())
+        if tool.meta and tool.meta.get("surface") == "compat"
+    ]
+    assert set(COMPAT_TOOL_NAMES) == set(live_compat)
+    assert len(COMPAT_TOOL_NAMES) == 8
+    # The hardcoded set the older gate tests assert against and the canonical
+    # constant must agree, so there is a single source of truth.
+    assert set(COMPAT_TOOL_NAMES) == COMPAT_CDAWEB_PDS_TOOLS
+
+
+def test_installation_profiles_default_surface_is_authoritative(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    manifest = _read_manifest(server)
+    profiles_block = manifest["installation_profiles"]
+    profiles = profiles_block["profiles"]
+    assert set(profiles) == {"base", "analysis", "hapi", "fdsn", "compatibility"}
+
+    # base: primary names come from the live surface, not a second hard-coded list.
+    live_primary = sorted(manifest["tools"]["by_surface"]["primary"])
+    assert profiles["base"]["primary_tool_names"] == live_primary
+    assert profiles["base"]["install"]["requires_extra"] is None
+    assert profiles["base"]["registration"]["kind"] == "always"
+    assert profiles["base"]["registration"]["enabled"] is True
+
+    # analysis: [analysis] extra, exact ANALYSIS_TOOL_NAMES, registers when the
+    # backend is importable, and explicitly has NO env gate.
+    analysis = profiles["analysis"]
+    assert analysis["install"]["requires_extra"] == "analysis"
+    assert analysis["canonical_tool_names"] == list(ANALYSIS_TOOL_NAMES)
+    assert analysis["registration"]["kind"] == "auto_when_backend_available"
+    assert analysis["registration"]["env_var"] is None
+    assert analysis["registration"]["enabled"] is False  # include_analysis_tools=False
+
+    # compatibility: not an extra, base install, exact eight legacy tools, compat gate.
+    compat = profiles["compatibility"]
+    assert compat["install"]["requires_extra"] is None
+    assert compat["canonical_tool_names"] == list(COMPAT_TOOL_NAMES)
+    assert compat["registration"]["kind"] == "env_gate"
+    assert compat["registration"]["env_var"] == "SPEDAS_AGENT_KIT_COMPAT_TOOLS"
+    assert compat["registration"]["enabled"] is False
+
+
+def test_installation_profiles_preserve_hapi_fdsn_usability_vs_gate_distinction(monkeypatch):
+    """The crucial HAPI/FDSN honesty: usability != registration.
+
+    Installing [hapi]/[fdsn] makes a *backend* usable; it does not register any
+    tool. The shared SPEDAS_AGENT_KIT_DATASOURCE_TOOLS gate advertises ALL FOUR
+    direct datasource tools together regardless of which backend extras exist.
+    """
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    profiles = _read_manifest(server)["installation_profiles"]["profiles"]
+
+    all_four = list(HAPI_TOOL_NAMES + FDSN_TOOL_NAMES)
+    for key, canonical, extra, discover in (
+        ("hapi", HAPI_TOOL_NAMES, "hapi", "browse_data_sources(source_type='hapi')"),
+        ("fdsn", FDSN_TOOL_NAMES, "fdsn", "browse_data_sources(source_type='fdsn')"),
+    ):
+        profile = profiles[key]
+        # (1) install requirement / (2) what the extra changes = backend usability.
+        assert profile["install"]["requires_extra"] == extra
+        assert profile["install"]["effect"] == "makes the backend importable/usable"
+        # (3) canonical tool names for THIS backend only.
+        assert profile["canonical_tool_names"] == list(canonical)
+        # (2) registration/advertisement gate = the SHARED datasource flag, which
+        # advertises all four tools together, not just this backend's two.
+        reg = profile["registration"]
+        assert reg["kind"] == "shared_env_gate"
+        assert reg["env_var"] == "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS"
+        assert reg["shared_with"] == ["hapi", "fdsn"]
+        assert reg["advertises_tools"] == all_four
+        assert reg["enabled"] is False  # gate off by default
+        # (4) discovery path from the base unified surface.
+        assert reg["discover_via"] == discover
+
+
+def test_installation_profiles_reflect_datasource_gate_when_enabled(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", "1")
+    server = create_server(include_analysis_tools=False)
+    profiles = _read_manifest(server)["installation_profiles"]["profiles"]
+
+    # The single shared gate flips both HAPI and FDSN registration together.
+    assert profiles["hapi"]["registration"]["enabled"] is True
+    assert profiles["fdsn"]["registration"]["enabled"] is True
+    # Compat gate is independent and stays off.
+    assert profiles["compatibility"]["registration"]["enabled"] is False
+
+
+def test_installation_profiles_reflect_combined_gates(monkeypatch):
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", "1")
+    server = create_server(include_analysis_tools=True)
+    profiles = _read_manifest(server)["installation_profiles"]["profiles"]
+
+    assert profiles["analysis"]["registration"]["enabled"] is True
+    assert profiles["hapi"]["registration"]["enabled"] is True
+    assert profiles["fdsn"]["registration"]["enabled"] is True
+    assert profiles["compatibility"]["registration"]["enabled"] is True
+    # Even with both gates on, analysis still has no env var and the datasource
+    # gate is still the shared one across both HAPI and FDSN.
+    assert profiles["analysis"]["registration"]["env_var"] is None
+    assert (
+        profiles["hapi"]["registration"]["env_var"]
+        == profiles["fdsn"]["registration"]["env_var"]
+        == "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS"
+    )
+
+
+def test_installation_profiles_backend_facts_come_from_canonical_optional_backends(monkeypatch):
+    """Optional profiles must echo the canonical optional_backends payload."""
+    from spedas_agent_kit.server import _optional_backend_availability
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    manifest = _read_manifest(server)
+    profiles = manifest["installation_profiles"]["profiles"]
+
+    backends = _optional_backend_availability(
+        include_analysis_tools=False, datasource_tools_enabled=False
+    )
+    assert manifest["optional_backends"] == backends
+    for key in ("analysis", "hapi", "fdsn"):
+        install = profiles[key]["install"]
+        assert install["requires_extra"] == backends[key]["requires_extra"]
+        assert install["install_hint"] == backends[key]["install_hint"]
+        assert install["backend_available"] == backends[key]["available"]
+        assert install["missing_modules"] == list(backends[key].get("missing_modules", []))
+        assert profiles[key]["backend"]["canonical_key"] == key
+
+
+def test_installation_profiles_resource_policy_is_canonical_and_optional_adds_none(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    manifest = _read_manifest(server)
+    block = manifest["installation_profiles"]
+
+    # The profiles do NOT repeat all 73 URIs; they reference the canonical catalog,
+    # which is the manifest's own resources block (authoritative base catalog).
+    assert block["resource_policy"]["catalog"] == manifest["resources"]
+    # base ships resources; every optional/compat profile adds none.
+    assert manifest["installation_profiles"]["profiles"]["base"]["resources"]["shipped_with"] == "base"
+    for key in ("analysis", "hapi", "fdsn", "compatibility"):
+        assert manifest["installation_profiles"]["profiles"][key]["resources"]["adds"] == []
+
+
+def test_installation_profiles_declare_no_recommended_or_all_bundle(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+    bundles = _read_manifest(server)["installation_profiles"]["bundles"]
+
+    # Honest bundle state: recommended/all are explicitly NOT declared, not invented.
+    assert bundles["declared"] == []
+    assert "recommended" in bundles["note"]
+    assert "all" in bundles["note"]
+
+
+def test_installation_profiles_are_deterministic_and_timestamp_free(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", raising=False)
+    server = create_server(include_analysis_tools=False)
+
+    first = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    second = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    assert first == second
+    parsed = json.loads(first)
+    serialized_profiles = json.dumps(parsed["installation_profiles"], sort_keys=True)
+    assert "generated_at" not in serialized_profiles
+    assert "timestamp" not in serialized_profiles
+
+
+def test_build_installation_profiles_omits_absent_optional_backends():
+    """The pure builder emits an optional profile only for backends supplied."""
+    from spedas_agent_kit.server import _build_installation_profiles
+
+    profiles_block = _build_installation_profiles(
+        primary_tool_names=["a_tool", "b_tool"],
+        include_analysis_tools=True,
+        compat_tools_enabled=False,
+        datasource_tools_enabled=False,
+        optional_backends={"analysis": {
+            "requires_extra": "analysis",
+            "install_hint": "pip install 'spedas-agent-kit[analysis]'",
+            "available": True,
+        }},
+        resource_summary={"skills": {"count": 1}},
+    )
+    profiles = profiles_block["profiles"]
+    # base + compatibility always present; analysis present; hapi/fdsn omitted.
+    assert set(profiles) == {"base", "analysis", "compatibility"}
+    assert profiles["base"]["primary_tool_names"] == ["a_tool", "b_tool"]
+    assert profiles_block["resource_policy"]["catalog"] == {"skills": {"count": 1}}
+    assert profiles_block["bundles"]["declared"] == []
 
 
 # --- Issue #209 Workstream H: v1 primary/server error contract --------------
