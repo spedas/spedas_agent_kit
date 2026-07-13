@@ -151,6 +151,37 @@ When reporting results, include at least:
   row/sample counts, time coverage, coordinate frame, and whether the tool returned
   warnings or caveats.
 
+## Installation profiles
+
+This table is a **human-readable summary** to help you decide what to install
+*before* installing. The **machine-readable source of truth** is the
+`spedas-manifest://v1/capabilities` MCP resource: read its `installation_profiles`
+section (and the canonical `optional_backends`/`gates` blocks) rather than
+hard-coding any of the facts below. The manifest is derived from the live tool
+surface, so it never drifts from what the server actually advertises.
+
+| Profile | Install | What it adds | Registered / advertised when |
+|---|---|---|---|
+| Base | `pip install spedas-agent-kit` | The default primary tool surface (13 tools) and **all** packaged MCP resources | Always |
+| Analysis | `pip install 'spedas-agent-kit[analysis]'` | `pyspedas`-backed coordinate/spectral/field/particle tools + `render_tplot` | Automatically when the `[analysis]` backend imports — **no env flag** |
+| HAPI | `pip install 'spedas-agent-kit[hapi]'` | Makes the **HAPI backend** usable (`browse_hapi_catalog`, `fetch_hapi_data`) | The extra makes the backend usable; the tools are advertised only under the shared `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1` gate (otherwise reach them via `browse_data_sources(source_type="hapi")`) |
+| FDSN | `pip install 'spedas-agent-kit[fdsn]'` | Makes the **FDSN/MTH5 backend** usable (`browse_fdsn_datasets`, `fetch_fdsn_data`) | Same shared datasource gate as HAPI (see below) |
+| Compatibility | no extra (base install) | Eight legacy CDAWeb/PDS tool names | Only when `SPEDAS_AGENT_KIT_COMPAT_TOOLS=1` |
+
+Two honesty notes the manifest encodes explicitly:
+
+- **Installing `[hapi]`/`[fdsn]` does not by itself register any tool.** Each extra
+  makes its own backend *usable*; the shared `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1`
+  gate advertises/registers **all four** direct HAPI+FDSN tools together,
+  regardless of which backend extras are present. A call into a tool whose backend
+  is missing returns a structured `missing_dependency` error.
+- **There is currently no `recommended` or `all` bundle extra.** To combine
+  optional backends you must install each explicitly, e.g.
+  `pip install 'spedas-agent-kit[hapi]' 'spedas-agent-kit[fdsn]'`.
+
+Packaged MCP resources ship with the base install; optional extras and the env
+gates add tools only, never resources.
+
 ## Layered capability map
 
 ### 1. Data layer tools
