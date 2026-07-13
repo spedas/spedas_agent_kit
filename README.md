@@ -1,5 +1,13 @@
 # SPEDAS Agent Kit
 
+[![CI](https://github.com/spedas/spedas_agent_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/spedas/spedas_agent_kit/actions/workflows/ci.yml)
+
+> **Status: Alpha, source-only.** This project is at `Development Status :: 3 - Alpha`.
+> It is **not published on PyPI** — you cannot install it from a public package
+> index. Install it only from a source checkout of the official repository
+> (see [Installation](#installation)). Behavior and contracts are **pre-1.0 and may
+> change** without notice; pin a specific commit if you need stability.
+
 `spedas_agent_kit` is the SPEDAS organization MCP server for agentic heliophysics workflows. It presents one SPEDAS-facing **data layer** and organizes capabilities by data source category instead of by the internal backend packages used to implement them.
 
 The current design follows Jason's A+B direction:
@@ -57,7 +65,7 @@ safe path from a science question to reproducible artifacts.
 | Ephemeris, distance, trajectory, frame transforms, observer-target geometry | `source_type="spice"` | Browse missions/frames with `browse_data_sources` / `load_data_source`; compute with `get_ephemeris`, `compute_distance`, `transform_coordinates` | SPICE is geometry, not measurement data. Pair it with CDAWeb/PDS when you also need fields or particles. |
 | Any HAPI-compliant server outside the bundled categories | `browse_data_sources(source_type="hapi")` | follow `next_tools` to `browse_hapi_catalog`, `fetch_hapi_data` | Direct tools demoted from the default surface (issue #87); reach via discovery or `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1`. Requires the optional `hapi` extra and an explicit HAPI server URL. |
 | Ground magnetotelluric / FDSN station magnetic data | `browse_data_sources(source_type="fdsn")` | follow `next_tools` to `browse_fdsn_datasets`, `fetch_fdsn_data` | Direct tools demoted from the default surface (issue #87); reach via discovery or `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1`. Requires the optional `fdsn` extra and a time range. |
-| Local file analysis after data already exists | Analysis tools | Coordinate transforms, FAC/minvar, spectra, field/L-shell, particle moments/spectra, `render_tplot` | Inputs are files; install `spedas-agent-kit[analysis]` for the optional backend. |
+| Local file analysis after data already exists | Analysis tools | Coordinate transforms, FAC/minvar, spectra, field/L-shell, particle moments/spectra, `render_tplot` | Inputs are files; install the `analysis` extra from a source checkout (`python -m pip install '.[analysis]'`) for the optional backend. |
 
 ### Minimal MCP call sequence
 
@@ -151,6 +159,34 @@ When reporting results, include at least:
   row/sample counts, time coverage, coordinate frame, and whether the tool returned
   warnings or caveats.
 
+## Installation
+
+SPEDAS Agent Kit is **Alpha and source-only**: it is **not on PyPI**, so every
+install is from a checkout of the official repository. Clone it, check out the ref
+you want (pin a commit for reproducibility), and install from the working tree:
+
+```bash
+git clone https://github.com/spedas/spedas_agent_kit.git
+cd spedas_agent_kit
+# Optional: pin a specific commit/tag for reproducibility, e.g.
+#   git checkout <commit-sha>
+python -m pip install .
+```
+
+`python -m pip install .` installs the base tool surface. Add the optional
+science backends from the same checkout by naming the extras (the extra names are
+identifiers of *this* package, not a public-index distribution):
+
+```bash
+python -m pip install '.[analysis]'   # pyspedas + matplotlib + PyWavelets analysis/rendering
+python -m pip install '.[hapi]'       # hapiclient (browse_hapi_catalog / fetch_hapi_data)
+python -m pip install '.[fdsn]'       # pyspedas + mth5 + obspy (browse_fdsn_datasets / fetch_fdsn_data)
+python -m pip install '.[hapi,fdsn]'  # both external data-source backends at once
+```
+
+For an editable development checkout with the `uv` workflow, see
+[Quick start for local development](#quick-start-for-local-development) below.
+
 ## Installation profiles
 
 This table is a **human-readable summary** to help you decide what to install
@@ -160,12 +196,15 @@ section (and the canonical `optional_backends`/`gates` blocks) rather than
 hard-coding any of the facts below. The manifest is derived from the live tool
 surface, so it never drifts from what the server actually advertises.
 
-| Profile | Install | What it adds | Registered / advertised when |
+All install commands run from a checkout of the official repository (see
+[Installation](#installation)); the package is not on PyPI.
+
+| Profile | Install (from a source checkout) | What it adds | Registered / advertised when |
 |---|---|---|---|
-| Base | `pip install spedas-agent-kit` | The default primary tool surface (13 tools) and **all** packaged MCP resources | Always |
-| Analysis | `pip install 'spedas-agent-kit[analysis]'` | `pyspedas`-backed coordinate/spectral/field/particle tools + `render_tplot` | Automatically when the `[analysis]` backend imports — **no env flag** |
-| HAPI | `pip install 'spedas-agent-kit[hapi]'` | Makes the **HAPI backend** usable (`browse_hapi_catalog`, `fetch_hapi_data`) | The extra makes the backend usable; the tools are advertised only under the shared `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1` gate (otherwise reach them via `browse_data_sources(source_type="hapi")`) |
-| FDSN | `pip install 'spedas-agent-kit[fdsn]'` | Makes the **FDSN/MTH5 backend** usable (`browse_fdsn_datasets`, `fetch_fdsn_data`) | Same shared datasource gate as HAPI (see below) |
+| Base | `python -m pip install .` | The default primary tool surface (13 tools) and **all** packaged MCP resources | Always |
+| Analysis | `python -m pip install '.[analysis]'` | `pyspedas`-backed coordinate/spectral/field/particle tools + `render_tplot` | Automatically when the `[analysis]` backend imports — **no env flag** |
+| HAPI | `python -m pip install '.[hapi]'` | Makes the **HAPI backend** usable (`browse_hapi_catalog`, `fetch_hapi_data`) | The extra makes the backend usable; the tools are advertised only under the shared `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1` gate (otherwise reach them via `browse_data_sources(source_type="hapi")`) |
+| FDSN | `python -m pip install '.[fdsn]'` | Makes the **FDSN/MTH5 backend** usable (`browse_fdsn_datasets`, `fetch_fdsn_data`) | Same shared datasource gate as HAPI (see below) |
 | Compatibility | no extra (base install) | Eight legacy CDAWeb/PDS tool names | Only when `SPEDAS_AGENT_KIT_COMPAT_TOOLS=1` |
 
 Two honesty notes the manifest encodes explicitly:
@@ -176,8 +215,8 @@ Two honesty notes the manifest encodes explicitly:
   regardless of which backend extras are present. A call into a tool whose backend
   is missing returns a structured `missing_dependency` error.
 - **There is currently no `recommended` or `all` bundle extra.** To combine
-  optional backends you must install each explicitly, e.g.
-  `pip install 'spedas-agent-kit[hapi]' 'spedas-agent-kit[fdsn]'`.
+  optional backends you must name each extra explicitly (from a source checkout),
+  e.g. `python -m pip install '.[hapi,fdsn]'`.
 
 Packaged MCP resources ship with the base install; optional extras and the env
 gates add tools only, never resources.
@@ -248,11 +287,11 @@ SPICE kernel cache status/load/clean/check/purge actions are exposed through `ma
 
 Phase-1 coordinate transforms and Phase-2 time-frequency analysis over fetched
 artifacts. These tools require the optional `analysis` extra
-(`pip install 'spedas-agent-kit[analysis]'`, which installs `pyspedas>=2.0` and
+(`python -m pip install '.[analysis]'` from a source checkout, which installs `pyspedas>=2.0` and
 `matplotlib`, and `PyWavelets`). `pyspedas`/`matplotlib`/`PyWavelets` are **not** part of the base install, and
 the analysis tools are registered with MCP only when their optional
 dependencies are importable. In a base install they are absent from `list_tools`;
-install `spedas-agent-kit[analysis]` before asking an MCP client to call them. They are
+install the `analysis` extra (`python -m pip install '.[analysis]'`) before asking an MCP client to call them. They are
 file-in / file-out: inputs are paths to fetched CSV/JSON
 products, bulk outputs are written to disk, and only paths plus compact summaries
 are returned (never raw arrays).
