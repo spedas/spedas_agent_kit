@@ -15,10 +15,19 @@ in-memory (no wheel build, no temp dirs, no cleanup primitives):
 Each helper returns a list of human-readable mismatch messages (empty == OK), so
 the "current metadata passes" and "stale metadata fails with a named field" cases
 are both asserted directly.
+
+A third group (issue #209, WS-Y) pins the *honest Alpha / source-only installation*
+contract: the live ``pyproject.toml`` Alpha classifier, and the ``README.md``
+status notice, real CI badge, official source-checkout install path, and
+source-relative extras. These assertions are pure text/TOML reads over the
+checked-in files — no wheel build, temp dir, subprocess, or network — and they
+reject the old public-index ``pip install spedas-agent-kit...`` command form so
+future drift back toward "looks published on PyPI" fails CI.
 """
 from __future__ import annotations
 
 import copy
+import re
 import sys
 from pathlib import Path
 
@@ -248,3 +257,100 @@ def test_installed_contract_flags_server_package_version_drift():
     server["packages"][0]["version"] = "0.0.9"
     errors = _installed_errors(server=server)
     assert any("pypi package version" in e for e in errors), errors
+
+
+# --------------------------------------------------------------------------- #
+# Honest Alpha / source-only installation contract (issue #209, WS-Y).
+#
+# Pure reads over the checked-in pyproject.toml and README.md — no build, temp
+# dir, subprocess, or network. These tie the README's "not on PyPI / install from
+# source" story to the authoritative Alpha metadata and reject the old public
+# index command form so the README cannot silently drift back toward implying a
+# published PyPI release.
+# --------------------------------------------------------------------------- #
+ALPHA_CLASSIFIER = "Development Status :: 3 - Alpha"
+
+# The real CI workflow badge/target on the official repo (.github/workflows/ci.yml
+# on spedas/spedas_agent_kit). No PyPI/version badge exists because no release does.
+CI_BADGE_SVG = (
+    "https://github.com/spedas/spedas_agent_kit/actions/workflows/ci.yml/badge.svg"
+)
+CI_WORKFLOW_URL = (
+    "https://github.com/spedas/spedas_agent_kit/actions/workflows/ci.yml"
+)
+
+# The supported source-checkout install path: clone the official repo + install
+# from the working tree, base and per-extra (issue #209 WS-Y). Extra names stay as
+# identifiers of *this* checkout ('.[extra]'), never a public-index distribution.
+OFFICIAL_CLONE_CMD = "git clone https://github.com/spedas/spedas_agent_kit.git"
+SOURCE_INSTALL_COMMANDS = (
+    "python -m pip install .",
+    "python -m pip install '.[analysis]'",
+    "python -m pip install '.[hapi]'",
+    "python -m pip install '.[fdsn]'",
+    "python -m pip install '.[hapi,fdsn]'",
+)
+
+# The misleading public-index command form this slice removed. Match only the
+# *command* (a `pip install` directive naming the distribution, optionally with an
+# extra), so plain identifier mentions like `spedas-agent-kit[hapi]` and the
+# source-relative `python -m pip install .` commands do not trip it.
+MISLEADING_PIP_INSTALL = re.compile(r"pip install\s+'?spedas-agent-kit")
+
+
+def _pyproject_classifiers() -> list:
+    pyproject = validate.load_toml(ROOT / "pyproject.toml")
+    return pyproject["project"]["classifiers"]
+
+
+def _readme_text() -> str:
+    return (ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def test_pyproject_still_declares_alpha_development_status():
+    # Authoritative Alpha metadata the README notice/tests are pinned against.
+    assert ALPHA_CLASSIFIER in _pyproject_classifiers(), _pyproject_classifiers()
+
+
+def test_readme_states_alpha_source_only_pypi_notice():
+    readme = _readme_text()
+    # The above-the-fold notice must make the Alpha, not-on-PyPI, pre-1.0 status
+    # explicit so a new researcher cannot mistake this for a published release.
+    assert ALPHA_CLASSIFIER in readme
+    assert "not published on PyPI" in readme
+    assert "pre-1.0" in readme
+
+
+def test_readme_ties_status_notice_to_authoritative_alpha_metadata():
+    # The status the README advertises must be the status pyproject declares.
+    assert ALPHA_CLASSIFIER in _pyproject_classifiers()
+    assert ALPHA_CLASSIFIER in _readme_text()
+
+
+def test_readme_has_real_ci_badge_only():
+    readme = _readme_text()
+    # The one badge added targets the real CI workflow (badge image + link).
+    assert CI_BADGE_SVG in readme
+    assert CI_WORKFLOW_URL in readme
+    # Guard against re-introducing fake PyPI/version/release badges for a package
+    # that is not published: no shields.io PyPI badge, no pypi.org badge target.
+    assert "img.shields.io/pypi" not in readme
+    assert "pypi.org/project/spedas-agent-kit" not in readme
+
+
+def test_readme_documents_official_source_checkout_install_path():
+    readme = _readme_text()
+    # Official clone + install-from-checkout base and per-extra commands are all
+    # present and runnable from the repository working tree.
+    assert OFFICIAL_CLONE_CMD in readme
+    for command in SOURCE_INSTALL_COMMANDS:
+        assert command in readme, command
+
+
+def test_readme_rejects_misleading_public_index_install_command():
+    # The old `pip install spedas-agent-kit[...]` command form must be gone so the
+    # README never again implies a public-index (PyPI) install. Identifier
+    # mentions of the extra names are still allowed; only the command form fails.
+    readme = _readme_text()
+    hits = MISLEADING_PIP_INSTALL.findall(readme)
+    assert hits == [], f"misleading public-index install command present: {hits}"
