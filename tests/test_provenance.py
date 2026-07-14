@@ -228,6 +228,74 @@ def test_load_analysis_bundle_run_schema_matches_constants() -> None:
         "provenance_schema_uri"
     ]["enum"]
     assert uri_enum == [ANALYSIS_BUNDLE_RUN_SCHEMA_URI]
+    # plan_path and every artifact_dirs value reference the same bundle-relative
+    # path definition, in lockstep with validate_analysis_bundle_run.
+    assert schema["properties"]["plan_path"]["$ref"] == "#/definitions/bundleRelativePath"
+    assert (
+        schema["properties"]["artifact_dirs"]["additionalProperties"]["$ref"]
+        == "#/definitions/bundleRelativePath"
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "",
+        ".",
+        "..",
+        "   ",
+        "/requests/spedas_plan.json",
+        "C:\\bundle\\requests\\spedas_plan.json",
+        "C:/bundle/requests/spedas_plan.json",
+        "\\\\server\\share\\bundle\\requests\\spedas_plan.json",
+        "//server/share/bundle/requests/spedas_plan.json",
+        "../outside/spedas_plan.json",
+        "requests/../../outside/spedas_plan.json",
+        # Values only portable after normalization must still be rejected,
+        # in lockstep with _portable_relative_path_error.
+        "requests\\spedas_plan.json",
+        " requests/spedas_plan.json",
+        "requests/spedas_plan.json ",
+        "requests/./spedas_plan.json",
+        "requests//spedas_plan.json",
+        "requests/spedas_plan.json/",
+    ],
+)
+def test_packaged_schema_bundle_relative_path_pattern_matches_validator(
+    bad_path: str,
+) -> None:
+    """The packaged schema's ``not``/``anyOf`` patterns must reject exactly the
+    same non-portable paths the dependency-free validator rejects, so a
+    ``jsonschema``-based caller and the built-in validator agree without
+    requiring ``jsonschema`` to be installed for this test to run."""
+    schema = load_analysis_bundle_run_schema()
+    definition = schema["definitions"]["bundleRelativePath"]
+    patterns = [branch["pattern"] for branch in definition["not"]["anyOf"]]
+    assert any(re.search(pattern, bad_path) for pattern in patterns), (
+        bad_path,
+        patterns,
+    )
+    # Cross-check against the public validator too: every path this test
+    # asserts the schema rejects must also be rejected as plan_path by
+    # validate_analysis_bundle_run, so the two enforcement paths cannot
+    # silently drift apart.
+    record = _valid_analysis_bundle_run()
+    record["plan_path"] = bad_path
+    assert validate_analysis_bundle_run(record)["valid"] is False, bad_path
+
+
+def test_packaged_schema_bundle_relative_path_pattern_accepts_normalized_paths() -> None:
+    schema = load_analysis_bundle_run_schema()
+    definition = schema["definitions"]["bundleRelativePath"]
+    patterns = [branch["pattern"] for branch in definition["not"]["anyOf"]]
+    for good_path in (
+        "requests/spedas_plan.json",
+        "data",
+        "provenance/run.json",
+        "a/b/c",
+        "data/.gitkeep",
+    ):
+        assert not any(re.search(pattern, good_path) for pattern in patterns), good_path
 
 
 def test_validate_analysis_bundle_run_accepts_minimal_seed_shape() -> None:
@@ -308,6 +376,147 @@ def test_validate_analysis_bundle_run_rejects_path_fields_with_wrong_type() -> N
     assert {"plan_path", "artifact_dirs.data"} <= {
         e["field"] for e in result["errors"] if e["code"] == "wrong_type"
     }
+
+
+@pytest.mark.parametrize(
+    ("bad_path", "expected_code"),
+    [
+        ("", "empty_or_dot_only_path"),
+        (".", "empty_or_dot_only_path"),
+        ("..", "empty_or_dot_only_path"),
+        ("   ", "empty_or_dot_only_path"),
+        ("/requests/spedas_plan.json", "posix_absolute_path"),
+        ("C:\\bundle\\requests\\spedas_plan.json", "windows_drive_path"),
+        ("C:/bundle/requests/spedas_plan.json", "windows_drive_path"),
+        ("\\\\server\\share\\bundle\\requests\\spedas_plan.json", "unc_path"),
+        ("//server/share/bundle/requests/spedas_plan.json", "unc_path"),
+        ("../outside/spedas_plan.json", "parent_traversal"),
+        ("requests/../../outside/spedas_plan.json", "parent_traversal"),
+        # Values that are only portable *after* normalization must still be
+        # rejected as-is, so callers cannot rely on implicit normalization.
+        ("requests\\spedas_plan.json", "non_posix_separator"),
+        (" requests/spedas_plan.json", "untrimmed_whitespace"),
+        ("requests/spedas_plan.json ", "untrimmed_whitespace"),
+        ("requests/./spedas_plan.json", "internal_dot_segment"),
+        ("requests//spedas_plan.json", "doubled_or_trailing_separator"),
+        ("requests/spedas_plan.json/", "doubled_or_trailing_separator"),
+    ],
+)
+def test_validate_analysis_bundle_run_rejects_non_portable_plan_path(
+    bad_path: str, expected_code: str
+) -> None:
+    record = _valid_analysis_bundle_run()
+    record["plan_path"] = bad_path
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "plan_path" and e["code"] == expected_code
+        for e in result["errors"]
+    ), result["errors"]
+
+
+@pytest.mark.parametrize(
+    ("bad_path", "expected_code"),
+    [
+        ("", "empty_or_dot_only_path"),
+        ("/data", "posix_absolute_path"),
+        ("C:\\bundle\\data", "windows_drive_path"),
+        ("\\\\server\\share\\data", "unc_path"),
+        ("../data", "parent_traversal"),
+        ("data\\nested", "non_posix_separator"),
+        (" data", "untrimmed_whitespace"),
+        ("data/./nested", "internal_dot_segment"),
+        ("data//nested", "doubled_or_trailing_separator"),
+        ("data/", "doubled_or_trailing_separator"),
+    ],
+)
+def test_validate_analysis_bundle_run_rejects_non_portable_artifact_dir(
+    bad_path: str, expected_code: str
+) -> None:
+    record = _valid_analysis_bundle_run()
+    record["artifact_dirs"]["data"] = bad_path
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "artifact_dirs.data" and e["code"] == expected_code
+        for e in result["errors"]
+    ), result["errors"]
+
+
+@pytest.mark.parametrize(
+    ("bad_path", "expected_code"),
+    [
+        ("/tmp/outside", "posix_absolute_path"),
+        ("extra\\nested", "non_posix_separator"),
+    ],
+)
+def test_validate_analysis_bundle_run_rejects_non_portable_extra_artifact_dir_key(
+    bad_path: str, expected_code: str
+) -> None:
+    """Regression for the gap where only the five required artifact_dirs
+    names were portability-checked: a caller-appended extra key (beyond
+    requests/data/plots/provenance/notes) with a non-portable value must
+    still be rejected, matching the schema's ``additionalProperties`` intent
+    which already applied ``bundleRelativePath`` to every key."""
+    record = _valid_analysis_bundle_run()
+    record["artifact_dirs"]["custom_extra"] = bad_path
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "artifact_dirs.custom_extra" and e["code"] == expected_code
+        for e in result["errors"]
+    ), result["errors"]
+
+
+@pytest.mark.parametrize("bad_value", [None, 42])
+def test_validate_analysis_bundle_run_rejects_wrong_type_extra_artifact_dir_key(
+    bad_value: object,
+) -> None:
+    record = _valid_analysis_bundle_run()
+    record["artifact_dirs"]["custom_extra"] = bad_value
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert any(
+        e["field"] == "artifact_dirs.custom_extra" and e["code"] == "wrong_type"
+        for e in result["errors"]
+    ), result["errors"]
+
+
+def test_validate_analysis_bundle_run_accepts_portable_extra_artifact_dir_key() -> None:
+    record = _valid_analysis_bundle_run()
+    record["artifact_dirs"]["custom_extra"] = "custom_extra"
+    assert validate_analysis_bundle_run(record) == {"valid": True, "errors": []}
+
+
+def test_validate_analysis_bundle_run_accepts_normalized_relative_paths() -> None:
+    record = _valid_analysis_bundle_run()
+    record["plan_path"] = "requests/spedas_plan.json"
+    record["artifact_dirs"] = {
+        "requests": "requests",
+        "data": "data",
+        "plots": "plots",
+        "provenance": "provenance",
+        "notes": "notes",
+    }
+    assert validate_analysis_bundle_run(record) == {"valid": True, "errors": []}
+
+
+@pytest.mark.parametrize(
+    "good_path",
+    [
+        "requests/spedas_plan.json",
+        "data",
+        "provenance/run.json",
+        "a/b/c",
+        "data/.gitkeep",
+    ],
+)
+def test_validate_analysis_bundle_run_accepts_already_normalized_paths(
+    good_path: str,
+) -> None:
+    record = _valid_analysis_bundle_run()
+    record["plan_path"] = good_path
+    assert validate_analysis_bundle_run(record)["valid"] is True
 
 
 def test_validate_analysis_bundle_run_rejects_non_object() -> None:
