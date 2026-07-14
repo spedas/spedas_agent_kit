@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "spedas-agent-kit://schemas/analysis_bundle_run.schema.json",
   "title": "SPEDAS Agent Kit analysis bundle run provenance",
-  "description": "Machine-readable shape for the provenance/run.json record seeded by create_spedas_analysis_bundle. The record captures request context, artifact directories, MCP/resource hints, and append-only notes about tool calls, artifacts, and caveats as an analysis workflow progresses. Validation is shape-only; it does not assert that the science result is complete or paper-quality.",
+  "description": "Machine-readable shape for the provenance/run.json record seeded by create_spedas_analysis_bundle. The record captures request context, artifact directories, MCP/resource hints, and append-only notes about tool calls, artifacts, and caveats as an analysis workflow progresses. Artifact records require normalized bundle-relative POSIX file paths. Shape validation does not assert that the science result is complete or paper-quality; use the local filesystem-aware helper for recorded-path completeness.",
   "type": "object",
   "definitions": {
     "bundleRelativePath": {
@@ -22,6 +22,15 @@
           {"pattern": "/$"},
           {"pattern": "(^|/)\\.(/|$)"}
         ]
+      }
+    },
+    "artifactRecord": {
+      "type": "object",
+      "description": "A recorded artifact whose path is a normalized, bundle-relative POSIX file path.",
+      "required": ["path"],
+      "additionalProperties": true,
+      "properties": {
+        "path": {"$ref": "#/definitions/bundleRelativePath"}
       }
     }
   },
@@ -103,7 +112,7 @@
     "artifacts": {
       "type": "array",
       "description": "Append one compact object per generated data, plot, table, notebook, or report artifact: path, role, source tool, hash/size when known, and validation notes.",
-      "items": {"type": "object"}
+      "items": {"$ref": "#/definitions/artifactRecord"}
     },
     "caveats": {
       "type": "array",

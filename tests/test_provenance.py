@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shutil
 from importlib import resources
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from spedas_agent_kit.resources.provenance import (
     REQUIRED_TOP_LEVEL_KEYS,
     load_analysis_bundle_run_schema,
     load_provenance_schema,
+    validate_analysis_bundle_files,
     validate_analysis_bundle_run,
     validate_reproduction_provenance,
 )
@@ -217,6 +219,21 @@ def _valid_analysis_bundle_run() -> dict:
     }
 
 
+def _materialize_analysis_bundle(tmp_path: Path) -> tuple[Path, dict]:
+    """Create the smallest on-disk bundle accepted by the local validator."""
+    bundle = tmp_path / "bundle"
+    for name in ("requests", "data", "plots", "provenance", "notes"):
+        (bundle / name).mkdir(parents=True)
+    (bundle / "requests" / "spedas_plan.json").write_text("{}", encoding="utf-8")
+    (bundle / "notes" / "artifact.txt").write_text("artifact", encoding="utf-8")
+    record = _valid_analysis_bundle_run()
+    record["artifacts"] = [{"path": "notes/artifact.txt", "role": "test"}]
+    (bundle / "provenance" / "run.json").write_text(
+        json.dumps(record), encoding="utf-8"
+    )
+    return bundle, record
+
+
 def test_load_analysis_bundle_run_schema_matches_constants() -> None:
     schema = load_analysis_bundle_run_schema()
     assert schema["title"] == "SPEDAS Agent Kit analysis bundle run provenance"
@@ -234,6 +251,13 @@ def test_load_analysis_bundle_run_schema_matches_constants() -> None:
     assert (
         schema["properties"]["artifact_dirs"]["additionalProperties"]["$ref"]
         == "#/definitions/bundleRelativePath"
+    )
+    assert schema["properties"]["artifacts"]["items"]["$ref"] == (
+        "#/definitions/artifactRecord"
+    )
+    assert schema["definitions"]["artifactRecord"]["required"] == ["path"]
+    assert schema["definitions"]["artifactRecord"]["properties"]["path"]["$ref"] == (
+        "#/definitions/bundleRelativePath"
     )
 
 
@@ -282,6 +306,9 @@ def test_packaged_schema_bundle_relative_path_pattern_matches_validator(
     record = _valid_analysis_bundle_run()
     record["plan_path"] = bad_path
     assert validate_analysis_bundle_run(record)["valid"] is False, bad_path
+    artifact_record = _valid_analysis_bundle_run()
+    artifact_record["artifacts"] = [{"path": bad_path}]
+    assert validate_analysis_bundle_run(artifact_record)["valid"] is False, bad_path
 
 
 def test_packaged_schema_bundle_relative_path_pattern_accepts_normalized_paths() -> None:
@@ -296,6 +323,99 @@ def test_packaged_schema_bundle_relative_path_pattern_accepts_normalized_paths()
         "data/.gitkeep",
     ):
         assert not any(re.search(pattern, good_path) for pattern in patterns), good_path
+
+
+def test_validate_analysis_bundle_run_accepts_artifact_record_path() -> None:
+    record = _valid_analysis_bundle_run()
+    record["artifacts"] = [{"path": "notes/artifact.txt", "role": "note"}]
+    assert validate_analysis_bundle_run(record) == {"valid": True, "errors": []}
+
+
+@pytest.mark.parametrize(
+    ("artifact", "expected_field", "expected_code"),
+    [
+        ({}, "artifacts[0].path", "missing_required_key"),
+        ({"path": ["notes/artifact.txt"]}, "artifacts[0].path", "wrong_type"),
+        ("not-an-object", "artifacts[0]", "wrong_type"),
+    ],
+)
+def test_validate_analysis_bundle_run_rejects_malformed_artifact_record(
+    artifact, expected_field: str, expected_code: str
+) -> None:
+    record = _valid_analysis_bundle_run()
+    record["artifacts"] = [artifact]
+    result = validate_analysis_bundle_run(record)
+    assert result["valid"] is False
+    assert result["errors"][0]["field"] == expected_field
+    assert result["errors"][0]["code"] == expected_code
+
+
+def test_validate_analysis_bundle_files_accepts_and_relocates_bundle(tmp_path: Path) -> None:
+    bundle, _record = _materialize_analysis_bundle(tmp_path)
+    assert validate_analysis_bundle_files(bundle) == {"valid": True, "errors": []}
+
+    relocated = tmp_path / "relocated" / "bundle"
+    shutil.copytree(bundle, relocated)
+    assert validate_analysis_bundle_files(relocated) == {"valid": True, "errors": []}
+
+
+def test_validate_analysis_bundle_files_reports_missing_recorded_artifact(
+    tmp_path: Path,
+) -> None:
+    bundle, record = _materialize_analysis_bundle(tmp_path)
+    record["artifacts"][0]["path"] = "notes/never-created.txt"
+    result = validate_analysis_bundle_files(bundle, record)
+    assert result["valid"] is False
+    assert any(
+        error["field"] == "artifacts[0].path" and error["code"] == "missing_path"
+        for error in result["errors"]
+    )
+
+
+def test_validate_analysis_bundle_files_reports_wrong_recorded_kind(
+    tmp_path: Path,
+) -> None:
+    bundle, record = _materialize_analysis_bundle(tmp_path)
+    record["artifacts"][0]["path"] = "data"
+    result = validate_analysis_bundle_files(bundle, record)
+    assert result["valid"] is False
+    assert any(
+        error["field"] == "artifacts[0].path" and error["code"] == "wrong_kind"
+        for error in result["errors"]
+    )
+
+
+def test_validate_analysis_bundle_files_rejects_symlink_escape(tmp_path: Path) -> None:
+    bundle, record = _materialize_analysis_bundle(tmp_path)
+    outside = tmp_path / "outside-artifact.txt"
+    outside.write_text("outside", encoding="utf-8")
+    escaped = bundle / "notes" / "escaped.txt"
+    try:
+        escaped.symlink_to(outside)
+    except (NotImplementedError, OSError):
+        pytest.skip("symbolic links are unavailable on this filesystem")
+    record["artifacts"][0]["path"] = "notes/escaped.txt"
+    result = validate_analysis_bundle_files(bundle, record)
+    assert result["valid"] is False
+    assert any(
+        error["field"] == "artifacts[0].path"
+        and error["code"] == "path_outside_bundle"
+        for error in result["errors"]
+    )
+
+
+def test_validate_analysis_bundle_files_returns_shape_errors_first(tmp_path: Path) -> None:
+    bundle, record = _materialize_analysis_bundle(tmp_path)
+    record["artifacts"] = [{}]
+    result = validate_analysis_bundle_files(bundle, record)
+    assert result["valid"] is False
+    assert result["errors"] == [
+        {
+            "field": "artifacts[0].path",
+            "code": "missing_required_key",
+            "message": "artifacts[0].path is required",
+        }
+    ]
 
 
 def test_validate_analysis_bundle_run_accepts_minimal_seed_shape() -> None:

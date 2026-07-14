@@ -8,16 +8,19 @@ small shape invariants that Agent Kit wrappers and smoke scripts need.
 The validation is deliberately **dependency-free** (no ``jsonschema`` /
 ``pydantic``), matching the project's hand-rolled, dependency-light idiom
 (``skill_catalog._parse_frontmatter``, ``server._validate_fetch_time_range``).
-It checks *shape* only — required top-level keys, sentinel schema/version hints,
-array slots, and path-ish string fields. It does **not** assert that a
-reproduction or analysis is scientifically correct; callers must not read a
-``valid: true`` result as an endorsement of science quality.
+The existing run-record validator checks *shape* only — required top-level
+keys, sentinel schema/version hints, array slots, and path-ish string fields;
+the filesystem-aware bundle validator additionally checks recorded local paths.
+Neither helper asserts that an analysis is scientifically correct; callers must
+not read a ``valid: true`` result as an endorsement of science quality.
 """
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 _SCHEMA_PACKAGE = "spedas_agent_kit.resources.schemas"
@@ -346,6 +349,52 @@ def _portable_relative_path_error(value: str) -> str | None:
     return None
 
 
+def _validate_artifact_records(
+    artifacts: Any, errors: list[dict[str, str]]
+) -> None:
+    """Validate the portable path contract for analysis-bundle artifacts."""
+    if not isinstance(artifacts, list):
+        return
+    for index, artifact in enumerate(artifacts):
+        field = f"artifacts[{index}]"
+        if not isinstance(artifact, dict):
+            _add_error(
+                errors,
+                field,
+                "wrong_type",
+                f"{field} must be an object",
+            )
+            continue
+        if "path" not in artifact:
+            _add_error(
+                errors,
+                f"{field}.path",
+                "missing_required_key",
+                f"{field}.path is required",
+            )
+            continue
+        path = artifact["path"]
+        if not isinstance(path, str):
+            _add_error(
+                errors,
+                f"{field}.path",
+                "wrong_type",
+                f"{field}.path must be a string",
+            )
+            continue
+        portability_error = _portable_relative_path_error(path)
+        if portability_error is not None:
+            _add_error(
+                errors,
+                f"{field}.path",
+                portability_error,
+                (
+                    f"{field}.path must be a normalized, bundle-relative POSIX "
+                    f"path (got {path!r})"
+                ),
+            )
+
+
 def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
     """Validate the *shape* of an analysis-bundle ``provenance/run.json`` record.
 
@@ -357,9 +406,10 @@ def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
     result asserts that the record carries the required run-scaffold keys, the
     expected Agent Kit schema/version hint, string path-ish fields for the seeded
     bundle locations, and array slots for ``tool_calls``, ``artifacts``, and
-    ``caveats``. ``plan_path`` and every present ``artifact_dirs.*`` value
-    (not just the five required names) must also be a normalized,
-    bundle-relative POSIX path: empty/dot-only values, POSIX absolute paths,
+    ``caveats``. ``plan_path``, every present ``artifact_dirs.*`` value (not
+    just the five required names), and every recorded ``artifacts[].path``
+    value must also be normalized, bundle-relative POSIX paths: empty/dot-only
+    values, POSIX absolute paths,
     Windows drive paths, UNC paths, ``..`` parent-traversal segments,
     backslashes, leading/trailing whitespace, internal ``.`` segments, and
     doubled/trailing separators are all rejected — a value that would only
@@ -440,6 +490,8 @@ def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
                 "wrong_type",
                 f"{key} must be an array",
             )
+
+    _validate_artifact_records(obj.get("artifacts"), errors)
 
     artifact_dirs = obj.get("artifact_dirs")
     if isinstance(artifact_dirs, dict):
@@ -531,4 +583,187 @@ def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
             "resource_hints must be an object",
         )
 
+    return {"valid": not errors, "errors": errors}
+
+
+def _resolved_bundle_reference(
+    bundle_root: Path,
+    value: str,
+) -> tuple[Path | None, str | None]:
+    """Resolve a portable record path and classify containment failures."""
+    # The shape validator has already rejected absolute, traversal, and
+    # non-POSIX paths. Splitting explicitly on ``/`` keeps this filesystem
+    # check independent of the host's path separator as well.
+    candidate = bundle_root.joinpath(*value.split("/"))
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return None, "path_resolution_error"
+    try:
+        resolved.relative_to(bundle_root)
+    except ValueError:
+        return None, "path_outside_bundle"
+    return resolved, None
+
+
+def _check_bundle_reference(
+    bundle_root: Path,
+    field: str,
+    value: Any,
+    expected_kind: str,
+    errors: list[dict[str, str]],
+) -> None:
+    """Check one recorded path for existence, containment, and kind."""
+    if not isinstance(value, str):
+        # Shape validation normally catches this; retaining a defensive guard
+        # keeps the filesystem helper exception-free for malformed callers.
+        _add_error(errors, field, "wrong_type", f"{field} must be a string")
+        return
+    resolved, containment_error = _resolved_bundle_reference(bundle_root, value)
+    if containment_error is not None:
+        if containment_error == "path_resolution_error":
+            message = (
+                f"{field} could not be resolved under the supplied bundle root "
+                f"(got {value!r})"
+            )
+        else:
+            message = (
+                f"{field} resolves outside the supplied bundle root "
+                f"(got {value!r})"
+            )
+        _add_error(errors, field, containment_error, message)
+        return
+    assert resolved is not None
+    if not resolved.exists():
+        _add_error(
+            errors,
+            field,
+            "missing_path",
+            f"{field} does not exist under the supplied bundle root (got {value!r})",
+        )
+        return
+    if expected_kind == "file" and not resolved.is_file():
+        _add_error(
+            errors,
+            field,
+            "wrong_kind",
+            f"{field} must resolve to a file (got {value!r})",
+        )
+    elif expected_kind == "directory" and not resolved.is_dir():
+        _add_error(
+            errors,
+            field,
+            "wrong_kind",
+            f"{field} must resolve to a directory (got {value!r})",
+        )
+
+
+def validate_analysis_bundle_files(
+    bundle_dir: str | Path,
+    run_record: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate an analysis bundle's recorded files and directories locally.
+
+    This helper first applies :func:`validate_analysis_bundle_run`, preserving
+    its dependency-free shape and normalized-path contract. It then checks the
+    recorded plan file, every ``artifact_dirs`` directory, and every artifact
+    record's ``path`` (which denotes a file) under ``bundle_dir``. References are
+    resolved before containment is tested, so a symlink that points outside the
+    bundle cannot pass merely because its textual path is relative. No files are
+    modified and no unrecorded files are scanned.
+
+    When ``run_record`` is omitted, the helper reads
+    ``bundle_dir/provenance/run.json``. A caller may supply an already-loaded
+    mapping to avoid reading it again (for example, immediately after updating
+    a record). All malformed input and filesystem failures are returned as
+    structured errors rather than escaping as exceptions.
+    """
+    errors: list[dict[str, str]] = []
+    record: Any = run_record
+    shape_validation: dict[str, Any] | None = None
+    if record is not None:
+        if isinstance(record, Mapping) and not isinstance(record, dict):
+            # ``validate_analysis_bundle_run`` intentionally retains its
+            # historical plain-dict input contract; normalize only the outer
+            # mapping here.
+            record = dict(record)
+        shape_validation = validate_analysis_bundle_run(record)
+        if not shape_validation["valid"]:
+            return shape_validation
+
+    bundle_path = Path(bundle_dir).expanduser()
+    if not bundle_path.exists():
+        _add_error(
+            errors,
+            "bundle_dir",
+            "missing_bundle",
+            f"bundle directory does not exist: {bundle_dir!s}",
+        )
+        return {"valid": False, "errors": errors}
+    if not bundle_path.is_dir():
+        _add_error(
+            errors,
+            "bundle_dir",
+            "wrong_kind",
+            f"bundle_dir must be a directory: {bundle_dir!s}",
+        )
+        return {"valid": False, "errors": errors}
+
+    try:
+        bundle_root = bundle_path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _add_error(
+            errors,
+            "bundle_dir",
+            "path_resolution_error",
+            f"could not resolve bundle directory {bundle_dir!s}: {exc}",
+        )
+        return {"valid": False, "errors": errors}
+    if record is None:
+        run_path = bundle_root / "provenance" / "run.json"
+        if not run_path.is_file():
+            _add_error(
+                errors,
+                "provenance/run.json",
+                "missing_run_record",
+                f"analysis bundle run record does not exist: {run_path}",
+            )
+            return {"valid": False, "errors": errors}
+        try:
+            record = json.loads(run_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            _add_error(
+                errors,
+                "provenance/run.json",
+                "malformed_run_record",
+                f"could not read analysis bundle run record: {exc}",
+            )
+            return {"valid": False, "errors": errors}
+        shape_validation = validate_analysis_bundle_run(record)
+        if not shape_validation["valid"]:
+            return shape_validation
+
+    _check_bundle_reference(
+        bundle_root,
+        "plan_path",
+        record["plan_path"],
+        "file",
+        errors,
+    )
+    for name, relative_dir in record["artifact_dirs"].items():
+        _check_bundle_reference(
+            bundle_root,
+            f"artifact_dirs.{name}",
+            relative_dir,
+            "directory",
+            errors,
+        )
+    for index, artifact in enumerate(record["artifacts"]):
+        _check_bundle_reference(
+            bundle_root,
+            f"artifacts[{index}].path",
+            artifact["path"],
+            "file",
+            errors,
+        )
     return {"valid": not errors, "errors": errors}
