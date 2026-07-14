@@ -5,9 +5,9 @@ This calls the in-process Agent Kit server, reads the analysis-bundle run schema
 resource, creates a tiny analysis bundle, appends one compact tool_call/artifact/
 caveat entry to ``provenance/run.json``, copies the whole bundle directory into a
 relocated sibling root (the original bundle is left in place; nothing is moved),
-and verifies the seeded ``plan_path``/``artifact_dirs`` still resolve correctly
-relative to the new, copied bundle root. It does not fetch archive data or
-download kernels.
+and verifies the seeded ``plan_path``/``artifact_dirs`` and recorded artifact
+still resolve correctly relative to the new, copied bundle root. It does not
+fetch archive data or download kernels.
 """
 from __future__ import annotations
 
@@ -24,7 +24,10 @@ from _smoke_runtime import ensure_source_tree_on_path
 
 ensure_source_tree_on_path()
 
-from spedas_agent_kit.resources.provenance import validate_analysis_bundle_run
+from spedas_agent_kit.resources.provenance import (
+    validate_analysis_bundle_files,
+    validate_analysis_bundle_run,
+)
 from spedas_agent_kit.server import create_server
 
 SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
@@ -68,7 +71,7 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
     )
     run["artifacts"].append(
         {
-            "path": str(smoke_note),
+            "path": "notes/smoke-artifact.txt",
             "role": "smoke_note",
             "source_tool": "smoke_analysis_bundle.py",
         }
@@ -98,6 +101,15 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
             f"{error['field']}: {error['code']}: {error['message']}"
             for error in helper_validation["errors"]
         )
+    original_bundle_dir = Path(payload["bundle_dir"])
+    filesystem_validation = validate_analysis_bundle_files(
+        original_bundle_dir, updated
+    )
+    if not filesystem_validation["valid"]:
+        structural_failures.extend(
+            f"filesystem {error['field']}: {error['code']}: {error['message']}"
+            for error in filesystem_validation["errors"]
+        )
     schema_validation = "not_run"
     try:
         import jsonschema  # type: ignore[import-not-found]
@@ -111,7 +123,6 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
     # bundle_dir/run_provenance paths already returned above, and returned
     # again below, must stay valid so callers who cached them are not broken,
     # and so any --keep-output/--output-dir retained tree is not mutated.
-    original_bundle_dir = Path(payload["bundle_dir"])
     relocated_bundle_dir = output_root / "relocated" / original_bundle_dir.name
     relocated_bundle_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(str(original_bundle_dir), str(relocated_bundle_dir), dirs_exist_ok=True)
@@ -138,6 +149,14 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
             f"relocated {error['field']}: {error['code']}: {error['message']}"
             for error in relocated_helper_validation["errors"]
         )
+    relocated_filesystem_validation = validate_analysis_bundle_files(
+        relocated_bundle_dir
+    )
+    if not relocated_filesystem_validation["valid"]:
+        relocation_failures.extend(
+            f"relocated filesystem {error['field']}: {error['code']}: {error['message']}"
+            for error in relocated_filesystem_validation["errors"]
+        )
     structural_failures.extend(relocation_failures)
 
     return {
@@ -148,6 +167,8 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
         "schema_title": schema.get("title"),
         "helper_validation": helper_validation_status,
         "helper_validation_errors": helper_validation["errors"],
+        "filesystem_validation": filesystem_validation,
+        "relocated_filesystem_validation": relocated_filesystem_validation,
         "schema_validation": schema_validation,
         "tool_calls_len": len(updated["tool_calls"]),
         "artifacts_len": len(updated["artifacts"]),
