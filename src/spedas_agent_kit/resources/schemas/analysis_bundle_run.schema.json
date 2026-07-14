@@ -4,6 +4,27 @@
   "title": "SPEDAS Agent Kit analysis bundle run provenance",
   "description": "Machine-readable shape for the provenance/run.json record seeded by create_spedas_analysis_bundle. The record captures request context, artifact directories, MCP/resource hints, and append-only notes about tool calls, artifacts, and caveats as an analysis workflow progresses. Validation is shape-only; it does not assert that the science result is complete or paper-quality.",
   "type": "object",
+  "definitions": {
+    "bundleRelativePath": {
+      "type": "string",
+      "description": "A normalized, bundle-relative POSIX path (forward slashes only, no drive letter, no leading slash, no backslashes, no leading/trailing whitespace, no internal \".\" segments, no doubled or trailing separators). Rejects empty/dot-only values, POSIX absolute paths, Windows drive paths, UNC paths, and \"..\" parent-traversal segments, as well as any value that would only become portable after normalization, so the record stays valid after the bundle is relocated or copied to another machine.",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {"pattern": "^[.\\s]*$"},
+          {"pattern": "^/"},
+          {"pattern": "^\\\\"},
+          {"pattern": "^[A-Za-z]:"},
+          {"pattern": "(^|[\\\\/])\\.\\.([\\\\/]|$)"},
+          {"pattern": "^\\s|\\s$"},
+          {"pattern": "\\\\"},
+          {"pattern": "//"},
+          {"pattern": "/$"},
+          {"pattern": "(^|/)\\.(/|$)"}
+        ]
+      }
+    }
+  },
   "required": [
     "schema_version",
     "created_by",
@@ -51,13 +72,13 @@
       "items": {"type": "string"}
     },
     "plan_path": {
-      "type": "string",
-      "description": "Path to requests/spedas_plan.json generated with the bundle."
+      "$ref": "#/definitions/bundleRelativePath",
+      "description": "Bundle-relative POSIX path to requests/spedas_plan.json (normally \"requests/spedas_plan.json\"), so the record stays meaningful after the bundle directory is relocated. Not the absolute filesystem path; callers get that from the create_spedas_analysis_bundle MCP tool result instead."
     },
     "artifact_dirs": {
       "type": "object",
-      "description": "Named bundle directories such as requests, data, plots, provenance, and notes.",
-      "additionalProperties": {"type": "string"}
+      "description": "Named bundle directories (requests, data, plots, provenance, notes) as bundle-relative POSIX paths, e.g. {\"data\": \"data\"}. Not absolute filesystem paths; callers get those from the create_spedas_analysis_bundle MCP tool result instead.",
+      "additionalProperties": {"$ref": "#/definitions/bundleRelativePath"}
     },
     "resource_hints": {
       "type": "object",

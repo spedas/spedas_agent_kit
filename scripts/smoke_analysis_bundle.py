@@ -3,14 +3,18 @@
 
 This calls the in-process Agent Kit server, reads the analysis-bundle run schema
 resource, creates a tiny analysis bundle, appends one compact tool_call/artifact/
-caveat entry to ``provenance/run.json``, and verifies the updated record remains
-machine-readable. It does not fetch archive data or download kernels.
+caveat entry to ``provenance/run.json``, copies the whole bundle directory into a
+relocated sibling root (the original bundle is left in place; nothing is moved),
+and verifies the seeded ``plan_path``/``artifact_dirs`` still resolve correctly
+relative to the new, copied bundle root. It does not fetch archive data or
+download kernels.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -102,6 +106,40 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
     else:
         jsonschema.validate(updated, schema)
         schema_validation = "ok"
+
+    # Copy (never move) the bundle into a relocated sibling root: the original
+    # bundle_dir/run_provenance paths already returned above, and returned
+    # again below, must stay valid so callers who cached them are not broken,
+    # and so any --keep-output/--output-dir retained tree is not mutated.
+    original_bundle_dir = Path(payload["bundle_dir"])
+    relocated_bundle_dir = output_root / "relocated" / original_bundle_dir.name
+    relocated_bundle_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(str(original_bundle_dir), str(relocated_bundle_dir), dirs_exist_ok=True)
+
+    relocated_run_path = relocated_bundle_dir / "provenance" / "run.json"
+    relocated_run = json.loads(relocated_run_path.read_text(encoding="utf-8"))
+    relocation_failures: list[str] = []
+    if relocated_run_path == run_path:
+        relocation_failures.append("run.json path did not change after relocation")
+    if not (relocated_bundle_dir / relocated_run["plan_path"]).is_file():
+        relocation_failures.append(
+            f"plan_path {relocated_run['plan_path']!r} did not resolve under the relocated bundle root"
+        )
+    for name, relative_dir in relocated_run["artifact_dirs"].items():
+        if not (relocated_bundle_dir / relative_dir).is_dir():
+            relocation_failures.append(
+                f"artifact_dirs.{name} {relative_dir!r} did not resolve under the relocated bundle root"
+            )
+    if Path(relocated_run["plan_path"]).is_absolute():
+        relocation_failures.append("plan_path is absolute; expected a bundle-relative path")
+    relocated_helper_validation = validate_analysis_bundle_run(relocated_run)
+    if not relocated_helper_validation["valid"]:
+        relocation_failures.extend(
+            f"relocated {error['field']}: {error['code']}: {error['message']}"
+            for error in relocated_helper_validation["errors"]
+        )
+    structural_failures.extend(relocation_failures)
+
     return {
         "bundle_status": payload["status"],
         "bundle_dir": payload["bundle_dir"],
@@ -114,6 +152,9 @@ async def _create_and_update_bundle(output_root: Path) -> dict[str, Any]:
         "tool_calls_len": len(updated["tool_calls"]),
         "artifacts_len": len(updated["artifacts"]),
         "caveats_len": len(updated["caveats"]),
+        "relocated_bundle_dir": str(relocated_bundle_dir),
+        "relocation_ok": not relocation_failures,
+        "relocation_failures": relocation_failures,
         "structural_failures": structural_failures,
         "note": "creates local bundle scaffolding only; no archive data fetch or kernel download requested",
     }

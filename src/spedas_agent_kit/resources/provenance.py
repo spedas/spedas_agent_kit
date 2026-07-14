@@ -287,6 +287,65 @@ def _add_error(errors: list[dict[str, str]], field: str, code: str, message: str
     errors.append({"field": field, "code": code, "message": message})
 
 
+def _portable_relative_path_error(value: str) -> str | None:
+    """Return a non-portability error code for ``value``, or ``None`` if portable.
+
+    ``provenance/run.json`` fields such as ``plan_path`` and ``artifact_dirs.*``
+    must stay bundle-relative so a relocated or copied bundle remains
+    self-describing. This is a pure string check (no filesystem access, no
+    ``pathlib`` resolution) so it works identically regardless of the host OS
+    and never depends on whether the referenced path currently exists.
+
+    Classification priority: the specific non-relative-root codes (UNC,
+    Windows drive, POSIX absolute) and ``parent_traversal`` are always
+    reported first, even when the value also has a generic normalization
+    problem (e.g. a UNC path with trailing whitespace is reported as
+    ``unc_path``, not ``untrimmed_whitespace``). Only once a value has none
+    of those specific problems do the generic *normalized POSIX* checks run:
+    no backslashes, no leading/trailing whitespace, no internal ``.``
+    segments, no doubled separators, and no trailing separator. A value that
+    only becomes portable after normalization (e.g.
+    ``"requests\\spedas_plan.json"`` or ``"requests//spedas_plan.json/"``) is
+    still rejected, so callers cannot silently rely on implicit normalization.
+    """
+    if not value:
+        return "empty_or_dot_only_path"
+    stripped = value.strip()
+    if not stripped or stripped.replace(".", "") == "":
+        # Empty, whitespace-only, or dot-only ("." / ".." / "...") values
+        # carry no usable relative location, regardless of surrounding
+        # whitespace.
+        return "empty_or_dot_only_path"
+    normalized = stripped.replace("\\", "/")
+    if normalized.startswith("//"):
+        # UNC paths (``\\server\share`` or its forward-slash form ``//server/share``).
+        return "unc_path"
+    if normalized.startswith("/"):
+        return "posix_absolute_path"
+    if len(normalized) >= 2 and normalized[1] == ":" and normalized[0].isalpha():
+        # Windows drive paths (``C:\...`` / ``C:/...``), with or without a
+        # trailing separator (a bare ``C:`` is still drive-rooted).
+        return "windows_drive_path"
+    segments = normalized.split("/")
+    if any(segment == ".." for segment in segments):
+        return "parent_traversal"
+    # From here the value has no non-relative root and no traversal segment,
+    # so any remaining problem is a generic normalization defect rather than
+    # one of the specific classifications above.
+    if value != stripped:
+        return "untrimmed_whitespace"
+    if "\\" in value:
+        # Backslashes anywhere (not just a leading UNC/drive marker) are not
+        # normalized POSIX separators, even if the value is otherwise relative.
+        return "non_posix_separator"
+    if any(segment == "" for segment in segments):
+        # Doubled ("a//b") or trailing ("a/") separators.
+        return "doubled_or_trailing_separator"
+    if any(segment == "." for segment in segments):
+        return "internal_dot_segment"
+    return None
+
+
 def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
     """Validate the *shape* of an analysis-bundle ``provenance/run.json`` record.
 
@@ -298,8 +357,15 @@ def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
     result asserts that the record carries the required run-scaffold keys, the
     expected Agent Kit schema/version hint, string path-ish fields for the seeded
     bundle locations, and array slots for ``tool_calls``, ``artifacts``, and
-    ``caveats``. It does **not** assert the analysis is scientifically complete
-    or that referenced artifact paths currently exist.
+    ``caveats``. ``plan_path`` and every present ``artifact_dirs.*`` value
+    (not just the five required names) must also be a normalized,
+    bundle-relative POSIX path: empty/dot-only values, POSIX absolute paths,
+    Windows drive paths, UNC paths, ``..`` parent-traversal segments,
+    backslashes, leading/trailing whitespace, internal ``.`` segments, and
+    doubled/trailing separators are all rejected — a value that would only
+    become portable after normalization is not accepted as-is. It does
+    **not** assert the analysis is scientifically complete or that
+    referenced artifact paths currently exist.
     """
     errors: list[dict[str, str]] = []
 
@@ -341,6 +407,20 @@ def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
                 f"{key} must be a string",
             )
 
+    plan_path = obj.get("plan_path")
+    if isinstance(plan_path, str):
+        portability_error = _portable_relative_path_error(plan_path)
+        if portability_error is not None:
+            _add_error(
+                errors,
+                "plan_path",
+                portability_error,
+                (
+                    "plan_path must be a normalized, bundle-relative POSIX path "
+                    f"(got {plan_path!r})"
+                ),
+            )
+
     # ``target``, ``start``, and ``stop`` may be null when the bundle is only a
     # planning scaffold, but any non-null value should remain string-shaped.
     for key in ("target", "start", "stop"):
@@ -363,21 +443,53 @@ def validate_analysis_bundle_run(obj: Any) -> dict[str, Any]:
 
     artifact_dirs = obj.get("artifact_dirs")
     if isinstance(artifact_dirs, dict):
+        # First, the five required bundle-scaffold directory names must be
+        # present at all (independent of whatever else the caller appended).
         for name in ANALYSIS_BUNDLE_RUN_REQUIRED_ARTIFACT_DIRS:
-            value = artifact_dirs.get(name)
-            if value is None:
+            if artifact_dirs.get(name) is None:
                 _add_error(
                     errors,
                     f"artifact_dirs.{name}",
                     "missing_required_key",
                     f"artifact_dirs.{name} is required",
                 )
-            elif not isinstance(value, str):
+        # Then, every *present* value (the five required names plus any
+        # extra keys a caller appended) must be a portable relative path.
+        # This intentionally covers keys beyond the required five so a
+        # caller cannot smuggle a non-portable absolute path in under a
+        # custom artifact_dirs name.
+        for name, value in artifact_dirs.items():
+            if value is None:
+                # Required null values already receive the historical
+                # ``missing_required_key`` error above.  Extra null values must
+                # still be rejected as a type mismatch, matching the packaged
+                # schema's string-only ``additionalProperties`` contract.
+                if name not in ANALYSIS_BUNDLE_RUN_REQUIRED_ARTIFACT_DIRS:
+                    _add_error(
+                        errors,
+                        f"artifact_dirs.{name}",
+                        "wrong_type",
+                        f"artifact_dirs.{name} must be a string",
+                    )
+                continue
+            if not isinstance(value, str):
                 _add_error(
                     errors,
                     f"artifact_dirs.{name}",
                     "wrong_type",
                     f"artifact_dirs.{name} must be a string",
+                )
+                continue
+            portability_error = _portable_relative_path_error(value)
+            if portability_error is not None:
+                _add_error(
+                    errors,
+                    f"artifact_dirs.{name}",
+                    portability_error,
+                    (
+                        f"artifact_dirs.{name} must be a normalized, "
+                        f"bundle-relative POSIX path (got {value!r})"
+                    ),
                 )
     elif "artifact_dirs" in obj:
         _add_error(

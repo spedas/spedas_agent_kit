@@ -1443,6 +1443,9 @@ def create_analysis_bundle(
 
     run_provenance_path = subdirs["provenance"] / "run.json"
     artifact_dirs = {name: str(path) for name, path in subdirs.items()}
+    relative_artifact_dirs = {
+        name: path.relative_to(bundle_dir).as_posix() for name, path in subdirs.items()
+    }
     run_provenance = {
         "schema_version": SPEDAS_ANALYSIS_RUN_PROVENANCE_VERSION,
         "created_by": "spedas_agent_kit.create_spedas_analysis_bundle",
@@ -1454,8 +1457,8 @@ def create_analysis_bundle(
         "stop": stop,
         "requested_data_sources": list(data_sources or []),
         "recommended_sources": plan["recommended_sources"],
-        "plan_path": str(request_path),
-        "artifact_dirs": artifact_dirs,
+        "plan_path": request_path.relative_to(bundle_dir).as_posix(),
+        "artifact_dirs": relative_artifact_dirs,
         "resource_hints": {
             "skill_index_uri": SPEDAS_SKILL_INDEX_URI,
             "provenance_schema_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,

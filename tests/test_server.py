@@ -555,8 +555,33 @@ def test_create_spedas_analysis_bundle_writes_plan_files(tmp_path: Path):
     assert run_provenance["target"] == "Jupiter"
     assert run_provenance["requested_data_sources"] == ["pds", "spice"]
     assert run_provenance["recommended_sources"] == ["pds", "spice"]
-    assert run_provenance["plan_path"] == data["paths"]["request_plan"]
-    assert run_provenance["artifact_dirs"]["data"] == data["paths"]["data"]
+    # ``run.json`` seeds normalized POSIX bundle-relative paths so the record
+    # stays meaningful after the bundle is relocated; the public MCP result
+    # keeps directly usable absolute filesystem paths for the same locations.
+    # Prove the correspondence by resolving each absolute MCP path relative to
+    # the returned bundle_dir and comparing it against the seeded relative
+    # value exactly, rather than a permissive string suffix check (a
+    # differently-named sibling directory sharing a suffix, e.g.
+    # "other_data" vs "data", would slip past ``endswith``).
+    bundle_dir = Path(data["bundle_dir"])
+    assert bundle_dir.is_absolute()
+    assert run_provenance["plan_path"] == "requests/spedas_plan.json"
+    assert not Path(run_provenance["plan_path"]).is_absolute()
+    request_plan_path = Path(data["paths"]["request_plan"])
+    assert request_plan_path.is_absolute()
+    assert request_plan_path.relative_to(bundle_dir).as_posix() == run_provenance["plan_path"]
+    assert run_provenance["artifact_dirs"] == {
+        "requests": "requests",
+        "data": "data",
+        "plots": "plots",
+        "provenance": "provenance",
+        "notes": "notes",
+    }
+    for name, relative_dir in run_provenance["artifact_dirs"].items():
+        assert not Path(relative_dir).is_absolute()
+        artifact_dir_path = Path(data["paths"][name])
+        assert artifact_dir_path.is_absolute()
+        assert artifact_dir_path.relative_to(bundle_dir).as_posix() == relative_dir
     assert run_provenance["resource_hints"]["skill_index_uri"] == "spedas-skill://index"
     assert run_provenance["resource_hints"]["provenance_schema_uri"] == "spedas-preset://schemas/analysis_bundle_run"
     assert run_provenance["tool_calls"] == []
