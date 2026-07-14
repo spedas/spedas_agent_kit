@@ -134,6 +134,57 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1
           "$RUNNER_TEMP/spedas-agent-kit-wheel-venv/bin/python" scripts/smoke_base_imports.py
           --repo-root "$GITHUB_WORKSPACE" --json
+      - name: Create a clean venv and install the built wheel with the [analysis] extra
+        # Analysis-profile artifact witness (#209): prove the SAME already-built
+        # wheel — installed through its declared [analysis] extra — resolves the
+        # optional analysis stack (pyspedas/matplotlib/PyWavelets) and exposes the
+        # canonical analysis tools. The base wheel lane above and the editable
+        # `analysis` job each pass separately; only this step composes them, so a
+        # wheel whose [analysis] extra is undeclared/unresolvable would be caught.
+        # Distinct from spedas-agent-kit-wheel-venv; installs the exact local wheel
+        # via an unambiguous PEP 508 direct reference with the [analysis] extra —
+        # never `.`, `-e .`, `dist/*.tar.gz`, a rebuilt wheel, or a hand-maintained
+        # dependency list. Ubuntu-only: the smokes below assume POSIX venv/entry-point
+        # layout.
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python -m venv "$RUNNER_TEMP/spedas-agent-kit-analysis-wheel-venv"
+          "$RUNNER_TEMP/spedas-agent-kit-analysis-wheel-venv/bin/python" -m pip install --upgrade pip
+          # Require exactly one built wheel; never silently pick the first of many.
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "expected exactly one dist/*.whl, found ${#wheels[@]}: ${wheels[*]}" >&2
+            exit 1
+          fi
+          # Install the exact wheel as an unambiguous PEP 508 direct reference with
+          # the [analysis] extra, so pip resolves the wheel's own declared analysis
+          # optional-dependencies from this exact artifact (never a separate
+          # `pip install pyspedas`). The file:// URI comes from the absolute path.
+          wheel_uri="$(python -c 'import sys, pathlib; print(pathlib.Path(sys.argv[1]).resolve().as_uri())' "${wheels[0]}")"
+          "$RUNNER_TEMP/spedas-agent-kit-analysis-wheel-venv/bin/python" -m pip install "spedas-agent-kit[analysis] @ ${wheel_uri}"
+      - name: Smoke-test the installed analysis wheel (base metadata/entry point/resources)
+        # Reuse the base installed-artifact probe against the analysis-wheel venv so
+        # installed location, metadata/version agreement, entry point, base tools,
+        # and packaged resources stay validated when the analysis extra is present.
+        # The probe permits a tool superset, so it is satisfied by the larger
+        # analysis surface; the analysis-specific tool assertion is the next step.
+        if: matrix.os == 'ubuntu-latest'
+        run: >-
+          "$RUNNER_TEMP/spedas-agent-kit-analysis-wheel-venv/bin/python" scripts/smoke_installed_artifact.py
+          --repo-root "$GITHUB_WORKSPACE" --timeout-seconds 60 --json
+      - name: Assert installed analysis wheel registers every canonical analysis tool (#209)
+        # Installed-only analysis witness in the SAME analysis-wheel venv: fail if
+        # spedas_agent_kit imports from <checkout>/src, require every canonical
+        # analysis import to succeed from the wheel's [analysis] closure, build the
+        # real default server with NORMAL auto-detection (no forced
+        # include_analysis_tools), and require every ANALYSIS_TOOL_NAMES member in
+        # list_tools() — the expected list read from the installed package, not
+        # hand-copied. In-process, network-free: no data fetch or kernel download.
+        if: matrix.os == 'ubuntu-latest'
+        run: >-
+          "$RUNNER_TEMP/spedas-agent-kit-analysis-wheel-venv/bin/python" scripts/smoke_installed_analysis.py
+          --repo-root "$GITHUB_WORKSPACE" --json
       - name: Create a clean venv and install the built sdist (not ., not -e ., not the wheel)
         # Second clean-install witness for the OTHER built artifact type: the
         # source distribution. `twine check` above validates sdist metadata but
