@@ -28,7 +28,7 @@ version: 0.1.0
 
 # spedas_agent_kit anatomy — the convention & maintenance contract
 
-The spedas_agent_kit repo is mapped by a tree of `ANATOMY.md` files (root + `src/spedas_agent_kit/`, `analysis/`, `datasources/`). This skill is the **convention**; those files are the **content**. It is the top-level maintenance guide for any coding agent touching this repo.
+The spedas_agent_kit repo is mapped by a tree of `ANATOMY.md` files (root + `src/spedas_agent_kit/`, `src/spedas_agent_kit/backends/`). This skill is the **convention**; those files are the **content**. It is the top-level maintenance guide for any coding agent touching this repo.
 
 ## What an `ANATOMY.md` is
 
@@ -50,16 +50,16 @@ Citations look like `src/spedas_agent_kit/server.py:1072`. Keep them current —
 ## Maintenance contract (do these in the SAME commit as the code change)
 
 - **Add/rename/move a tool** → update `src/spedas_agent_kit/ANATOMY.md` (and root if the surface count changes). New capability lands as a unified `source_type` or a **skill**, NOT a new top-level tool, unless it truly cannot be either (the consolidation goal: keep the advertised base surface small; verify the current count with `scripts/smoke_mcp_list_tools.py`).
-- **Add an analysis function** → put it in `analysis/`, register it in `create_server()`, add its backend to `_ANALYSIS_REQUIRED_IMPORTS` at the **submodule** path (`server.py:55`; a package-level probe silently hides ALL analysis tools), and update `analysis/ANATOMY.md`.
-- **Add a data source** → `datasources/` with a precise `require_*` guard; update `datasources/ANATOMY.md`.
-- **Add a skill** → create or edit the canonical dir under `src/spedas_agent_kit/resources/skills/`, follow the existing SKILL.md shape (When to use / Tool chain / Backend with VERIFIED contract / Procedure / Guardrails / Example), index it in `spedas-skills-index`, reference only the unified tools, then refresh runtime fixtures with `scripts/export_packaged_skills.py --target <wrapper>/skills --clean`.
+- **Do NOT add analysis functions as MCP tools** — the optional analysis layer (previously `analysis/`) was removed in the one-MCP cleanup; science analysis beyond the bundled CDAWeb/PDS/SPICE surface belongs in PySPEDAS scripts or skills, not new MCP tools.
+- **Add a data source** → a new `source_type` in the unified layer (`_normalize_source_type` + the dispatch branches in `create_server()`), not a new package; the optional external data-source layer was removed in the one-MCP cleanup.
+- **Add a skill** → one dir under `src/spedas_agent_kit/resources/skills/`, follow the existing SKILL.md shape (When to use / Tool chain / Backend with VERIFIED contract / Procedure / Guardrails / Example), index it in `spedas-skills-index`, and reference only the unified tools.
 
 ## Non-negotiable disciplines (hard-won)
 
 - **Verify the backend I/O contract live before authoring** a tool or skill. State whether a backend **returns an array**, **stores a tplot var** (retrieve via `get_data`; `tnames()`-listed ≠ retrievable), or **returns a dict**. This mismatch is the #1 recurring bug.
-- **`render_tplot` renders one 2-D matrix per `.npz`** — one panel per file; never pack multiple panels into one multi-key npz.
+- **No MCP rendering tools** — the optional analysis/plotting layer was removed in the one-MCP cleanup; write artifacts and suggest a local PySPEDAS/matplotlib script for plotting.
 - **Artifact-first:** pass `output_dir`, write bulk to disk, return paths + compact stats; never inline arrays.
-- **Bake in the reliability gate** where one exists (MVA eigenvalue ratio, curlometer ∇·B/∇×B, wavelet cadence_warning, L-shell domain guard, particle `magf`).
+- **Bake in the reliability gate** where one exists (kernel-download preflight for SPICE geometry, domain/format guards in the unified data layer).
 - **Verify numerics with explicit numeric Unix-second timestamps**, never `pd.date_range().astype(str)` (it corrupts `dt`).
 - **The fragile seam is facade↔backend adapters**, not dispatch — test adapter output shapes, not just that a call succeeds.
 
