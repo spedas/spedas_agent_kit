@@ -1,15 +1,14 @@
 ---
 name: timeseries-cleaning
-description: Pre-analysis conditioning of a fetched vector/scalar time-series — despike, de-flag fill values, smooth, subtract a background average, and interpolate gaps onto a uniform grid before spectra/MVA/moments. Use as the first step feeding the turbulence, MVA/LMN, or polarization skills, especially for messy or irregular-cadence data. Composes existing tools; adds no new tool.
+description: Pre-analysis conditioning of a fetched vector/scalar time-series — despike, de-flag fill values, smooth, subtract a background average, and interpolate gaps onto a uniform grid before downstream PySPEDAS analysis (spectra, MVA, moments). Use as the first step for messy or irregular-cadence data. Composes existing tools; adds no new tool.
 ---
 
 # Time-series cleaning (the tplot-math hygiene crib)
 
 The IDL-SPEDAS `tplot_math` pre-analysis ritual: take a raw, messy, possibly
-irregular-cadence series and condition it into something the spectral / minimum-variance /
-moment tools can trust. This is the **first** step in front of
-`solar-wind-turbulence-spectrum`, `boundary-minimum-variance` / `magnetopause-lmn-analysis`,
-and `wave-polarization` — never feed those raw fill-value-laden, gappy data. There is no
+irregular-cadence series and condition it into something downstream spectral / minimum-variance /
+moment analysis can trust. This is the **first** step before any such analysis — never feed
+raw fill-value-laden, gappy data into it. There is no
 dedicated "clean" MCP tool; the value is the ordered chain and recording every step for
 reproducibility.
 
@@ -27,7 +26,7 @@ needs, and background subtraction changes what MVA/moments see. Clean the minimu
 → load the fetched array as a tplot variable → chain the pyspedas `tplot_math` ops
 (`time_clip` → `tdeflag` → `clean_spikes` → `tsmooth` → `subtract_average` → `tinterpol`)
 → `get_data` the cleaned var → write a cleaned CSV/NPZ artifact → feed the downstream skill,
-all wrapped in a `create_spedas_analysis_bundle`. Use `render_tplot` for a before/after look.
+all wrapped in a `create_spedas_analysis_bundle`. Use a local matplotlib script for a before/after look.
 
 ## Backend (verified output contract)
 All of these are pyspedas top-level functions that operate on tplot variable **names**,
@@ -77,7 +76,7 @@ column after every length-changing step.
 
 10. **Retrieve and persist.** `d = pytplot.get_data(<cleaned name>)`; verify `d.times` and `d.y` shapes (length may differ from raw after de-flag/despike). Write a cleaned CSV (`time` + value columns) and/or `.npz` to `<bundle>/data` — this is what the downstream skill consumes.
 
-11. **Before/after check.** `render_tplot(input_files=[<raw.npz>, <cleaned.npz>], output_file=<bundle>/plots/clean_before_after.png, ...)` (one 2-D matrix per `.npz`, one panel per file). Read the PNG back to confirm you fixed the defect without erasing signal.
+11. **Before/after check.** Build a small local matplotlib figure from the raw and cleaned CSVs (e.g. `<bundle>/plots/clean_before_after.png`) and read the PNG back to confirm you fixed the defect without erasing signal.
 
 12. **Record every step.** Cleaning changes the data — log the ordered operation list with all parameters (sentinel, `nsmooth`, `thresh`, smoothing `width`, average type, interpolation target/cadence) and the raw→cleaned row counts into `notes/`. Reproducibility hinges on this.
 
@@ -94,6 +93,6 @@ PSP `PSP_FLD_L2_MAG_RTN` over a switchback interval with sparse `-1e31` fill and
 saturation spikes: fetch raw → `store_data` → `time_clip` → `tdeflag(flag=-1e31, method='remove_nan')`
 → `clean_spikes(nsmooth=10, thresh=0.3)` → `tinterpol` onto a uniform 0.87 s grid →
 `get_data` → write `mag_rtn_cleaned.csv`. `notes/` records the ordered steps and that
-de-flag+despike dropped 412 of 41,280 rows; the cleaned uniform-cadence CSV then feeds
-`solar-wind-turbulence-spectrum` without a `cadence_warning`. Smoothing was deliberately
+de-flag+despike dropped 412 of 41,280 rows; the cleaned uniform-cadence CSV then
+feeds downstream spectral analysis without cadence surprises. Smoothing was deliberately
 skipped to preserve the inertial-range power.

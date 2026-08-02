@@ -10,22 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
 
-from _smoke_runtime import ensure_source_tree_on_path, isolated_cache_env
-
-ensure_source_tree_on_path()
-
 import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
-from spedas_agent_kit.optional_backends import (
-    ANALYSIS_TOOL_NAMES as ANALYSIS_EXPECTED_TOOLS,
-    analysis_dependencies_available,
-)
 
 COMPAT_CDAWEB_PDS_TOOLS = [
     "browse_observatories",
@@ -54,14 +46,6 @@ BASE_EXPECTED_TOOLS = [
     "transform_coordinates",
 ]
 
-# Direct HAPI/FDSN data-source tools are demoted out of the default surface
-# (issue #87); advertised only with SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1.
-DATASOURCE_TOOLS = [
-    "browse_hapi_catalog",
-    "fetch_hapi_data",
-    "browse_fdsn_datasets",
-    "fetch_fdsn_data",
-]
 
 async def _list_tools(module: str, env: dict[str, str]) -> list[str]:
     params = StdioServerParameters(
@@ -89,33 +73,22 @@ def main() -> int:
         action="store_true",
         help="Set SPEDAS_AGENT_KIT_COMPAT_TOOLS=1 and expect legacy CDAWeb/PDS tools",
     )
-    parser.add_argument(
-        "--datasource-tools",
-        action="store_true",
-        help="Set SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1 and expect direct HAPI/FDSN tools",
-    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix="spedas-agent-kit-smoke-") as tmp:
-        env = isolated_cache_env(tmp)
+        env = os.environ.copy()
+        env.setdefault("XHELIO_CDAWEB_CACHE_DIR", str(Path(tmp) / "cdaweb"))
+        env.setdefault("XHELIO_SPICE_KERNEL_DIR", str(Path(tmp) / "spice"))
+        env.setdefault("PDSMCP_CACHE_DIR", str(Path(tmp) / "pds"))
         if args.compat_tools:
             env["SPEDAS_AGENT_KIT_COMPAT_TOOLS"] = "1"
         else:
             env.pop("SPEDAS_AGENT_KIT_COMPAT_TOOLS", None)
-        if args.datasource_tools:
-            env["SPEDAS_AGENT_KIT_DATASOURCE_TOOLS"] = "1"
-        else:
-            env.pop("SPEDAS_AGENT_KIT_DATASOURCE_TOOLS", None)
         tools = anyio.run(_list_tools, args.module, env)
 
     expected_tools = list(BASE_EXPECTED_TOOLS)
     if args.compat_tools:
         expected_tools.extend(COMPAT_CDAWEB_PDS_TOOLS)
-    if args.datasource_tools:
-        expected_tools.extend(DATASOURCE_TOOLS)
-    analysis_available = analysis_dependencies_available()
-    if analysis_available:
-        expected_tools.extend(ANALYSIS_EXPECTED_TOOLS)
 
     missing = [name for name in expected_tools if name not in tools]
     unexpected = [name for name in tools if name not in expected_tools]
@@ -125,11 +98,8 @@ def main() -> int:
         "tool_count": len(tools),
         "tools": tools,
         "expected_tools": expected_tools,
-        "analysis_extra_detected": analysis_available,
         "compat_tools_enabled": args.compat_tools,
         "compat_env_flag": "SPEDAS_AGENT_KIT_COMPAT_TOOLS=1",
-        "datasource_tools_enabled": args.datasource_tools,
-        "datasource_env_flag": "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1",
         "missing": missing,
         "unexpected": unexpected,
         "note": "list_tools only; no CDAWeb/PDS data fetch or SPICE kernel download requested",
