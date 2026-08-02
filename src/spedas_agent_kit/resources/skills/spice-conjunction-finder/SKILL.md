@@ -1,6 +1,6 @@
 ---
 name: spice-conjunction-finder
-description: Find times when two spacecraft/bodies are close (a conjunction) over an interval — scan ephemerides, compute pairwise separation coarse-then-fine from exported trajectories, apply a distance threshold, and optionally render separation vs time (plotting requires the [analysis] extra).
+description: Find times when two spacecraft/bodies are close (a conjunction) over an interval — scan ephemerides, compute pairwise separation coarse-then-fine from exported trajectories, apply a distance threshold, and optionally produce a local separation-vs-time plot artifact.
 ---
 
 # Multi-spacecraft / body conjunction finder
@@ -19,7 +19,7 @@ and judgment between steps.
 ## Tool chain (all already exist)
 `spedas_overview()` → `manage_data_cache(source_type="spice", action="status")` (availability)
 → `get_ephemeris(target=..., time=..., time_end=..., output_file=...)` for both objects → local separation CSV
-(coarse, then refined) → optional `render_tplot` (requires `spedas-agent-kit[analysis]`),
+(coarse, then refined) → optional local separation-vs-time plot (matplotlib script),
 wrapped in `create_spedas_analysis_bundle`.
 
 `compute_distance(...)` is useful as a quick sanity check for aggregate min/max/mean
@@ -42,14 +42,14 @@ the minimum or a sampled series. Do not use it as the source of candidate-minimu
 
 7. **Apply the threshold & report.** Keep candidates under the user's separation cutoff. For each conjunction report: time of closest approach, min separation (km and AU/Re as appropriate), the two ephemeris rows at closest approach, and each object's heliocentric distance/position context (e.g. "both near 0.3 AU").
 
-8. **Optional render.** If `spedas-agent-kit[analysis]` / matplotlib is installed, call `render_tplot(input_files=[<separation_refined.csv>], output_file=<bundle>/plots/separation.png, panel_types=["line"], ylog=true)`. If the `[analysis]` extra is not installed, skip plotting and report the CSV path instead. Mark/annotate the conjunction(s) in `notes/`.
+8. **Optional plot artifact.** If matplotlib is available locally, make a separation-vs-time line figure from `<separation_refined.csv>` with a small script and write it to `<bundle>/plots/separation.png`; otherwise report the CSV path instead. Mark/annotate the conjunction(s) in `notes/`.
 
 ## Guardrails
 - Artifact-first: report closest-approach times + distances + CSV/PNG paths, not full sampled tables.
 - Coarse-then-fine: never do a fine-step scan over a long interval; localize first.
 - Kernel cost: a wide multi-mission scan can need several large kernels — state which you loaded; respect the download gate.
 - Frame/observer must be the same for both objects' positions to be comparable.
-- Be explicit about optional plotting: `render_tplot` requires the `[analysis]` extra; the geometry/CSV part does not.
+- Be explicit about optional plotting: plotting is a local-script step; the geometry/CSV part is the MCP toolchain.
 
 ## Example (verified primitives)
 `compute_distance(PSP, SUN, ...)` returns aggregate min/max/mean km over a sampled window (I used this live: PSP–Sun min 6.86e6 km at the E24 perihelion, matching the instrument's onboard SUN_DIST to ~90 km — a clean cross-check that the geometry tools are trustworthy for conjunction work). For actual conjunction timing, use exported ephemeris CSVs and the local separation table above.

@@ -6,7 +6,7 @@ import types
 from pathlib import Path
 
 from spedas_agent_kit import __version__
-from spedas_agent_kit.server import ANALYSIS_TOOL_NAMES, create_server
+from spedas_agent_kit.server import create_server
 
 COMPAT_CDAWEB_PDS_TOOLS = {
     "browse_observatories",
@@ -33,7 +33,7 @@ def test_version():
 
 def test_server_has_expected_tools(monkeypatch):
     monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
-    server = create_server(include_analysis_tools=True)
+    server = create_server()
     tools = asyncio.run(server.list_tools())
     names = {tool.name for tool in tools}
     assert {
@@ -50,23 +50,6 @@ def test_server_has_expected_tools(monkeypatch):
         "get_ephemeris",
         "compute_distance",
         "transform_coordinates",
-        "transform_timeseries_coordinates",
-        "generate_fac_matrix",
-        "tvector_rotate",
-        "analyze_minvar_coordinates",
-        "dynamic_power_spectrum",
-        "wavelet_transform",
-        "evaluate_magnetic_field",
-        "calculate_lshell",
-        "build_particle_distribution_artifact",
-        "load_particle_distribution_artifact",
-        "compute_particle_moments",
-        "compute_particle_spectra",
-        "render_tplot",
-        "browse_hapi_catalog",
-        "fetch_hapi_data",
-        "browse_fdsn_datasets",
-        "fetch_fdsn_data",
     } <= names
     assert {"manage_cdaweb_cache", "manage_pds_cache", "manage_spice_kernels"}.isdisjoint(names)
     assert {"list_spice_missions", "list_coordinate_frames"}.isdisjoint(names)
@@ -79,69 +62,6 @@ def test_server_advertises_cdaweb_pds_compat_tools_when_flag_set(monkeypatch):
     tools = asyncio.run(server.list_tools())
     names = {tool.name for tool in tools}
     assert COMPAT_CDAWEB_PDS_TOOLS <= names
-
-
-def test_analysis_tools_are_gated_when_analysis_extra_is_absent(monkeypatch):
-    from spedas_agent_kit import server as server_mod
-
-    monkeypatch.setattr(server_mod, "_analysis_dependencies_available", lambda: False)
-    server = create_server()
-    tools = asyncio.run(server.list_tools())
-    names = {tool.name for tool in tools}
-    assert set(ANALYSIS_TOOL_NAMES).isdisjoint(names)
-
-    data = json.loads(_call_tool(server, "spedas_overview"))
-    assert data["capability_groups"]["analysis"]["tools"] == []
-    assert "install with spedas-agent-kit[analysis]" in data["capability_groups"]["analysis"]["status"]
-
-
-def test_analysis_tools_register_when_analysis_extra_is_available(monkeypatch):
-    from spedas_agent_kit import server as server_mod
-
-    monkeypatch.setattr(server_mod, "_analysis_dependencies_available", lambda: True)
-    server = create_server()
-    tools = asyncio.run(server.list_tools())
-    names = {tool.name for tool in tools}
-    assert set(ANALYSIS_TOOL_NAMES) <= names
-
-    data = json.loads(_call_tool(server, "spedas_overview"))
-    assert data["capability_groups"]["analysis"]["tools"] == list(ANALYSIS_TOOL_NAMES)
-
-def test_optional_backend_availability_metadata_when_base_deps_missing(monkeypatch):
-    from spedas_agent_kit import server as server_mod
-
-    monkeypatch.setattr(server_mod, "_analysis_dependencies_available", lambda: False)
-    monkeypatch.setattr(server_mod, "_module_available", lambda name: False)
-
-    server = create_server()
-    tool_names = {tool.name for tool in asyncio.run(server.list_tools())}
-    assert {"browse_hapi_catalog", "fetch_hapi_data", "browse_fdsn_datasets", "fetch_fdsn_data"} <= tool_names
-    assert set(ANALYSIS_TOOL_NAMES).isdisjoint(tool_names)
-
-    overview = json.loads(_call_tool(server, "spedas_overview"))
-    optional = overview["capability_groups"]["optional_backends"]
-    assert optional["analysis"]["available"] is False
-    assert optional["analysis"]["requires_extra"] == "analysis"
-    assert optional["analysis"]["registration"] == "registered_when_available"
-    assert optional["hapi"]["available"] is False
-    assert optional["hapi"]["requires_extra"] == "hapi"
-    assert optional["hapi"]["registration"] == "always_registered"
-    assert optional["hapi"]["missing_modules"] == ["hapiclient"]
-    assert optional["fdsn"]["available"] is False
-    assert optional["fdsn"]["requires_extra"] == "fdsn"
-    assert optional["fdsn"]["registration"] == "always_registered"
-    assert {"pyspedas", "mth5", "obspy"} == set(optional["fdsn"]["missing_modules"])
-    assert "missing_dependency" in optional["hapi"]["call_behavior"]
-    assert "missing_dependency" in optional["fdsn"]["call_behavior"]
-
-    sources = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "all"}))
-    by_type = {entry["source_type"]: entry for entry in sources["source_types"]}
-    assert by_type["hapi"]["available"] is False
-    assert by_type["hapi"]["requires_extra"] == "hapi"
-    assert by_type["hapi"]["install_hint"] == "pip install 'spedas-agent-kit[hapi]'"
-    assert by_type["fdsn"]["available"] is False
-    assert by_type["fdsn"]["requires_extra"] == "fdsn"
-    assert by_type["fdsn"]["install_hint"] == "pip install 'spedas-agent-kit[fdsn]'"
 
 
 def test_overview_is_compact_json(monkeypatch):
@@ -175,7 +95,7 @@ def test_overview_advertises_geomagnetic_index_recipe(monkeypatch):
 
 def test_base_tools_expose_primary_surface_metadata(monkeypatch):
     monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
-    server = create_server(include_analysis_tools=False)
+    server = create_server()
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
 
     assert tools
@@ -212,27 +132,12 @@ def test_tool_descriptions_and_meta_mark_primary_and_compatibility_surfaces(monk
     assert tools["fetch_data"].annotations.openWorldHint is True
 
 
-def test_analysis_tools_expose_advanced_surface_metadata(monkeypatch):
-    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
-    server = create_server(include_analysis_tools=True)
-    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
-
-    for name in [
-        "transform_timeseries_coordinates",
-        "build_particle_distribution_artifact",
-        "render_tplot",
-    ]:
-        assert tools[name].meta["surface"] == "advanced"
-        assert tools[name].annotations.readOnlyHint is False
-        assert tools[name].annotations.openWorldHint is True
-
 def test_browse_data_sources_lists_spedas_source_categories():
     server = create_server()
     data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "all"}))
     assert data["status"] == "success"
     assert data["data_layer"] == "spedas"
-    assert {entry["source_type"] for entry in data["source_types"]} == {"cdaweb", "pds", "spice", "hapi", "fdsn"}
-
+    assert {entry["source_type"] for entry in data["source_types"]} == {"cdaweb", "pds", "spice"}
 
 
 def test_browse_data_sources_filters_cdaweb_query():
@@ -599,8 +504,6 @@ def test_cdaweb_fetch_product_limit_and_quality_stats(monkeypatch, tmp_path: Pat
     flag_checks = payload["parameters"]["QUALITY_FLAG"]["stats"]["quality_checks"]
     assert flag_checks["quality_flags"]["QUALITY_FLAG"]["counts"]["0"] == 3
     assert flag_checks["quality_flags"]["QUALITY_FLAG"]["counts"]["1"] == 2
-
-
 
 
 def test_fetch_data_product_rejects_bad_times_before_cdaweb_backend(monkeypatch, tmp_path: Path):
@@ -1572,126 +1475,20 @@ def test_fetch_data_product_arg_validation_uses_uniform_envelope():
     assert "get_ephemeris" in spice["recommended_tools"]
 
 
-def test_no_legacy_status_error_returns_on_data_layer_and_analysis_surfaces():
+def test_no_legacy_status_error_returns_on_data_layer():
     """Static guard: no remaining ``{"status":"error","error":...}`` tool returns.
 
-    Greps the rendered source of the unified data-layer routing tools and the
-    three analysis tools for the legacy duplicate-``error``-key shape so the
-    uniform contract (issue #27) cannot silently regress.
+    Greps the rendered source of the unified data-layer routing tools for the
+    legacy duplicate-``error``-key shape so the uniform contract (issue #27)
+    cannot silently regress.
     """
     from spedas_agent_kit import server as server_mod
-    from spedas_agent_kit.analysis import coords as coords_mod
 
     # The legacy shape always pairs a status="error" dict with a bare "error":
     # key. The uniform envelope uses code=/message= instead. Assert the literal
-    # ``"error":`` key does not appear as a dict key in either module's source.
-    for mod in (server_mod, coords_mod):
-        src = inspect.getsource(mod)
-        assert '"error":' not in src, (
-            f"legacy status/error/error return still present in {mod.__name__}"
-        )
-
-
-def test_analysis_tools_are_wrapped_in_safe_tool():
-    server = create_server(include_analysis_tools=True)
-    # Unexpected exceptions from pyspedas/OS/file-writes must surface as the
-    # structured envelope, not a raw traceback. A non-existent input_file makes
-    # the impl raise ValueError, which _safe_tool/_error must convert.
-    # transform: bad frame -> impl _error (uniform) ; missing file -> ValueError.
-    bad_frame = json.loads(_call_tool(server, "transform_timeseries_coordinates", {
-        "input_file": "/nonexistent/in.csv",
-        "coord_in": "not_a_frame",
-        "coord_out": "gse",
-        "output_file": "/tmp/out.csv",
-    }))
-    _assert_uniform_error(bad_frame)
-    assert bad_frame["code"] == "invalid_argument"
-
-    missing_file = json.loads(_call_tool(server, "analyze_minvar_coordinates", {
-        "input_file": "/nonexistent/path/in.csv",
-        "output_dir": "/tmp",
-    }))
-    _assert_uniform_error(missing_file)
-
-
-def test_render_tplot_registered_and_validates(tmp_path: Path):
-    server = create_server(include_analysis_tools=True)
-    # Pure validation path (no matplotlib needed): non-PNG output is rejected
-    # through the server with the uniform structured envelope.
-    bad_ext = json.loads(_call_tool(server, "render_tplot", {
-        "input_files": [str(tmp_path / "in.npz")],
-        "output_file": str(tmp_path / "out.pdf"),
-    }))
-    _assert_uniform_error(bad_ext)
-    assert bad_ext["code"] == "invalid_argument"
-
-    # Empty input list -> structured invalid_argument, not a traceback.
-    empty = json.loads(_call_tool(server, "render_tplot", {
-        "input_files": [],
-        "output_file": str(tmp_path / "out.png"),
-    }))
-    _assert_uniform_error(empty)
-
-    # New scatter/xy arguments are exposed through MCP and validate before any
-    # matplotlib import or file loading.
-    bad_components = json.loads(_call_tool(server, "render_tplot", {
-        "input_files": [str(tmp_path / "a.npz"), str(tmp_path / "b.npz")],
-        "output_file": str(tmp_path / "out.png"),
-        "panel_types": "xy",
-        "x_component": [0],
-        "y_component": [1, 2],
-    }))
-    _assert_uniform_error(bad_components)
-    assert "x_component" in bad_components["message"]
-
-
-def test_render_tplot_missing_file_is_structured(tmp_path: Path):
-    server = create_server(include_analysis_tools=True)
-    missing = json.loads(_call_tool(server, "render_tplot", {
-        "input_files": [str(tmp_path / "nope.npz")],
-        "output_file": str(tmp_path / "out.png"),
-    }))
-    _assert_uniform_error(missing)
-    assert missing["code"] == "resource_not_found"
-
-
-def test_render_tplot_wrapped_in_safe_tool(monkeypatch):
-    server = create_server(include_analysis_tools=True)
-    import spedas_agent_kit.analysis.plotting as plotting_mod
-
-    def _boom(*args, **kwargs):
-        raise OSError("disk write failed at /Users/secret/path")
-
-    monkeypatch.setattr(plotting_mod, "render_tplot", _boom)
-    raw = _call_tool(server, "render_tplot", {
-        "input_files": ["a.npz"], "output_file": "o.png",
-    })
-    payload = json.loads(raw)
-    _assert_uniform_error(payload)
-    assert payload["tool"] == "render_tplot"
-    assert "/Users/" not in raw
-
-
-def test_analysis_safe_tool_converts_unexpected_exception(monkeypatch):
-    server = create_server(include_analysis_tools=True)
-    # Force an unexpected (non-ValueError) exception out of the impl to prove the
-    # @_safe_tool decorator — not just the impl's own try/except — wraps it.
-    import spedas_agent_kit.analysis.coords as coords_mod
-
-    def _boom(*args, **kwargs):
-        raise OSError("disk write failed at /Users/secret/path")
-
-    monkeypatch.setattr(coords_mod, "generate_fac_matrix", _boom)
-    raw = _call_tool(server, "generate_fac_matrix", {
-        "mag_file": "m.npy", "output_file": "o.npy",
-    })
-    payload = json.loads(raw)
-    _assert_uniform_error(payload)
-    # _safe_tool tags the failing tool and sanitizes the path out of the message.
-    assert payload["tool"] == "generate_fac_matrix"
-    assert "/Users/" not in raw
-
-
+    # ``"error":`` key does not appear as a dict key in the module's source.
+    src = inspect.getsource(server_mod)
+    assert '"error":' not in src, "legacy status/error/error return still present"
 def test_spice_keyerror_classified_as_geometry_error():
     # A geometry KeyError (SPICE backend "Cannot resolve body name 'X'") must be
     # classified as geometry_error with a geometry hint, not the generic
@@ -1875,8 +1672,6 @@ def test_transform_coordinates_unsupported_spacecraft_is_structured(no_backend_d
     payload = json.loads(raw)
     assert payload["status"] == "error"
     assert payload["code"] == "unsupported_spice_target"
-
-
 
 
 def _assert_clean_unknown_frame_error(payload, raw, *, frame, role, tool):
@@ -2166,98 +1961,6 @@ def test_plan_observation_without_date_still_needs_input_with_helpful_fields():
     assert data["inferred"]["target"] == "MMS"
     scope = next(step for step in data["plan"] if step["phase"] == "scope")
     assert scope["target"] == "MMS"
-
-
-# ---------------------------------------------------------------------------
-# Issues #21 / #22: HAPI + FDSN/MTH5 data-source support in the unified layer.
-# These verify the source_type routing and that the dedicated tools surface a
-# clean missing_dependency envelope without the optional [hapi]/[fdsn] extras
-# installed (so MCP list-tools and base routing stay safe).
-# ---------------------------------------------------------------------------
-
-
-def test_browse_data_sources_all_lists_hapi_and_fdsn():
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "all"}))
-    types = {entry["source_type"] for entry in data["source_types"]}
-    assert {"hapi", "fdsn"} <= types
-
-
-def test_browse_data_sources_hapi_points_to_dedicated_tool():
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "hapi"}))
-    assert data["status"] == "success"
-    assert data["source_type"] == "hapi"
-    assert any("browse_hapi_catalog" in t for t in data["next_tools"])
-
-
-def test_browse_data_sources_fdsn_alias_mth5():
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "mth5"}))
-    assert data["status"] == "success"
-    assert data["source_type"] == "fdsn"
-
-
-def test_unified_load_data_source_hapi_routes_to_dedicated_tool():
-    server = create_server()
-    data = json.loads(_call_tool(server, "load_data_source", {"source_type": "hapi", "source_id": "x"}))
-    assert data["status"] == "error"
-    assert data["code"] == "use_dedicated_tool"
-    assert "browse_hapi_catalog" in data["recommended_tools"]
-
-
-def test_unified_fetch_data_product_fdsn_routes_to_dedicated_tool():
-    server = create_server()
-    data = json.loads(_call_tool(server, "fetch_data_product", {
-        "source_type": "fdsn", "dataset_id": "x", "parameters": ["p"],
-    }))
-    assert data["status"] == "error"
-    assert data["code"] == "use_dedicated_tool"
-    assert "fetch_fdsn_data" in data["recommended_tools"]
-
-
-def test_unified_browse_data_parameters_unknown_lists_new_sources():
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_data_parameters", {
-        "source_type": "nope", "dataset_id": "x",
-    }))
-    assert data["status"] == "error"
-    assert data["code"] == "invalid_argument"
-    assert {"hapi", "fdsn"} <= set(data["allowed"])
-
-
-def test_browse_hapi_catalog_missing_dep_or_size_safe_success(tmp_path: Path):
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_hapi_catalog", {
-        "server_url": "https://cdaweb.gsfc.nasa.gov/hapi",
-    }))
-    # Without the optional [hapi] extra installed the tool returns a structured
-    # missing_dependency error. If the local test environment does have
-    # hapiclient installed, the unfiltered catalog must still be size-safe.
-    if data["status"] == "error":
-        assert data["code"] == "missing_dependency"
-        assert data["extra"] == "hapi"
-    else:
-        assert data["status"] == "success"
-        assert data["dataset_count"] <= 500
-        assert "response_too_large" not in json.dumps(data)
-
-
-def test_browse_fdsn_datasets_missing_dep_is_clean():
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_fdsn_datasets", {
-        "trange": ["2015-06-22", "2015-06-23"],
-    }))
-    assert data["status"] == "error"
-    assert data["code"] == "missing_dependency"
-    assert data["extra"] == "fdsn"
-
-
-def test_browse_fdsn_datasets_bad_trange_validates_before_backend():
-    server = create_server()
-    data = json.loads(_call_tool(server, "browse_fdsn_datasets", {"trange": ["only-one"]}))
-    assert data["status"] == "error"
-    assert data["code"] == "invalid_argument"
 
 
 # ---------------------------------------------------------------------------
@@ -3024,27 +2727,22 @@ def test_planetary_energetic_particles_stay_pds_led(goal):
 # ---------------------------------------------------------------------------
 
 
-def test_arg_validation_output_file_alias_reaches_minvar_body_no_pydantic_leak():
-    """The exact issue #57 ergonomics case now succeeds at argument validation:
-    analyze_minvar_coordinates accepts output_file like sibling single-artifact
-    tools. Any later error comes from the body and must not be a raw Pydantic
-    ToolError.
+def test_arg_validation_valid_core_tool_args_reach_body_no_pydantic_leak():
+    """Valid-typed arguments pass FastMCP validation and reach the tool body:
+    the error comes from the body contract (invalid_argument), never a raw
+    pydantic ToolError.
     """
-    server = create_server(include_analysis_tools=True)
-    raw = _call_tool(server, "analyze_minvar_coordinates", {
-        "input_file": "x.csv",
-        "output_file": "out.csv",
-        "vector_cols": ["Bx", "By", "Bz"],
+    server = create_server()
+    raw = _call_tool(server, "fetch_data_product", {
+        "source_type": "cdaweb", "dataset_id": "x", "parameters": ["Bx"],
     })
     payload = json.loads(raw)
     assert payload["status"] == "error"
     assert payload["code"] != "invalid_arguments"
-    assert payload.get("tool") != "analyze_minvar_coordinatesArguments"
     # No raw pydantic leak: no doc URL, no echoed validation internals.
     assert "errors.pydantic.dev" not in raw
     assert "input_value" not in raw
     assert "ValidationError" not in raw
-    assert "out.csv" not in raw
     assert "\n" not in payload["message"]
     assert "/Users/" not in raw
 
@@ -3052,19 +2750,18 @@ def test_arg_validation_output_file_alias_reaches_minvar_body_no_pydantic_leak()
 def test_arg_validation_wrong_type_is_structured():
     """Wrong-typed arguments are summarized per-field without leaking the
     pydantic URL or the offending input values."""
-    server = create_server(include_analysis_tools=True)
-    raw = _call_tool(server, "render_tplot", {
-        "input_files": "not-a-list",
-        "output_file": 123,
-        "dpi": "abc",
+    server = create_server()
+    raw = _call_tool(server, "fetch_data_product", {
+        "source_type": 123,
+        "dataset_id": "x",
+        "parameters": "not-a-list",
     })
     payload = json.loads(raw)
     assert payload["status"] == "error"
     assert payload["code"] == "invalid_arguments"
     # Each offending argument is named.
-    assert "input_files" in payload["message"]
-    assert "output_file" in payload["message"]
-    assert "dpi" in payload["message"]
+    assert "source_type" in payload["message"]
+    assert "parameters" in payload["message"]
     # No pydantic doc URL or echoed input values.
     assert "errors.pydantic.dev" not in raw
     assert "not-a-list" not in raw
@@ -3073,12 +2770,11 @@ def test_arg_validation_wrong_type_is_structured():
 
 def test_valid_arguments_still_reach_tool_body():
     """A correctly-named/typed call must pass validation and reach the tool body
-    (here surfacing the analysis dependency_missing error, never the
-    invalid_arguments validation envelope)."""
-    server = create_server(include_analysis_tools=True)
-    raw = _call_tool(server, "analyze_minvar_coordinates", {
-        "input_file": "x.csv",
-        "output_dir": "/tmp/does-not-matter",
+    (here surfacing the invalid-source error, never the invalid_arguments
+    validation envelope)."""
+    server = create_server()
+    raw = _call_tool(server, "load_data_source", {
+        "source_type": "nope", "source_id": "x",
     })
     payload = json.loads(raw)
     # Reached the body: not intercepted by the argument-validation guard.

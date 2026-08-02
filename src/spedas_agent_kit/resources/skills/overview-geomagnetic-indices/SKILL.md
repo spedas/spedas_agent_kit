@@ -10,7 +10,7 @@ style `thm_gen_overplot` / `mms_overview_plot`) or for common geomagnetic indice
 (Dst, AE/AL/AU, Kp, SYM-H) to contextualize a near-Earth interval.
 
 This is intentionally an **intent-to-dataset/parameter recipe**, not a new backend.
-Plan first, then use the existing unified data layer and HAPI tools.
+Plan first, then use the existing unified data layer.
 
 ## First calls
 
@@ -21,20 +21,22 @@ Plan first, then use the existing unified data layer and HAPI tools.
    `load_data_source(source_type="cdaweb", source_id=<observatory>)`, then
    `browse_data_parameters(source_type="cdaweb", dataset_id=<dataset_id>)` before
    fetching.
-4. For HAPI OMNI context: use `browse_hapi_catalog(server_url="https://cdaweb.gsfc.nasa.gov/hapi", query="OMNI_HRO")`,
-   then `fetch_hapi_data(...)` with the dataset/parameters below. HAPI support
-   requires the optional `spedas-agent-kit[hapi]` extra; if unavailable, fall back to
-   CDAWeb discovery for the same OMNI dataset IDs.
+4. For OMNI context: `browse_data_sources(source_type="cdaweb", query="OMNI")`
+   (or `load_data_source(source_type="cdaweb", source_id="omni")`) discovers the
+   OMNI datasets, then `browse_data_parameters(source_type="cdaweb", dataset_id=...)`
+   and `fetch_data_product(source_type="cdaweb", dataset_id=..., parameters=[...],
+   start=..., stop=..., output_dir=...)` fetch the variables below via the unified
+   CDAWeb layer.
 
 ## Geomagnetic-index intent table
 
 | User intent | Preferred dataset / loader | Parameters / variables | Notes |
 |---|---|---|---|
 | Dst / ring-current context | PySPEDAS Kyoto `pyspedas.projects.kyoto.dst` (tplot `kyoto_dst`) | `kyoto_dst` | Verified local source: `pyspedas/projects/kyoto/load_dst.py`; Kyoto WDC data are acknowledged and redistribution-restricted. Use for field-model `dst` inputs when the agent/runtime can call PySPEDAS directly. |
-| SYM-H / high-cadence storm index | CDAWeb HAPI `OMNI_HRO_1MIN` or `OMNI_HRO2_1MIN` | `SYM_H` (plus `SYM_D`, `ASY_H`, `ASY_D` if requested) | Source evidence: PySPEDAS `load_geomagnetic_indices.py` lists OMNI variables `SYM_D`, `SYM_H`, `ASY_D`, `ASY_H`; CDAWeb HAPI catalog advertises OMNI HRO datasets. |
-| AE / AL / AU electrojet context | CDAWeb HAPI `OMNI_HRO_1MIN` / `OMNI_HRO2_1MIN`, or PySPEDAS Kyoto `load_ae` | `AE_INDEX`, `AL_INDEX`, `AU_INDEX`; Kyoto tplot variables `kyoto_ae`, `kyoto_al`, `kyoto_au` when available | Prefer OMNI HAPI for MCP artifact fetches; use Kyoto loader when exact Kyoto WDC AE products are needed. |
+| SYM-H / high-cadence storm index | CDAWeb `OMNI_HRO_1MIN` or `OMNI_HRO2_1MIN` | `SYM_H` (plus `SYM_D`, `ASY_H`, `ASY_D` if requested) | Source evidence: PySPEDAS `load_geomagnetic_indices.py` lists OMNI variables `SYM_D`, `SYM_H`, `ASY_D`, `ASY_H`; CDAWeb catalog advertises OMNI HRO datasets. |
+| AE / AL / AU electrojet context | CDAWeb `OMNI_HRO_1MIN` / `OMNI_HRO2_1MIN`, or PySPEDAS Kyoto `load_ae` | `AE_INDEX`, `AL_INDEX`, `AU_INDEX`; Kyoto tplot variables `kyoto_ae`, `kyoto_al`, `kyoto_au` when available | Prefer CDAWeb OMNI for MCP artifact fetches; use the Kyoto loader when exact Kyoto WDC AE products are needed. |
 | Kp / T89 activity class | PySPEDAS NOAA/GFZ `noaa_load_kp` | `Kp` (also `ap`, `Kp_Sum`, etc.) | Source evidence: `pyspedas/projects/noaa/noaa_load_kp.py`; use `pyspedas.geopack.kp2iopt` to convert to T89 `iopt` if running PySPEDAS code. |
-| Solar-wind dynamic pressure for Tsyganenko models | CDAWeb/HAPI `OMNI_HRO_1MIN` | `Pressure`, `BY_GSM`, `BZ_GSM` | Pair with Dst for T96/T01/TS04-style external-field parameters. |
+| Solar-wind dynamic pressure for Tsyganenko models | CDAWeb `OMNI_HRO_1MIN` | `Pressure`, `BY_GSM`, `BZ_GSM` | Pair with Dst for T96/T01/TS04-style external-field parameters. |
 
 ## Standard overview starting points
 
@@ -55,8 +57,9 @@ because CDAWeb variable names differ by product/version.
   `output_dir` so provenance remains clear.
 - For bulk data, never paste arrays; return only artifact paths, variable names,
   record counts, and provenance.
-- If the user asks for plotting, use `render_tplot` when the `[analysis]` extra is
-  available; otherwise produce fetch artifacts and a reproducible next-step note.
+- If the user asks for plotting, produce the fetch artifacts and a reproducible
+  next-step note (e.g. a local PySPEDAS/matplotlib script); the MCP server no
+  longer ships rendering tools.
 
 ## Source evidence recorded for this skill
 
