@@ -88,7 +88,7 @@
         "DAWN_HELIO1HR_POSITION": {
           "description": "Position in heliocentric coordinates from SPDF Helioweb - Natalia Papitashvili (NASA/GSFC/SPDF)",
           "start_date": "2007-09-28T00:00:00.000Z",
-          "stop_date": "2043-10-29T23:00:00.000Z",
+          "stop_date": "2018-10-31T23:00:00.000Z",
           "pi_name": "Natalia Papitashvili"
         },
         "URANUS_HELIO1HR_POSITION": {

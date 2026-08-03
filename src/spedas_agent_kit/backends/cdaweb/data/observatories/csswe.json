@@ -133,13 +133,15 @@
           "description": "NO density, 100 - 150 km, geomagnetic coordinates  - Charles A. Barth (LASP/CU)",
           "start_date": "1998-03-11T00:48:16.000Z",
           "stop_date": "2000-09-30T19:10:39.000Z",
-          "pi_name": "Charles A. Barth"
+          "pi_name": "Charles A. Barth",
+          "doi": "10.48322/b06s-ny55"
         },
         "SNOE_L3_GEO": {
           "description": "NO density, 100 - 150 km, geographic coordinates  - Charles A. Barth (LASP/CU)",
           "start_date": "1998-03-11T00:44:55.000Z",
           "stop_date": "2000-09-30T19:11:33.000Z",
-          "pi_name": "Charles A. Barth"
+          "pi_name": "Charles A. Barth",
+          "doi": "10.48322/nst7-j547"
         }
       }
     },
