@@ -803,7 +803,7 @@ MISSION_KERNELS: dict[str, dict[str, str]] = {
 SEGMENTED_MISSIONS: dict[str, str] = {
     "CASSINI": "cassini.json",
     "MRO": "mro.json",
-    "MARS_2020": "mars2020.json",
+    "MARS_2020": "mars2020.json",  # Cruise only (2020-07-17..2021-02-18): surface-era SPKs reference Mars body center 499, absent from de440s.bsp
     "LRO": "lro.json",
     "LUNAR_PROSPECTOR": "lunar_prospector.json",
     "MGS": "mgs.json",
@@ -813,7 +813,13 @@ SEGMENTED_MISSIONS: dict[str, str] = {
     "GRAIL_A": "grail.json",
     "GRAIL_B": "grail.json",  # Same SPK files contain both spacecraft
     "MAGELLAN": "magellan.json",
-    "EXOMARS_TGO": "exomars_tgo.json",
+    # EXOMARS_TGO intentionally NOT listed (has_kernels=False): the NAIF COG SPKs
+    # (em16_tgo_cog_*) are cumulative weekly files (322 segments, ~15 GB per query
+    # window) and the COG segment (-143000) is stored in the TGO_SPACECRAFT CK
+    # frame, so a position chain needs TGO attitude CKs + SCLK in addition to the
+    # orbit SPK + FK. TGO orbit SPKs alone (-143, fap/fsp/flp series) are likewise
+    # cumulative and oversized; the mission is marked unsupported rather than
+    # shipping a manifest that triggers unusable/oversized downloads.
     "CHANDRAYAAN_1": "chandrayaan1.json",
 }
 
@@ -828,7 +834,7 @@ _KERNEL_BODY_IDS: dict[str, int] = {
     "CONTOUR": -200,      # Kernel uses -200, not -36
     "IUE": -110637,       # Kernel uses -110637, not -43
     "VEGA_1": -66,        # Kernel uses -66, not -11
-    "EXOMARS_TGO": -143000,  # COG kernels use -143000, not -143
+    # EXOMARS_TGO removed: COG kernels (-143000) are no longer shipped (unsupported, see SEGMENTED_MISSIONS)
 }
 
 
