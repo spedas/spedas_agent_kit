@@ -130,14 +130,14 @@
           "description": "MESSENGER EPPS Engineering and Status Information Data Collection",
           "start_date": "2004-08-16",
           "stop_date": "2007-08-25",
-          "slot": "/data/mess-epps-raw/data/status",
+          "slot": "/data/mess-epps-raw/data-status",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-raw:data-long-status": {
           "description": "MESSENGER EPPS Engineering and Long Status Information Data Collection",
           "start_date": "2007-09-06",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-raw/data/long-status",
+          "slot": "/data/mess-epps-raw/data-long-status",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-eps-raw:data-hi-housekeeping": {
@@ -192,7 +192,7 @@
           "description": "MESSENGER EPPS FIPS Derived Energy Spectra Data Collection",
           "start_date": "2011-03-23",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/espec",
+          "slot": "/data/mess-epps-fips-derived/data-fips-espec",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-fips-calibrated:data-hires-p-v": {
@@ -213,14 +213,14 @@
           "description": "MESSENGER EPPS FIPS Derived Pitch Angle Distributions Data Collection",
           "start_date": "2011-03-23",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/pchang",
+          "slot": "/data/mess-epps-fips-derived/data-fips-pchang",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-fips-derived:data-fluxmap": {
           "description": "MESSENGER EPPS FIPS Angular Flux Map Data Collection",
           "start_date": "2011-03-26",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/fluxmap",
+          "slot": "/data/mess-epps-fips-derived/data-fips-fluxmap",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-fips-raw:data-pulse-height": {
@@ -248,7 +248,7 @@
           "description": "MESSENGER EPPS FIPS Derived Viewing Normalization Data Collection",
           "start_date": "2008-01-14",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/rotmso",
+          "slot": "/data/mess-epps-fips-derived/data-fips-rotmo",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-fips-calibrated:data-med-spec": {
@@ -262,7 +262,7 @@
           "description": "MESSENGER EPPS FIPS Derived Observed Density Data Collection",
           "start_date": "2011-03-23",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/nobs",
+          "slot": "/data/mess-epps-fips-derived/data-fips-nobs",
           "archive_type": 4
         },
         "pds3:MESS-E/V/H/SW-EPPS-3-FIPS-CDR-V1.0": {
@@ -276,7 +276,7 @@
           "description": "MESSENGER EPPS FIPS Derived Kinetic Properties Data Collection",
           "start_date": "2011-03-26",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/ntp",
+          "slot": "/data/mess-epps-fips-derived/data-fips-ntp",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-fips-raw:data-hi-housekeeping": {
@@ -304,7 +304,7 @@
           "description": "MESSENGER EPPS FIPS Derived Energy-Resolved Pitch Angle Distributions Data Collection",
           "start_date": "2011-03-26",
           "stop_date": "2015-04-30",
-          "slot": "/data/mess-epps-fips-derived/data/erpchang",
+          "slot": "/data/mess-epps-fips-derived/data-fips-erpchang",
           "archive_type": 4
         },
         "urn:nasa:pds:mess-epps-fips-calibrated:data-pha": {
@@ -385,8 +385,9 @@
           "description": "MESSENGER Magnetic Field Map Data Collection",
           "start_date": "",
           "stop_date": "",
-          "slot": "/data/mess-mag-field-map/data",
-          "archive_type": 4
+          "slot": "/data/mess-mag-crustal-field-map/data",
+          "archive_type": 4,
+          "note": "PPI hosts this data under the mess-mag-crustal-field-map bundle; pointed slot at the real parent collection."
         },
         "urn:nasa:pds:mess-mag-raw:data-bstlog": {
           "description": "MESSENGER MAG Burst Science Log Data Collection",

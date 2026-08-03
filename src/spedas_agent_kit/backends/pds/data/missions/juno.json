@@ -165,8 +165,8 @@
         },
         "pds3:JNO-E/J/SS-WAV-2-EDR-V1.0:DATA": {
           "description": "VOLUME 0000: JUNO WAVES STANDARD RAW PRODUCTS : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2011-08-09",
+          "stop_date": "2025-10-27",
           "slot": "/data/JNO-E_J_SS-WAV-2-EDR-V1.0/DATA",
           "archive_type": 3
         },

@@ -394,8 +394,8 @@
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT4-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2013-01-01",
+          "stop_date": "2014-12-31",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT4-V1.0",
           "archive_type": 3
         },
@@ -450,8 +450,8 @@
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT4-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2013-01-01",
+          "stop_date": "2014-12-31",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT4-V1.0/DATA",
           "archive_type": 3
         },
@@ -477,22 +477,22 @@
       "datasets": {
         "pds3:MEX-M-MARSIS-5-DDR-ELEDENS/BMAG-EXT5V1.0": {
           "description": "VOLUME 6: ORBITS 13960 TO 16460",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2014-12-31",
+          "stop_date": "2016-12-29",
           "slot": "/data/MEX-M-MARSIS-5-DDR-ELEDENS-BMAG-EXT5-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-5-DDR-ELEDENS/BMAG-V1.0": {
           "description": "VOLUME 1: ORBITS 1844 TO 2540",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2005-06-22",
+          "stop_date": "2006-01-03",
           "slot": "/data/MEX-M-MARSIS-5-DDR-ELEDENS_BMAG-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT4-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2013-01-01",
+          "stop_date": "2014-12-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT4-V1.0",
           "archive_type": 3
         },
@@ -505,8 +505,8 @@
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT3-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2009-05-01",
+          "stop_date": "2012-12-31",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT3-V1.0",
           "archive_type": 3
         }
@@ -518,50 +518,50 @@
       "datasets": {
         "pds3:MEX-M-MARSIS-3-RDR-AIS-EXT8-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS IONOSPHERE DATA",
-          "start_date": "",
+          "start_date": "2021-01-01",
           "stop_date": "",
           "slot": "/data/MEX-M-MARSIS-3-RDR-AIS-EXT8-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT2-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2007-11-01",
+          "stop_date": "2009-04-30",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT2-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT7-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2019-01-01",
+          "stop_date": "2019-12-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT7-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT5-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2015-01-01",
+          "stop_date": "2016-12-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT5-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT7-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2019-01-01",
+          "stop_date": "2019-12-29",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT7-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-5-DDR-SS-TEC-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2005-06-01",
+          "stop_date": "2005-12-31",
           "slot": "/data/MEX-M-MARSIS-5-DDR-SS-TEC-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT3-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2009-05-01",
+          "stop_date": "2012-12-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT3-V1.0",
           "archive_type": 3
         },
@@ -574,8 +574,8 @@
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT7-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2019-01-01",
+          "stop_date": "2019-12-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT7-V1.0/DATA",
           "archive_type": 3
         },
@@ -588,7 +588,7 @@
         },
         "pds3:MEX-M-MARSIS-3-RDR-AIS-EXT8-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS IONOSPHERE DATA : DATA",
-          "start_date": "",
+          "start_date": "2021-01-01",
           "stop_date": "",
           "slot": "/data/MEX-M-MARSIS-3-RDR-AIS-EXT8-V1.0/DATA",
           "archive_type": 3
@@ -602,29 +602,29 @@
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT2-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2007-11-01",
+          "stop_date": "2009-04-30",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT2-V1.0/DATA",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT6-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2017-01-01",
+          "stop_date": "2017-06-20",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT6-V1.0/DATA",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT7-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2019-01-01",
+          "stop_date": "2019-12-29",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT7-V1.0/DATA",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-5-DDR-SS-TEC-V1.0:DATA": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS DATA : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2005-06-01",
+          "stop_date": "2005-12-31",
           "slot": "/data/MEX-M-MARSIS-5-DDR-SS-TEC-V1.0/DATA",
           "archive_type": 3
         },
@@ -637,50 +637,50 @@
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT6-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2017-01-01",
+          "stop_date": "2017-06-20",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT6-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT5-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2015-01-03",
+          "stop_date": "2016-12-30",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT5-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT6-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2017-01-01",
+          "stop_date": "2017-12-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT6-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-V2.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2005-05-21",
+          "stop_date": "2005-11-30",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-V2.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-3-RDR-SS-EXT1-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS SUBSURFACE DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2005-12-01",
+          "stop_date": "2007-10-31",
           "slot": "/data/MEX-M-MARSIS-3-RDR-SS-EXT1-V1.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-5-DDR-ELEDENS/BMAG-EXT4V1.0:DATA": {
           "description": "VOLUME 5: ORBITS 11450 TO 13960 : DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2012-12-30",
+          "stop_date": "2014-12-31",
           "slot": "/data/MEX-M-MARSIS-5-DDR-ELEDENS-BMAG-EXT4-V1.0/DATA",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT2-V1.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2007-11-01",
+          "stop_date": "2009-04-30",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT2-V1.0",
           "archive_type": 3
         },
@@ -693,15 +693,15 @@
         },
         "pds3:MEX-M-MARSIS-2-EDR-V2.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2003-06-16",
+          "stop_date": "2005-11-30",
           "slot": "/data/MEX-M-MARSIS-2-EDR-V2.0",
           "archive_type": 3
         },
         "pds3:MEX-M-MARSIS-5-DDR-ELEDENS/BMAG-EXT4V1.0": {
           "description": "VOLUME 5: ORBITS 11450 TO 13960",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2012-12-30",
+          "stop_date": "2014-12-31",
           "slot": "/data/MEX-M-MARSIS-5-DDR-ELEDENS-BMAG-EXT4-V1.0",
           "archive_type": 3
         },
@@ -714,8 +714,8 @@
         },
         "pds3:MEX-M-MARSIS-2-EDR-EXT1-V2.0": {
           "description": "VOLUME 1: MARS EXPRESS MARSIS RAW DATA",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "2005-12-01",
+          "stop_date": "2007-10-31",
           "slot": "/data/MEX-M-MARSIS-2-EDR-EXT1-V2.0",
           "archive_type": 3
         }

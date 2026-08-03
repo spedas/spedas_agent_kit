@@ -29,49 +29,56 @@
           "start_date": "2006-01-19",
           "stop_date": "2007-01-01",
           "slot": "/data/NH-X-PEPSSI-3-LAUNCH-V1.1",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-X-PEPSSI-2-LAUNCH-V1.1": {
           "description": "NEW HORIZONS PEPSSI POST-LAUNCH CHECKOUT RAW",
           "start_date": "2006-01-19",
           "stop_date": "2007-01-01",
           "slot": "/data/NH-X-PEPSSI-2-LAUNCH-V1.1",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-J-PEPSSI-2-JUPITER-V1.1": {
           "description": "NEW HORIZONS PEPSSI JUPITER ENCOUNTER RAW",
           "start_date": "2007-01-01",
           "stop_date": "2007-06-27",
           "slot": "/data/NH-J-PEPSSI-2-JUPITER-V1.1",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-J-PEPSSI-3-JUPITER-V1.1": {
           "description": "NEW HORIZONS PEPSSI JUPITER ENCOUNTER CALIBRATED",
           "start_date": "2007-01-01",
           "stop_date": "2007-06-27",
           "slot": "/data/NH-J-PEPSSI-3-JUPITER-V1.1",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-P-PEPSSI-2-PLUTO-V3.0": {
           "description": "NEW HORIZONS PEPSSI PLUTO ENCOUNTER RAW",
           "start_date": "2015-01-14",
           "stop_date": "2016-10-29",
           "slot": "/data/NH-P-PEPSSI-2-PLUTO-V3.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-P-PEPSSI-3-PLUTO-V3.0": {
           "description": "NEW HORIZONS PEPSSI PLUTO ENCOUNTER CALIBRATED",
           "start_date": "2015-01-14",
           "stop_date": "2016-10-29",
           "slot": "/data/NH-P-PEPSSI-3-PLUTO-V3.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-P-PEPSSI-4-PLASMA-V1.0": {
           "description": "NEW HORIZONS PEPSSI PLUTO ENCOUNTER DERIVED DATA",
           "start_date": "2015-07-12",
           "stop_date": "2015-07-16",
           "slot": "/data/NH-P-PEPSSI-4-PLASMA-V1.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         }
       }
     },
@@ -88,35 +95,40 @@
           "start_date": "2007-01-07",
           "stop_date": "2007-06-20",
           "slot": "/data/NH-J-SWAP-2-JUPITER-V4.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-J-SWAP-3-JUPITER-V4.0": {
           "description": "NEW HORIZONS SWAP JUPITER ENCOUNTER CALIBRATED",
           "start_date": "2007-01-07",
           "stop_date": "2007-06-20",
           "slot": "/data/NH-J-SWAP-3-JUPITER-V4.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-X-SWAP-2-LAUNCH-V2.0": {
           "description": "NEW HORIZONS SWAP POST-LAUNCH CHECKOUT RAW",
           "start_date": "2006-01-19",
           "stop_date": "2007-01-01",
           "slot": "/data/NH-X-SWAP-2-LAUNCH-V2.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-X-SWAP-3-LAUNCH-V2.0": {
           "description": "NEW HORIZONS SWAP POST-LAUNCH CHECKOUT CALIBRATED",
           "start_date": "2006-01-19",
           "stop_date": "2007-01-01",
           "slot": "/data/NH-X-SWAP-3-LAUNCH-V2.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:NH-P-SWAP-5-DERIVED-SOLARWIND-V1.0": {
           "description": "NEW HORIZONS SWAP SOLAR WIND DATA AT PLUTO",
           "start_date": "2015-07-14",
           "stop_date": "2015-07-14",
           "slot": "/data/NH-P-SWAP-5-DERIVED-SOLARWIND-V1.0",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         }
       }
     }
