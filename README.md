@@ -201,6 +201,18 @@ These remain available for clients that already know the source-specific browse/
 
 The former dedicated cache tools (`manage_cdaweb_cache`, `manage_pds_cache`, `manage_spice_kernels`) are no longer advertised as MCP tools because their actions and kwargs are covered by `manage_data_cache`. See `docs/public_api_strategy.md` for the compatibility map and deprecation guidance.
 
+## PDS PPI archive tree map
+
+`data/pds_archive_map.json` is a crawled map of the PDS Planetary Plasma Interactions (PPI) node's public archive tree (`https://pds-ppi.igpp.ucla.edu/data`, an Apache autoindex-style listing). It is produced by `scripts/crawl_pds_archive.py` and refreshed the same way:
+
+```
+python scripts/crawl_pds_archive.py --limit 2000 --max-depth 8 --workers 6
+python scripts/crawl_pds_archive.py --resume            # continue a partial crawl
+python scripts/crawl_pds_archive.py --consolidate-only  # rebuild asset from JSONL sidecar
+```
+
+Each directory node records its relative path, URL, depth, child directory names, file count, min/max child mtime, aggregate file size (when the listing exposes it), and a `is_leaf` flag marking folders that contain data files and no subdirectories. Crawls are bounded by `--limit` (directory listings), `--max-depth`, and an optional `--max-time`; per-node HTTP errors are recorded and never abort the crawl. The committed asset is a bounded sample (2005 directory nodes, 840 leaf data folders as of the crawl); nodes whose children were not expanded are flagged with `children_explored: false`.
+
 ## Recommended agent workflow
 
 1. Call `spedas_overview()`.
