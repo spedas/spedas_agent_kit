@@ -2,6 +2,12 @@
 
 `spedas_agent_kit` is the SPEDAS organization MCP server for agentic heliophysics workflows. It presents one SPEDAS-facing **data layer** and organizes capabilities by data source category instead of by the internal backend packages used to implement them.
 
+[![CI](https://github.com/spedas/spedas_agent_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/spedas/spedas_agent_kit/actions/workflows/ci.yml)
+
+> **Status: alpha, source-only.** `spedas-agent-kit` is pre-1.0
+> (`Development Status :: 3 - Alpha` in `pyproject.toml`) and is **not published
+> on PyPI**; install it from the official source checkout below.
+
 The current design follows Jason's A+B direction:
 
 - **A. SPEDAS data layer** — one unified entry point for source categories such as `cdaweb`, `pds`, and `spice`/geometry.
@@ -15,6 +21,7 @@ Implementation backend packages should stay visible to maintainers, but they sho
 - Python package name: `spedas-agent-kit`
 - Python module / CLI module: `spedas_agent_kit`
 - Canonical shared skills: `src/spedas_agent_kit/resources/skills/` (packaged with the kit; wrappers should stay thin)
+- MCP skill resources: `spedas-skill://index` lists the packaged skills and `spedas-skill://skills/<skill-name>` returns the full `SKILL.md`; skills are exposed as resources rather than extra tools.
 - Default MCP tool count: 13 (legacy CDAWeb/PDS compatibility tools are conditionally registered); advertised tools carry MCP `ToolAnnotations` plus `meta.surface` (`primary` or `compat`) so launchers can filter by surface and side-effect hints.
 
 ## Practical guide: run a SPEDAS Agent Kit study
@@ -222,6 +229,13 @@ git clone https://github.com/spedas/spedas_agent_kit.git
 cd spedas_agent_kit
 uv sync --extra dev --extra mcp
 uv run --extra mcp python -m spedas_agent_kit
+```
+
+Source-checkout install with pip works too (the package is not published on PyPI):
+
+```bash
+python -m pip install .
+python -m pip install '.[mcp]'
 ```
 
 Run tests and smoke checks:

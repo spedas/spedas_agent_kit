@@ -6,7 +6,7 @@ import types
 from pathlib import Path
 
 from spedas_agent_kit import __version__
-from spedas_agent_kit.server import create_server
+from spedas_agent_kit.server import COMPAT_TOOL_NAMES, create_server
 
 COMPAT_CDAWEB_PDS_TOOLS = {
     "browse_observatories",
@@ -18,7 +18,6 @@ COMPAT_CDAWEB_PDS_TOOLS = {
     "browse_pds_parameters",
     "fetch_pds_data",
 }
-
 
 def _call_tool(server, name, args=None):
     args = args or {}
@@ -50,10 +49,38 @@ def test_server_has_expected_tools(monkeypatch):
         "get_ephemeris",
         "compute_distance",
         "transform_coordinates",
+
     } <= names
     assert {"manage_cdaweb_cache", "manage_pds_cache", "manage_spice_kernels"}.isdisjoint(names)
     assert {"list_spice_missions", "list_coordinate_frames"}.isdisjoint(names)
     assert names.isdisjoint(COMPAT_CDAWEB_PDS_TOOLS)
+
+
+def test_base_surface_is_thirteen_primary_tools(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
+    names = {tool.name for tool in tools}
+    assert len(tools) == 13
+    assert {tool.meta["surface"] for tool in tools} == {"primary"}
+    assert {"load_omni", "kyoto_dst", "load_ae", "noaa_load_kp"}.isdisjoint(names)
+    assert {"themis_fgm", "themis_state", "load_themis", "themis_esa", "themis_sst", "themis_scm"}.isdisjoint(names)
+    assert {"mms_fgm", "mms_fpi", "mms_hpca", "mms_curlometer", "load_mms", "pyspedas_mms_fgm"}.isdisjoint(names)
+
+
+def test_public_server_manifest_advertises_gate_env_flags():
+    root = Path(__file__).resolve().parents[1]
+    server_manifest = json.loads((root / "server.json").read_text(encoding="utf-8"))
+    manifest_env = {
+        env["name"]
+        for package in server_manifest.get("packages", [])
+        for env in package.get("environmentVariables", [])
+    }
+    # The one-MCP cleanup left a single tool gate: the compat gate. No other
+    # SPEDAS_AGENT_KIT_* tool-gate env flag exists in the public manifest.
+    assert "SPEDAS_AGENT_KIT_COMPAT_TOOLS" in manifest_env
+    tool_gates = {name for name in manifest_env if name.startswith("SPEDAS_AGENT_KIT_")}
+    assert tool_gates == {"SPEDAS_AGENT_KIT_COMPAT_TOOLS"}
 
 
 def test_server_advertises_cdaweb_pds_compat_tools_when_flag_set(monkeypatch):
@@ -85,10 +112,25 @@ def test_overview_advertises_geomagnetic_index_recipe(monkeypatch):
     data = json.loads(_call_tool(server, "spedas_overview"))
     recipes = data["guided_recipes"]
     assert recipes["overview_skill"] == "overview-geomagnetic-indices"
+    assert recipes["overview_skill_resource"] == "spedas-skill://skills/overview-geomagnetic-indices"
     geomag = {entry["intent"]: entry for entry in recipes["geomagnetic_indices"]}
     assert any("Dst" in intent for intent in geomag)
     assert any("Kp" in entry["variables"] for entry in geomag.values())
     assert any("SYM_H" in entry["variables"] for entry in geomag.values())
+    allowed_mcp_tools = {"browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"}
+    for entry in geomag.values():
+        route = entry["mcp_first_route"]
+        assert route["skill_resource"] == "spedas-skill://skills/overview-geomagnetic-indices"
+        assert route["source_type"] == "cdaweb"
+        assert set(route["tools"]) <= allowed_mcp_tools
+        assert route["candidate_dataset_ids"]
+        assert route["parameters_to_browse"]
+        if "pyspedas." in entry.get("dataset_or_loader", ""):
+            external = entry["external_runtime_route"]
+            assert external["not_an_mcp_tool"] is True
+            assert external["available_only_if_runtime_can_import_pyspedas"] is True
+            assert external["loader"].startswith("pyspedas.")
+            assert "MCP-only clients should follow mcp_first_route" in external["install_hint"]
     assert "MMS1_FGM_SRVY_L2" in recipes["mission_overview_starting_points"]["MMS"]
     assert "THA_L2_FGM" in recipes["mission_overview_starting_points"]["THEMIS"]
 
@@ -184,6 +226,52 @@ def test_browse_data_sources_cdaweb_dataset_query_themis_fgm_and_negative():
     negative = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "cdaweb", "query": "zzzz notarealproduct"}))
     assert negative["status"] == "success"
     assert negative["payload"] == []
+
+
+def test_browse_data_sources_pds_matches_single_token_query():
+    # Regression for issue #133: a single recognizable mission token must surface
+    # the matching PDS mission instead of an empty payload.
+    server = create_server()
+    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": "juno"}))
+    assert data["status"] == "success"
+    ids = [entry["id"] for entry in data["payload"]]
+    assert "JUNO_PPI" in ids
+
+
+def test_browse_data_sources_pds_matches_multiword_query_by_term():
+    # Regression for issue #133: a multi-word query whose mission token clearly
+    # matches must not silently return an empty payload just because the whole
+    # phrase is not a contiguous substring of the record.
+    server = create_server()
+    for query in ("juno magnetometer", "Juno spacecraft", "juno mag"):
+        data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": query}))
+        assert data["status"] == "success", query
+        ids = [entry["id"] for entry in data["payload"]]
+        assert "JUNO_PPI" in ids, f"expected Juno PDS mission to surface for query {query!r}, got {ids}"
+
+
+def test_browse_data_sources_pds_negative_query_returns_empty():
+    server = create_server()
+    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "pds", "query": "zzzz notarealmission"}))
+    assert data["status"] == "success"
+    assert data["payload"] == []
+
+
+def test_browse_data_sources_spice_matches_multiword_query_by_term():
+    # Regression for issue #133: SPICE multi-word queries must match by token too.
+    server = create_server()
+    for query in ("juno magnetometer", "Juno spacecraft", "juno jupiter"):
+        data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "spice", "query": query}))
+        assert data["status"] == "success", query
+        keys = [entry.get("mission_key") for entry in data["payload"]]
+        assert "JUNO" in keys, f"expected Juno SPICE mission to surface for query {query!r}, got {keys}"
+
+
+def test_browse_data_sources_spice_negative_query_returns_empty():
+    server = create_server()
+    data = json.loads(_call_tool(server, "browse_data_sources", {"source_type": "spice", "query": "zzzz notarealmission"}))
+    assert data["status"] == "success"
+    assert data["payload"] == []
 
 
 def test_browse_data_sources_discovers_curated_omni_and_geomagnetic_indices():
@@ -284,8 +372,60 @@ def test_create_spedas_analysis_bundle_writes_plan_files(tmp_path: Path):
         "data_sources": ["pds", "spice"],
     }))
     assert data["status"] == "success"
+    readme_text = Path(data["paths"]["readme"]).read_text(encoding="utf-8")
+    provenance_note_text = Path(data["paths"]["provenance_note"]).read_text(
+        encoding="utf-8"
+    )
+    assert "spedas-preset://schemas/analysis_bundle_run" in readme_text
+    assert "provenance/run.json" in readme_text
+    assert "tool_calls" in readme_text
+    assert "spedas-preset://schemas/analysis_bundle_run" in provenance_note_text
+    assert "Minimal entry shapes" in provenance_note_text
+    assert "source_tool" in provenance_note_text
     assert Path(data["paths"]["readme"]).exists()
     assert Path(data["paths"]["request_plan"]).exists()
+    run_provenance_path = Path(data["paths"]["run_provenance"])
+    assert run_provenance_path.exists()
+    run_provenance = json.loads(run_provenance_path.read_text())
+    assert run_provenance["schema_version"] == "spedas-analysis-bundle-run-v1"
+    assert run_provenance["created_by"] == "spedas_agent_kit.create_spedas_analysis_bundle"
+    assert run_provenance["study_name"] == "Juno Jupiter geometry test"
+    assert run_provenance["science_goal"] == "Plan a Juno magnetic field and geometry study"
+    assert run_provenance["target"] == "Jupiter"
+    assert run_provenance["requested_data_sources"] == ["pds", "spice"]
+    assert run_provenance["recommended_sources"] == ["pds", "spice"]
+    # ``run.json`` seeds normalized POSIX bundle-relative paths so the record
+    # stays meaningful after the bundle is relocated; the public MCP result
+    # keeps directly usable absolute filesystem paths for the same locations.
+    # Prove the correspondence by resolving each absolute MCP path relative to
+    # the returned bundle_dir and comparing it against the seeded relative
+    # value exactly, rather than a permissive string suffix check (a
+    # differently-named sibling directory sharing a suffix, e.g.
+    # "other_data" vs "data", would slip past ``endswith``).
+    bundle_dir = Path(data["bundle_dir"])
+    assert bundle_dir.is_absolute()
+    assert run_provenance["plan_path"] == "requests/spedas_plan.json"
+    assert not Path(run_provenance["plan_path"]).is_absolute()
+    request_plan_path = Path(data["paths"]["request_plan"])
+    assert request_plan_path.is_absolute()
+    assert request_plan_path.relative_to(bundle_dir).as_posix() == run_provenance["plan_path"]
+    assert run_provenance["artifact_dirs"] == {
+        "requests": "requests",
+        "data": "data",
+        "plots": "plots",
+        "provenance": "provenance",
+        "notes": "notes",
+    }
+    for name, relative_dir in run_provenance["artifact_dirs"].items():
+        assert not Path(relative_dir).is_absolute()
+        artifact_dir_path = Path(data["paths"][name])
+        assert artifact_dir_path.is_absolute()
+        assert artifact_dir_path.relative_to(bundle_dir).as_posix() == relative_dir
+    assert run_provenance["resource_hints"]["skill_index_uri"] == "spedas-skill://index"
+    assert run_provenance["resource_hints"]["provenance_schema_uri"] == "spedas-preset://schemas/analysis_bundle_run"
+    assert run_provenance["tool_calls"] == []
+    assert run_provenance["artifacts"] == []
+    assert run_provenance["caveats"] == []
     assert data["recommended_sources"] == ["pds", "spice"]
 
 
@@ -367,6 +507,84 @@ def test_browse_spice_sources_also_advertises_frame_catalog_for_discovery():
     assert data["frame_catalog"]["frames"]
     assert "GSE" in data["supported_frame_names"]
     assert "transform_coordinates" in data["note"]
+
+
+# Issue #134: load_data_source(spice, <mission>) must return mission-specific
+# SPICE metadata (NAIF id, kernel files, cache status) instead of silently
+# ignoring source_id and always returning the global frame catalog.
+
+
+def test_load_data_source_spice_empty_source_id_returns_global_frame_catalog():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": ""}))
+    assert loaded["status"] == "success"
+    assert loaded["source_type"] == "spice"
+    # Empty source_id keeps the legacy global coordinate-frame catalog behavior.
+    assert loaded["frame_catalog"]["catalog_type"] == "spice_coordinate_frames"
+    assert loaded["frame_catalog"]["frames"] == loaded["payload"]
+    # No mission-specific metadata leaks into the global catalog response.
+    assert "naif_id" not in loaded
+    assert "mission" not in loaded
+
+
+def test_load_data_source_spice_juno_returns_mission_metadata():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "JUNO"}))
+    assert loaded["status"] == "success"
+    assert loaded["source_type"] == "spice"
+    # Juno is NAIF -61 with the juno_rec_orbit.bsp SPK (issue #134).
+    assert loaded["naif_id"] == -61
+    assert loaded["mission"] == "JUNO"
+    payload = loaded["payload"]
+    assert payload["naif_id"] == -61
+    assert payload["mission_key"] == "JUNO"
+    assert "juno_rec_orbit.bsp" in payload["kernel_files"]
+    # Cache status is reported without downloading anything.
+    assert "cached" in payload["kernel_status"]
+    # Frame support is not falsely claimed for mission body frames.
+    assert payload["caveats"]
+
+
+def test_load_data_source_spice_juno_differs_from_global_frame_catalog():
+    server = create_server()
+    juno = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "JUNO"}))
+    glbl = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": ""}))
+    # Mission load must NOT return the global frame catalog.
+    assert juno["payload"] != glbl["payload"]
+    assert "frame_catalog" not in juno
+    assert glbl["frame_catalog"]["catalog_type"] == "spice_coordinate_frames"
+
+
+def test_load_data_source_spice_frames_keyword_still_returns_catalog():
+    server = create_server()
+    loaded = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "frames"}))
+    assert loaded["status"] == "success"
+    assert loaded["frame_catalog"]["catalog_type"] == "spice_coordinate_frames"
+
+
+def test_load_data_source_spice_unknown_mission_returns_structured_error():
+    server = create_server()
+    raw = _call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "NOT_A_MISSION"})
+    # No filesystem path may leak (issue #25 contract carried over).
+    assert "/Users/" not in raw
+    payload = json.loads(raw)
+    assert payload["status"] == "error"
+    assert payload["code"] == "unknown_source_id"
+    assert payload["source_id"] == "NOT_A_MISSION"
+    assert payload["source_type"] == "spice"
+
+
+def test_load_data_source_spice_mission_alias_resolves():
+    server = create_server()
+    # "Parker Solar Probe" is an alias for PSP (NAIF -96); aliases must resolve
+    # to the canonical mission metadata, not an unknown_source_id error.
+    loaded = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "spice",
+        "source_id": "Parker Solar Probe",
+    }))
+    assert loaded["status"] == "success"
+    assert loaded["naif_id"] == -96
+    assert loaded["mission"] == "PSP"
 
 
 def test_unified_pds_fetch_rejects_unsupported_limit_cleanly(tmp_path: Path):
@@ -1020,6 +1238,243 @@ def test_plan_spedas_observation_valid_interval_no_warning():
     assert data["time_range_warning"] is None
 
 
+# --- Issue #135: mission-aware canonical dataset / coverage / analysis guidance ---
+
+def _mms_magnetopause_plan(monkeypatch=None, analysis_available=None):
+    """Plan the canonical MMS magnetopause interval from issue #135.
+
+    When ``analysis_available`` is set, the workflow-level analysis probe is
+    monkeypatched so the test does not depend on whether the optional
+    ``[analysis]`` extra is installed in the running environment.
+    """
+    from spedas_agent_kit import workflows as workflows_mod
+
+    if analysis_available is not None:
+        assert monkeypatch is not None
+        monkeypatch.setattr(
+            workflows_mod, "_mva_analysis_available", lambda: analysis_available
+        )
+    server = create_server()
+    return json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": (
+            "Screen MMS1 for a magnetopause current-sheet crossing: check magnetic "
+            "field rotation (FGM), ion and electron moments (FPI), and spacecraft "
+            "position"
+        ),
+        "target": "Earth magnetopause",
+        "start": "2015-10-16T13:00:00Z",
+        "stop": "2015-10-16T13:20:00Z",
+    }))
+
+
+def _candidate_dataset_ids(data):
+    ids = []
+    for candidate in data.get("mission_dataset_candidates", []):
+        ids.extend(candidate.get("dataset_ids", []))
+    return ids
+
+
+def test_mms_magnetopause_plan_suggests_canonical_fgm_dataset():
+    data = _mms_magnetopause_plan()
+    assert data["status"] == "success"
+    assert "MMS1_FGM_SRVY_L2" in _candidate_dataset_ids(data)
+
+
+def test_mms_magnetopause_plan_suggests_fpi_ion_and_electron_moments():
+    data = _mms_magnetopause_plan()
+    ids = _candidate_dataset_ids(data)
+    assert "MMS1_FPI_FAST_L2_DIS-MOMS" in ids  # ion moments
+    assert "MMS1_FPI_FAST_L2_DES-MOMS" in ids  # electron moments
+
+
+def test_mms_magnetopause_plan_suggests_mec_ephemeris_dataset():
+    data = _mms_magnetopause_plan()
+    assert "MMS1_MEC_SRVY_L2_EPHT89D" in _candidate_dataset_ids(data)
+
+
+def test_mms_dataset_candidates_carry_per_probe_ids():
+    """A single-probe goal (MMS1) keeps probe 1, but the constellation pattern
+    is still discoverable so the agent can fan out to MMS2-4."""
+    data = _mms_magnetopause_plan()
+    fgm = next(
+        c for c in data["mission_dataset_candidates"]
+        if c["instrument"] == "FGM"
+    )
+    # The probe inferred from "MMS1" leads; the pattern documents the family.
+    assert "MMS1_FGM_SRVY_L2" in fgm["dataset_ids"]
+    assert fgm["dataset_id_pattern"] == "MMS{probe}_FGM_SRVY_L2"
+
+
+def test_mms_magnetopause_plan_reports_coverage_status_for_interval():
+    data = _mms_magnetopause_plan()
+    fgm = next(
+        c for c in data["mission_dataset_candidates"]
+        if c["instrument"] == "FGM"
+    )
+    coverage = fgm["coverage"]
+    # 2015-10-16 is inside MMS science coverage (starts 2015-09-01).
+    assert coverage["mission_start"] == "2015-09-01"
+    assert coverage["interval_within_coverage"] is True
+    assert coverage["status"] == "ok"
+
+
+def test_mms_plan_flags_interval_before_mission_coverage():
+    from spedas_agent_kit import workflows as workflows_mod
+
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "MMS1 FGM magnetic field survey near a magnetopause crossing",
+        "target": "Earth magnetopause",
+        "start": "2014-01-01T00:00:00Z",
+        "stop": "2014-01-01T01:00:00Z",
+    }))
+    fgm = next(
+        c for c in data["mission_dataset_candidates"]
+        if c["instrument"] == "FGM"
+    )
+    coverage = fgm["coverage"]
+    assert coverage["interval_within_coverage"] is False
+    assert coverage["status"] == "before_coverage"
+
+
+def test_mms_plan_includes_gse_gsm_frame_guidance():
+    data = _mms_magnetopause_plan()
+    fgm = next(
+        c for c in data["mission_dataset_candidates"]
+        if c["instrument"] == "FGM"
+    )
+    # FGM publishes both GSE and GSM; planning output must name them and warn
+    # about keeping the field and position frames consistent.
+    assert "gse" in [f.lower() for f in fgm["frames"]]
+    assert "gsm" in [f.lower() for f in fgm["frames"]]
+    blob = json.dumps(data).lower()
+    assert "gse" in blob and "gsm" in blob
+    assert "frame" in blob
+
+
+def test_mms_plan_warns_when_analysis_layer_unavailable(monkeypatch):
+    data = _mms_magnetopause_plan(monkeypatch, analysis_available=False)
+    availability = data["analysis_availability"]
+    assert availability["available"] is False
+    # MVA / moments are the downstream steps called out by issue #135.
+    blob = json.dumps(availability).lower()
+    assert "minvar" in blob or "mva" in blob or "minimum variance" in blob
+    # A concrete fallback path must be offered when the layer is missing.
+    assert availability["fallback"]
+    assert "pyspedas" in json.dumps(availability).lower()
+
+
+def test_mms_plan_reports_analysis_layer_available(monkeypatch):
+    data = _mms_magnetopause_plan(monkeypatch, analysis_available=True)
+    assert data["analysis_availability"]["available"] is True
+
+
+def test_mms_plan_analysis_availability_matches_registered_tools(monkeypatch):
+    """Planner analysis guidance must use the same full gate as MCP registration.
+
+    A partial PySPEDAS install may expose ``pyspedas.cotrans_tools.minvar`` while
+    still lacking particle/tplot/wavelet pieces required by the registered
+    analysis tool group. In that case the server hides analysis tools and the
+    planner must not tell the researcher those in-kit tools can run.
+    """
+    server = create_server()
+    names = {tool.name for tool in asyncio.run(server.list_tools())}
+    assert len(names) == 13  # no analysis tools are ever registered
+
+    data = _mms_magnetopause_plan()
+    assert data["analysis_availability"]["available"] is False
+    assert "removed in the one-MCP cleanup" in data["analysis_availability"]["guidance"]
+
+
+def test_mms_plan_adds_mission_guidance_phase():
+    data = _mms_magnetopause_plan()
+    assert any(step["phase"] == "mission_guidance" for step in data["plan"])
+
+
+# --- Issue #146: particle distribution -> moments/spectra path discoverability ---
+
+
+def test_mms_particle_plan_surfaces_dist_candidates_not_only_moms():
+    """A moments/PAD goal must reach the 3D *-DIST products (the external-runtime
+    particle inputs), not only the precomputed *-MOMS moments product (#146)."""
+    data = _mms_magnetopause_plan()
+    ids = _candidate_dataset_ids(data)
+    # The distribution products that feed external PySPEDAS particle analysis.
+    assert "MMS1_FPI_FAST_L2_DIS-DIST" in ids  # ion 3D distribution
+    assert "MMS1_FPI_FAST_L2_DES-DIST" in ids  # electron 3D distribution
+    # The precomputed moments products remain available for users who only want
+    # published moments.
+    assert "MMS1_FPI_FAST_L2_DIS-MOMS" in ids
+    assert "MMS1_FPI_FAST_L2_DES-MOMS" in ids
+
+
+def test_mms_dist_candidate_note_distinguishes_dist_from_moms():
+    """The DIS-DIST candidate note must route to the bridge and warn that
+    *-MOMS is not a valid in-kit distribution input (#146)."""
+    data = _mms_magnetopause_plan()
+    dist = next(
+        c for c in data["mission_dataset_candidates"]
+        if c["dataset_id_pattern"] == "MMS{probe}_FPI_FAST_L2_DIS-DIST"
+    )
+    note = dist["note"].lower()
+    assert "external pyspedas" in note
+    assert "moments_3d" in note or "spd_pgs_make" in note
+    assert "*-dist" in note
+    # MOMS candidate must say it is not a valid distribution input.
+    moms = next(
+        c for c in data["mission_dataset_candidates"]
+        if c["dataset_id_pattern"] == "MMS{probe}_FPI_FAST_L2_DIS-MOMS"
+    )
+    moms_note = moms["note"].lower()
+    assert "not a valid input" in moms_note or "not a valid distribution-artifact input" in moms_note
+
+
+def test_mms_plan_downstream_guidance_names_bridge_and_spectra():
+    """analysis_availability.downstream_steps must name the prerequisite bridge,
+    the required B-field/magf input, and the spectra/PAD path (#146)."""
+    data = _mms_magnetopause_plan()
+    blob = json.dumps(data["analysis_availability"]["downstream_steps"]).lower()
+    assert "minimum variance" in blob
+    assert "minvar" in blob
+    assert "particle moments" in blob
+    assert "particle spectra" in blob
+    assert "moments_3d" in blob
+    assert "spd_pgs_make" in blob
+    assert "*-dist" in blob
+    assert "in_kit_tool" not in blob
+
+
+def test_mms_plan_moments_step_carries_dist_prerequisite():
+    """The particle-moments downstream step must carry the *-DIST
+    prerequisite, not silently assume a distribution exists (#146)."""
+    data = _mms_magnetopause_plan()
+    steps = data["analysis_availability"]["downstream_steps"]
+    moments = next(
+        s for s in steps if s["analysis"] == "particle moments (density / velocity / temperature)"
+    )
+    pre = moments["prerequisite"].lower()
+    assert "-dist" in pre
+    assert "not a valid input" in pre
+
+
+def test_generic_plan_has_no_mission_dataset_candidates():
+    """A goal with no recognized mission/instrument mapping stays lean and
+    backward-compatible: the new keys exist but are empty, and the legacy plan
+    shape is untouched."""
+    server = create_server()
+    data = json.loads(_call_tool(server, "plan_spedas_observation", {
+        "science_goal": "Generic solar-wind survey",
+        "start": "2020-01-01T00:00:00Z",
+        "stop": "2020-01-02T00:00:00Z",
+        "data_sources": ["cdaweb"],
+    }))
+    assert data["status"] == "success"
+    assert data["mission_dataset_candidates"] == []
+    # Legacy contract preserved.
+    assert any(step["phase"] == "preserve_provenance" for step in data["plan"])
+    assert data["low_level_tools_remain_available"] is True
+
+
 def test_psp_perihelion_workflow_routes_to_cdaweb_and_spice():
     server = create_server()
     data = json.loads(_call_tool(server, "search_spedas_data_sources", {
@@ -1214,6 +1669,54 @@ def test_load_data_source_cdaweb_paginates_and_filters_mms_catalog():
         }))
         assert second["datasets_offset"] == first["datasets_next_offset"]
         assert {d["dataset_id"] for d in first["datasets"]}.isdisjoint({d["dataset_id"] for d in second["datasets"]})
+
+
+def test_load_data_source_cdaweb_themis_mag_prefers_spacecraft_bucket():
+    # Regression for issue #136: instrument="mag" on THEMIS must prefer the
+    # spacecraft "mag" bucket (which holds probe FGM) rather than being flooded
+    # by the much larger "ground_mag" bucket via substring matching.
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "themis",
+        "instrument": "mag",
+        "limit": 30,
+    }))
+    assert data["status"] == "success"
+    buckets = {entry["instrument"] for entry in data["datasets"]}
+    assert buckets == {"mag"}, f"expected only the spacecraft mag bucket, got {buckets}"
+    dataset_ids = {entry["dataset_id"] for entry in data["datasets"]}
+    assert {"THA_L2_FGM", "THB_L2_FGM"} <= dataset_ids
+    assert not any("THG_L2_MAG" in entry["dataset_id"] for entry in data["datasets"])
+
+
+def test_load_data_source_cdaweb_themis_fgm_finds_probe_fgm():
+    # Probe FGM must remain findable via instrument="fgm".
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "themis",
+        "instrument": "fgm",
+        "limit": 30,
+    }))
+    assert data["status"] == "success"
+    dataset_ids = {entry["dataset_id"] for entry in data["datasets"]}
+    assert {"THA_L2_FGM", "THB_L2_FGM", "THC_L2_FGM"} <= dataset_ids
+
+
+def test_load_data_source_cdaweb_themis_ground_mag_remains_discoverable():
+    # Ground magnetometers must stay reachable via the explicit bucket name.
+    server = create_server()
+    data = json.loads(_call_tool(server, "load_data_source", {
+        "source_type": "cdaweb",
+        "source_id": "themis",
+        "instrument": "ground_mag",
+        "limit": 30,
+    }))
+    assert data["status"] == "success"
+    buckets = {entry["instrument"] for entry in data["datasets"]}
+    assert buckets == {"ground_mag"}, f"expected only the ground_mag bucket, got {buckets}"
+    assert any("THG_L2_MAG" in entry["dataset_id"] for entry in data["datasets"])
 
 
 def test_load_data_source_cdaweb_full_mode_preserves_legacy_prompt_payload():
@@ -1722,7 +2225,10 @@ def test_transform_coordinates_unknown_frame_is_clean_structured_error(no_backen
 
 def test_supported_frame_catalog_for_errors_includes_coordinate_frames():
     server = create_server()
-    listed = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "PSP"}))
+    # The frame catalog (used to validate transform_coordinates frame args) is
+    # surfaced via the frames source_id; a mission source_id now returns
+    # mission-specific metadata instead (issue #134).
+    listed = json.loads(_call_tool(server, "load_data_source", {"source_type": "spice", "source_id": "frames"}))
     supported = _spice_supported_frames()
     for entry in listed["payload"]:
         assert entry["frame"] in supported
@@ -2803,3 +3309,869 @@ def test_summarize_pydantic_validation_is_url_free():
         assert message.endswith(".")
     else:  # pragma: no cover - validation must fail
         raise AssertionError("expected a ValidationError")
+
+
+def test_server_exposes_packaged_skills_as_mcp_resources(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert "spedas-skill://index" in by_uri
+    assert "spedas-skill://skills/spedas-workflow" in by_uri
+    assert "spedas-skill://skills/pyspedas-load-planning" in by_uri
+    assert "spedas-skill://skills/omni-kyoto-noaa-smoke-workflows" in by_uri
+    assert "spedas-skill://skills/themis-workflows" in by_uri
+    assert "spedas-skill://skills/mms-basic-workflows" in by_uri
+    assert "spedas-skill://skills/psp-solo-heliophysics-workflows" in by_uri
+    assert "spedas-skill://skills/pytplot-plotting-options" in by_uri
+    assert by_uri["spedas-skill://index"].mimeType == "text/markdown"
+    assert by_uri["spedas-skill://index"].meta["surface"] == "spedas_skill"
+    assert by_uri["spedas-skill://skills/spedas-workflow"].meta["skill_name"] == "spedas-workflow"
+    assert by_uri[
+        "spedas-skill://skills/omni-kyoto-noaa-smoke-workflows"
+    ].meta["skill_name"] == "omni-kyoto-noaa-smoke-workflows"
+    assert by_uri["spedas-skill://skills/themis-workflows"].meta["skill_name"] == "themis-workflows"
+    assert by_uri["spedas-skill://skills/mms-basic-workflows"].meta["skill_name"] == "mms-basic-workflows"
+    assert (
+        by_uri["spedas-skill://skills/psp-solo-heliophysics-workflows"].meta["skill_name"]
+        == "psp-solo-heliophysics-workflows"
+    )
+    assert (
+        by_uri["spedas-skill://skills/pytplot-plotting-options"].meta["skill_name"]
+        == "pytplot-plotting-options"
+    )
+
+    index_contents = asyncio.run(server.read_resource("spedas-skill://index"))
+    assert "spedas-skill://skills/spedas-workflow" in index_contents[0].content
+    workflow_contents = asyncio.run(server.read_resource("spedas-skill://skills/spedas-workflow"))
+    assert "name: spedas-workflow" in workflow_contents[0].content
+    batch2_contents = asyncio.run(
+        server.read_resource("spedas-skill://skills/omni-kyoto-noaa-smoke-workflows")
+    )
+    assert "name: omni-kyoto-noaa-smoke-workflows" in batch2_contents[0].content
+    assert "external_runtime_route.not_an_mcp_tool: true" in batch2_contents[0].content
+    themis_contents = asyncio.run(server.read_resource("spedas-skill://skills/themis-workflows"))
+    assert "name: themis-workflows" in themis_contents[0].content
+    assert "pyspedas.projects.themis.fgm" in themis_contents[0].content
+    assert "external_runtime_route.not_an_mcp_tool: true" in themis_contents[0].content
+    mms_contents = asyncio.run(server.read_resource("spedas-skill://skills/mms-basic-workflows"))
+    assert "name: mms-basic-workflows" in mms_contents[0].content
+    assert "pyspedas.projects.mms.fgm" in mms_contents[0].content
+    assert "pyspedas.projects.mms.fpi" in mms_contents[0].content
+    assert "pyspedas.projects.mms.edp" in mms_contents[0].content
+    assert "pyspedas.projects.mms.fpi_tools.mms_pad_fpi.mms_pad_fpi" in mms_contents[0].content
+    assert "pyspedas.projects.mms.fpi_tools.mms_load_fpi_calc_pad.mms_load_fpi_calc_pad" in mms_contents[0].content
+    assert "pyspedas.projects.mms.mms_pad_fpi" not in mms_contents[0].content
+    assert "pyspedas.projects.mms.mms_load_fpi_calc_pad" not in mms_contents[0].content
+    assert "external_runtime_route.not_an_mcp_tool: true" in mms_contents[0].content
+    psp_solo_contents = asyncio.run(
+        server.read_resource("spedas-skill://skills/psp-solo-heliophysics-workflows")
+    )
+    assert "name: psp-solo-heliophysics-workflows" in psp_solo_contents[0].content
+    assert "pyspedas.projects.psp.fields" in psp_solo_contents[0].content
+    assert "pyspedas.projects.psp.spc" in psp_solo_contents[0].content
+    assert "pyspedas.projects.solo.mag" in psp_solo_contents[0].content
+    assert "pyspedas.projects.solo.swa" in psp_solo_contents[0].content
+    assert "PSP_FLD_L2_MAG_RTN_1MIN" in psp_solo_contents[0].content
+    assert "SOLO_L2_MAG-RTN-NORMAL" in psp_solo_contents[0].content
+    assert "pyspedas.projects.psp.psp_fields" not in psp_solo_contents[0].content
+    assert "pyspedas.projects.solo.solo_mag" not in psp_solo_contents[0].content
+    assert "external_runtime_route.not_an_mcp_tool: true" in psp_solo_contents[0].content
+
+    plotting_contents = asyncio.run(
+        server.read_resource("spedas-skill://skills/pytplot-plotting-options")
+    )
+    assert "name: pytplot-plotting-options" in plotting_contents[0].content
+    assert "pyspedas.options" in plotting_contents[0].content
+    assert "pyspedas.tplot_options" in plotting_contents[0].content
+    assert "spec_dim_to_plot" in plotting_contents[0].content
+    assert "save_png" in plotting_contents[0].content
+    assert "external_runtime_route.not_an_mcp_tool: true" in plotting_contents[0].content
+    assert "mcp__spedas__pyspedas.options" not in plotting_contents[0].content
+
+    mms_contents = asyncio.run(
+        server.read_resource("spedas-skill://skills/mms-basic-workflows")
+    )
+    assert "name: mms-basic-workflows" in mms_contents[0].content
+    assert "MMS" in mms_contents[0].content
+    assert "external_runtime_route.not_an_mcp_tool: true" in mms_contents[0].content
+    assert "mcp__spedas__pyspedas" not in mms_contents[0].content
+
+
+def test_overview_advertises_skill_resources(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    overview = json.loads(_call_tool(server, "spedas_overview"))
+    resources = overview["skill_resources"]
+    assert resources["status"] == "available_as_mcp_resources"
+    assert resources["index_resource"] == "spedas-skill://index"
+    assert resources["uri_pattern"] == "spedas-skill://skills/{skill_name}"
+    # The one-MCP cleanup reduced the packaged skill catalog to 19 skills.
+    assert resources["count"] >= 19
+    assert "spedas-workflow" in resources["names"]
+    assert "default 13-tool surface stays compact" in resources["note"]
+    assert any("spedas-skill://index" in step for step in overview["workflow"])
+
+
+def test_server_exposes_event_presets_and_schema_as_mcp_resources(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    # Adding presets/schema as resources must NOT change the default tool count.
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+    assert {tool.meta["surface"] for tool in tools} == {"primary"}
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert "spedas-preset://index" in by_uri
+    assert "spedas-preset://schemas/reproduction_provenance" in by_uri
+    assert "spedas-preset://schemas/analysis_bundle_run" in by_uri
+    assert by_uri["spedas-preset://index"].mimeType == "text/markdown"
+    assert by_uri["spedas-preset://index"].meta["surface"] == "spedas_preset"
+    schema_meta = by_uri["spedas-preset://schemas/reproduction_provenance"]
+    assert schema_meta.mimeType == "application/json"
+    assert schema_meta.meta["kind"] == "schema"
+    analysis_schema_meta = by_uri["spedas-preset://schemas/analysis_bundle_run"]
+    assert analysis_schema_meta.mimeType == "application/json"
+    assert analysis_schema_meta.meta["kind"] == "schema"
+
+    # At least one individual preset resource is registered with JSON mime type.
+    preset_uris = [u for u in by_uri if u.startswith("spedas-preset://events/")]
+    assert len(preset_uris) >= 30
+    sample = by_uri[preset_uris[0]]
+    assert sample.mimeType == "application/json"
+    assert sample.meta["kind"] == "preset"
+
+
+def test_event_preset_and_schema_resources_read(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    index_contents = asyncio.run(server.read_resource("spedas-preset://index"))
+    assert "SPEDAS Agent Kit solar-wind event presets" in index_contents[0].content
+
+    schema_contents = asyncio.run(
+        server.read_resource("spedas-preset://schemas/reproduction_provenance")
+    )
+    schema = json.loads(schema_contents[0].content)
+    assert schema["title"] == "SPEDAS Agent Kit reproduction provenance"
+
+    analysis_schema_contents = asyncio.run(
+        server.read_resource("spedas-preset://schemas/analysis_bundle_run")
+    )
+    analysis_schema = json.loads(analysis_schema_contents[0].content)
+    assert analysis_schema["title"] == "SPEDAS Agent Kit analysis bundle run provenance"
+    assert analysis_schema["properties"]["schema_version"]["enum"] == ["spedas-analysis-bundle-run-v1"]
+
+    preset_contents = asyncio.run(
+        server.read_resource(
+            "spedas-preset://events/psp-e1-bale-2019-structured-slow-wind"
+        )
+    )
+    preset = json.loads(preset_contents[0].content)
+    assert preset["id"] == "psp-e1-bale-2019-structured-slow-wind"
+    assert preset["quality_labels"] == ["candidate_interval"]
+
+
+def test_overview_advertises_preset_resources(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    overview = json.loads(_call_tool(server, "spedas_overview"))
+    presets = overview["preset_resources"]
+    assert presets["status"] == "available_as_mcp_resources"
+    assert presets["index_resource"] == "spedas-preset://index"
+    assert presets["uri_pattern"] == "spedas-preset://events/{preset_id}"
+    assert (
+        presets["provenance_schema_resource"]
+        == "spedas-preset://schemas/reproduction_provenance"
+    )
+    assert (
+        presets["analysis_bundle_run_schema_resource"]
+        == "spedas-preset://schemas/analysis_bundle_run"
+    )
+    assert presets["count"] >= 30
+    assert "paper" in presets["provenance_required_keys"]
+    assert "default 13-tool surface stays compact" in presets["note"]
+    assert any("spedas-preset://index" in step for step in overview["workflow"])
+
+
+# --- Issue #209: deterministic capability-manifest resource -----------------
+
+CAPABILITY_MANIFEST_URI = "spedas-manifest://v1/capabilities"
+
+
+def _read_manifest(server):
+    contents = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))
+    return json.loads(contents[0].content)
+
+
+def test_capability_manifest_resource_is_enumerated_with_narrow_metadata(monkeypatch):
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _dist_version
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    # Adding the manifest resource must not change the default tool surface.
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert CAPABILITY_MANIFEST_URI in by_uri
+    entry = by_uri[CAPABILITY_MANIFEST_URI]
+    assert entry.mimeType == "application/json"
+    assert entry.meta["surface"] == "spedas_manifest"
+    assert entry.meta["kind"] == "capabilities"
+
+    manifest = _read_manifest(server)
+    assert manifest["schema"] == "spedas-manifest-capabilities-v1"
+    assert manifest["schema_version"] == "v1"
+    assert manifest["server"] == "spedas-agent-kit"
+    assert manifest["package"]["name"] == "spedas-agent-kit"
+    # Version must come from installed distribution metadata when present, and the
+    # explicit "unknown" sentinel in a source-only environment with no dist-info.
+    try:
+        expected_version = _dist_version("spedas-agent-kit")
+    except PackageNotFoundError:
+        expected_version = "unknown"
+    assert manifest["package"]["version"] == expected_version
+
+
+def test_capability_manifest_json_is_stable_and_has_no_timestamp(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    first = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    second = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    # Reading twice is byte-identical (deterministic, no generated_at/timestamp).
+    assert first == second
+    assert "generated_at" not in first
+    assert "timestamp" not in first
+    # Parseable JSON.
+    json.loads(first)
+
+
+def test_capability_manifest_default_tool_inventory_matches_live_list_tools(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    live_tools = asyncio.run(server.list_tools())
+    live_names = sorted(tool.name for tool in live_tools)
+
+    manifest = _read_manifest(server)
+    assert manifest["tools"]["total"] == 13
+    assert manifest["tools"]["names"] == live_names
+    # Default surface is entirely primary; grouped names must round-trip.
+    assert set(manifest["tools"]["by_surface"]) == {"primary"}
+    assert manifest["tools"]["by_surface"]["primary"] == live_names
+    # Gate booleans reflect the default (all off) surface.
+    assert manifest["gates"]["compat_tools"]["enabled"] is False
+    assert manifest["gates"]["compat_tools"]["env_var"] == "SPEDAS_AGENT_KIT_COMPAT_TOOLS"
+
+
+def test_capability_manifest_reflects_compat_gate(monkeypatch):
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    server = create_server()
+
+    live_names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
+    manifest = _read_manifest(server)
+    assert manifest["gates"]["compat_tools"]["enabled"] is True
+    assert manifest["tools"]["names"] == live_names
+    assert COMPAT_CDAWEB_PDS_TOOLS <= set(manifest["tools"]["by_surface"].get("compat", []))
+
+
+def test_capability_manifest_reflects_combined_gate_surfaces(monkeypatch):
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    server = create_server()
+
+    live_tools = asyncio.run(server.list_tools())
+    expected_by_surface = {}
+    for tool in live_tools:
+        expected_by_surface.setdefault(tool.meta["surface"], []).append(tool.name)
+    expected_by_surface = {
+        surface: sorted(names) for surface, names in expected_by_surface.items()
+    }
+
+    manifest = _read_manifest(server)
+    assert manifest["tools"]["by_surface"] == expected_by_surface
+    assert set(expected_by_surface) == {"primary", "compat"}
+    assert manifest["gates"]["compat_tools"]["enabled"] is True
+
+
+def test_capability_manifest_catalog_facts_come_from_canonical_structures(monkeypatch):
+    from spedas_agent_kit.resources.event_presets import list_event_presets
+    from spedas_agent_kit.resources.skill_catalog import list_packaged_skills
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    manifest = _read_manifest(server)
+
+    resources = manifest["resources"]
+    assert resources["skills"]["count"] == len(list_packaged_skills())
+    assert resources["skills"]["index_uri"] == "spedas-skill://index"
+    assert resources["skills"]["uri_prefix"] == "spedas-skill://skills/"
+    assert resources["event_presets"]["count"] == len(list_event_presets())
+    assert resources["event_presets"]["index_uri"] == "spedas-preset://index"
+    assert resources["schemas"]["reproduction_provenance_uri"] == (
+        "spedas-preset://schemas/reproduction_provenance"
+    )
+    assert resources["schemas"]["analysis_bundle_run_uri"] == (
+        "spedas-preset://schemas/analysis_bundle_run"
+    )
+
+
+def test_installed_package_version_reports_both_branches(monkeypatch):
+    import importlib.metadata as _metadata
+
+    from spedas_agent_kit.server import _installed_package_version
+
+    # The helper imports ``version`` at call time from importlib.metadata, so patch
+    # the module attribute to exercise each branch deterministically.
+    monkeypatch.setattr(_metadata, "version", lambda name: "1.2.3")
+    assert _installed_package_version() == "1.2.3"
+
+    def _raise(name):
+        raise _metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(_metadata, "version", _raise)
+    assert _installed_package_version() == "unknown"
+
+
+def test_build_capability_manifest_is_pure_and_deterministic():
+    from spedas_agent_kit.server import _build_capability_manifest
+
+    kwargs = dict(
+        package_version="9.9.9",
+        tool_surface_pairs=[("b_tool", "primary"), ("a_tool", "primary"), ("z_tool", "advanced")],
+        # The one-MCP cleanup removed the optional analysis/hapi/fdsn layer, so
+        # the only gate the builder receives is the compat gate.
+        compat_tools_enabled=False,
+        packaged_skills=["s1", "s2"],
+        event_presets=["p1", "p2", "p3"],
+    )
+    first = _build_capability_manifest(**kwargs)
+    second = _build_capability_manifest(**kwargs)
+    assert first == second
+    assert first["package"]["version"] == "9.9.9"
+    assert first["tools"]["total"] == 3
+    assert first["tools"]["names"] == ["a_tool", "b_tool", "z_tool"]
+    assert first["tools"]["by_surface"] == {
+        "primary": ["a_tool", "b_tool"],
+        "advanced": ["z_tool"],
+    }
+    assert first["resources"]["skills"]["count"] == 2
+    assert first["resources"]["event_presets"]["count"] == 3
+    # No timestamp/generated_at leaks into the pure payload.
+    serialized = json.dumps(first, sort_keys=True)
+    assert "generated_at" not in serialized
+    assert "timestamp" not in serialized
+
+
+# --- Issue #209 Workstream V: authoritative installation profiles -----------
+
+
+def test_compat_tool_names_constant_matches_live_compat_surface(monkeypatch):
+    """COMPAT_TOOL_NAMES must be the exact live compat surface, in registration order.
+
+    Anchors the canonical constant the installation matrix reports to the tools
+    the compat gate actually registers, so a future compat tool add/remove/rename
+    cannot silently drift the published profile.
+    """
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    server = create_server()
+
+    live_compat = [
+        tool.name
+        for tool in asyncio.run(server.list_tools())
+        if tool.meta and tool.meta.get("surface") == "compat"
+    ]
+    assert set(COMPAT_TOOL_NAMES) == set(live_compat)
+    assert len(COMPAT_TOOL_NAMES) == 8
+    # The hardcoded set the older gate tests assert against and the canonical
+    # constant must agree, so there is a single source of truth.
+    assert set(COMPAT_TOOL_NAMES) == COMPAT_CDAWEB_PDS_TOOLS
+
+
+def test_installation_profiles_default_surface_is_authoritative(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    manifest = _read_manifest(server)
+    profiles_block = manifest["installation_profiles"]
+    profiles = profiles_block["profiles"]
+    assert set(profiles) == {"base", "compatibility"}
+
+    # base: primary names come from the live surface, not a second hard-coded list.
+    live_primary = sorted(manifest["tools"]["by_surface"]["primary"])
+    assert profiles["base"]["primary_tool_names"] == live_primary
+    assert profiles["base"]["install"]["requires_extra"] is None
+    assert profiles["base"]["registration"]["kind"] == "always"
+    assert profiles["base"]["registration"]["enabled"] is True
+
+    # compatibility: not an extra, base install, exact eight legacy tools, compat gate.
+    compat = profiles["compatibility"]
+    assert compat["install"]["requires_extra"] is None
+    assert compat["canonical_tool_names"] == list(COMPAT_TOOL_NAMES)
+    assert compat["registration"]["kind"] == "env_gate"
+    assert compat["registration"]["env_var"] == "SPEDAS_AGENT_KIT_COMPAT_TOOLS"
+    assert compat["registration"]["enabled"] is False
+
+
+def test_installation_profiles_reflect_combined_gates(monkeypatch):
+    monkeypatch.setenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "1")
+    server = create_server()
+    profiles = _read_manifest(server)["installation_profiles"]["profiles"]
+
+    assert profiles["compatibility"]["registration"]["enabled"] is True
+    assert profiles["base"]["registration"]["enabled"] is True
+    assert set(profiles) == {"base", "compatibility"}
+
+
+def test_installation_profiles_resource_policy_is_canonical_and_optional_adds_none(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    manifest = _read_manifest(server)
+    block = manifest["installation_profiles"]
+
+    # The profiles do NOT repeat all 73 URIs; they reference the canonical catalog,
+    # which is the manifest's own resources block (authoritative base catalog).
+    assert block["resource_policy"]["catalog"] == manifest["resources"]
+    # base ships resources; every optional/compat profile adds none.
+    assert manifest["installation_profiles"]["profiles"]["base"]["resources"]["shipped_with"] == "base"
+    for key in ("compatibility",):
+        assert manifest["installation_profiles"]["profiles"][key]["resources"]["adds"] == []
+
+
+def test_installation_profiles_declare_no_recommended_or_all_bundle(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    bundles = _read_manifest(server)["installation_profiles"]["bundles"]
+
+    # Honest bundle state: recommended/all are explicitly NOT declared, not invented.
+    assert bundles["declared"] == []
+    assert "recommended" in bundles["note"]
+    assert "all" in bundles["note"]
+
+
+def test_installation_profiles_are_deterministic_and_timestamp_free(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    first = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    second = asyncio.run(server.read_resource(CAPABILITY_MANIFEST_URI))[0].content
+    assert first == second
+    parsed = json.loads(first)
+    serialized_profiles = json.dumps(parsed["installation_profiles"], sort_keys=True)
+    assert "generated_at" not in serialized_profiles
+    assert "timestamp" not in serialized_profiles
+
+
+def test_build_installation_profiles_base_and_compat_profiles():
+    """The pure builder emits base + compatibility profiles from its inputs."""
+    from spedas_agent_kit.server import _build_installation_profiles
+
+    profiles_block = _build_installation_profiles(
+        primary_tool_names=["a_tool", "b_tool"],
+        compat_tools_enabled=False,
+        resource_summary={"skills": {"count": 1}},
+    )
+    profiles = profiles_block["profiles"]
+    # base + compatibility always present; no optional extras exist anymore.
+    assert set(profiles) == {"base", "compatibility"}
+    assert profiles["base"]["primary_tool_names"] == ["a_tool", "b_tool"]
+    assert profiles["compatibility"]["canonical_tool_names"] == list(COMPAT_TOOL_NAMES)
+    assert profiles_block["resource_policy"]["catalog"] == {"skills": {"count": 1}}
+    assert profiles_block["bundles"]["declared"] == []
+
+
+# --- Issue #209 Workstream H: v1 primary/server error contract --------------
+
+ERROR_CONTRACT_URI = "spedas-manifest://v1/error-contract"
+
+
+def _read_error_contract(server):
+    contents = asyncio.run(server.read_resource(ERROR_CONTRACT_URI))
+    return json.loads(contents[0].content)
+
+
+def _emitted_server_error_codes():
+    """Re-derive the codes ``server.py`` actually emits from its own error paths.
+
+    Covers every channel: the first positional literal passed to
+    ``_error_response``, string constants assigned to a ``code`` variable (the
+    ``_no_data_response`` classifier), the ``_EXCEPTION_CODES`` table, the literal
+    tuple returns of ``_classify_exception``, and dict ``"code"`` literals (the
+    ``needs_confirmation`` gate). The pure documentation builder
+    ``_build_error_contract`` is excluded — it describes the contract, it does not
+    emit it. This keeps the published vocabulary honest instead of hand-waved.
+    """
+    import ast
+    import inspect
+
+    from spedas_agent_kit import server as srv
+
+    tree = ast.parse(inspect.getsource(srv))
+
+    def _str(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    emitted: set[str] = set()
+
+    class _Collector(ast.NodeVisitor):
+        def __init__(self):
+            self.func = None
+
+        def visit_FunctionDef(self, node):
+            if node.name == "_build_error_contract":
+                return  # documentation of the contract, not an emitter
+            outer, self.func = self.func, node.name
+            self.generic_visit(node)
+            self.func = outer
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            if name == "_error_response" and node.args:
+                literal = _str(node.args[0])
+                if literal is not None:
+                    emitted.add(literal)
+            self.generic_visit(node)
+
+        def visit_Assign(self, node):
+            if any(isinstance(t, ast.Name) and t.id == "code" for t in node.targets):
+                for sub in ast.walk(node.value):
+                    literal = _str(sub)
+                    if literal is not None:
+                        emitted.add(literal)
+            self.generic_visit(node)
+
+        def visit_Return(self, node):
+            if (
+                self.func == "_classify_exception"
+                and isinstance(node.value, ast.Tuple)
+                and node.value.elts
+            ):
+                literal = _str(node.value.elts[0])
+                if literal is not None:
+                    emitted.add(literal)
+            self.generic_visit(node)
+
+        def visit_Dict(self, node):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == "code":
+                    literal = _str(value)
+                    if literal is not None:
+                        emitted.add(literal)
+            self.generic_visit(node)
+
+    _Collector().visit(tree)
+
+    # The _EXCEPTION_CODES table drives _classify_exception's ``return code, hint``.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == "_EXCEPTION_CODES" for t in targets):
+                for inner in getattr(node.value, "elts", []):
+                    if isinstance(inner, ast.Tuple) and len(inner.elts) >= 2:
+                        literal = _str(inner.elts[1])
+                        if literal is not None:
+                            emitted.add(literal)
+    return emitted
+
+
+def test_error_contract_resource_is_enumerated_with_narrow_metadata(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    # Adding the error-contract resource must not change the default tool surface.
+    tools = asyncio.run(server.list_tools())
+    assert len(tools) == 13
+
+    resources = asyncio.run(server.list_resources())
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert ERROR_CONTRACT_URI in by_uri
+    entry = by_uri[ERROR_CONTRACT_URI]
+    assert entry.mimeType == "application/json"
+    assert entry.meta["surface"] == "spedas_manifest"
+    assert entry.meta["kind"] == "error_contract"
+
+    contract = _read_error_contract(server)
+    assert contract["schema"] == "spedas-error-contract-v1"
+    assert contract["schema_version"] == "v1"
+    assert contract["contract"] == "spedas-error-contract-v1"
+    assert contract["server"] == "spedas-agent-kit"
+    # Field semantics for the additive envelope are documented.
+    fields = contract["envelope"]["fields"]
+    for required in ("status", "code", "message", "contract", "contract_version", "retryable", "hint", "suggested_action"):
+        assert required in fields
+
+
+def test_error_contract_json_is_deterministic_and_timestamp_free(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    first = asyncio.run(server.read_resource(ERROR_CONTRACT_URI))[0].content
+    second = asyncio.run(server.read_resource(ERROR_CONTRACT_URI))[0].content
+    # Reading twice is byte-identical (pure payload, no generated_at/timestamp).
+    assert first == second
+    assert "generated_at" not in first
+    assert "timestamp" not in first
+    json.loads(first)
+
+
+def test_build_error_contract_is_pure_and_deterministic():
+    from spedas_agent_kit.server import _build_error_contract
+
+    first = _build_error_contract()
+    second = _build_error_contract()
+    assert first == second
+    # Every canonical code carries a boolean retryable default and a summary.
+    for code, meta in first["codes"].items():
+        assert isinstance(meta["retryable"], bool)
+        assert isinstance(meta["summary"], str) and meta["summary"]
+    # No timestamp leaks into the pure payload.
+    serialized = json.dumps(first, sort_keys=True)
+    assert "generated_at" not in serialized
+    assert "timestamp" not in serialized
+    # Mutating one caller-owned payload cannot poison later resource builds.
+    # The one-MCP cleanup removed the optional analysis/datasource subtrees, so
+    # the only mutable list in the disclosed scope is the legacy cache tools one.
+    first["scope"]["not_covered"]["legacy_cache_tools"]["tools"].append("poison")
+    third = _build_error_contract()
+    assert "poison" not in third["scope"]["not_covered"]["legacy_cache_tools"]["tools"]
+
+
+def test_error_contract_vocabulary_matches_emitted_server_codes():
+    """The published vocabulary/aliases/gate must equal the codes server.py really
+    emits — no invented codes, no silently-dropped ones (issue #209)."""
+    from spedas_agent_kit.server import (
+        _PRIMARY_ERROR_CODE_ALIASES,
+        _PRIMARY_ERROR_CODES,
+        _PRIMARY_GATE_RESPONSES,
+    )
+
+    published = (
+        set(_PRIMARY_ERROR_CODES)
+        | set(_PRIMARY_ERROR_CODE_ALIASES)
+        | set(_PRIMARY_GATE_RESPONSES)
+    )
+    emitted = _emitted_server_error_codes()
+    assert emitted == published, {
+        "only_emitted": sorted(emitted - published),
+        "only_published": sorted(published - emitted),
+    }
+    # The sole recognized alias is the plural argument-validation code.
+    assert set(_PRIMARY_ERROR_CODE_ALIASES) == {"invalid_arguments"}
+    assert _PRIMARY_ERROR_CODE_ALIASES["invalid_arguments"]["canonical"] == "invalid_argument"
+    # The only non-error gate response is the kernel-download confirmation.
+    assert set(_PRIMARY_GATE_RESPONSES) == {"kernel_download_required"}
+    assert _PRIMARY_GATE_RESPONSES["kernel_download_required"]["status"] == "needs_confirmation"
+
+
+def test_error_contract_scope_is_honest_about_optional_modules():
+    """The disclosed scope matches the post-cleanup reality: the optional
+    analysis/hapi/fdsn modules are gone, so the contract honestly discloses only
+    legacy cache tools and MCP protocol errors as outside the v1 vocabulary."""
+    from pathlib import Path
+
+    import spedas_agent_kit
+    from spedas_agent_kit.server import _build_error_contract
+
+    package_root = Path(spedas_agent_kit.__file__).resolve().parent
+    # The one-MCP cleanup removed the optional backend packages entirely.
+    assert not (package_root / "analysis").exists()
+    assert not (package_root / "datasources").exists()
+
+    scope = _build_error_contract()["scope"]["not_covered"]
+    # No optional-module subtrees are disclosed because none exist anymore.
+    assert "analysis_tools" not in scope
+    assert "datasource_tools" not in scope
+
+    # Legacy code-less cache tools and protocol-level failures are disclosed too.
+    assert "manage_spice_kernels" in scope["legacy_cache_tools"]["tools"]
+    assert "unknown tool names" in scope["mcp_protocol_errors"]["examples"]
+    # The published contract never references the removed optional modules.
+    serialized = json.dumps(_build_error_contract(), sort_keys=True)
+    assert "analysis" not in serialized
+    assert "hapi" not in serialized
+    assert "fdsn" not in serialized
+
+
+def test_capability_manifest_cross_links_error_contract(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    manifest = json.loads(
+        asyncio.run(server.read_resource("spedas-manifest://v1/capabilities"))[0].content
+    )
+    assert manifest["resources"]["contracts"]["error_contract_uri"] == ERROR_CONTRACT_URI
+
+
+def test_error_response_carries_additive_v1_fields():
+    raw = _error_response("invalid_argument", "bad value")
+    payload = json.loads(raw)
+    # Pre-existing keys are unchanged.
+    assert payload["status"] == "error"
+    assert payload["code"] == "invalid_argument"
+    assert payload["message"] == "bad value"
+    # Additive v1 contract fields.
+    assert payload["contract"] == "spedas-error-contract-v1"
+    assert payload["contract_version"] == "v1"
+    # retryable defaults safely to False and is a real boolean.
+    assert payload["retryable"] is False
+
+
+def test_error_response_retryable_override_is_boolean():
+    payload = json.loads(_error_response("backend_error", "x", retryable=True))
+    assert payload["retryable"] is True
+    payload_false = json.loads(_error_response("backend_error", "x"))
+    assert payload_false["retryable"] is False
+
+
+def test_error_response_hint_compat_and_suggested_action():
+    # With a hint: hint is retained (backward compatible) and suggested_action
+    # mirrors it as the machine-readable recovery step.
+    with_hint = json.loads(_error_response("invalid_argument", "x", hint="do Y"))
+    assert with_hint["hint"] == "do Y"
+    assert with_hint["suggested_action"] == "do Y"
+    # Without a hint: neither key is present (no invented action).
+    without_hint = json.loads(_error_response("invalid_argument", "x"))
+    assert "hint" not in without_hint
+    assert "suggested_action" not in without_hint
+
+
+def test_error_response_v1_fields_do_not_leak_paths_or_urls():
+    raw = _error_response(
+        "unknown_source_id",
+        "Source 'MMS1' not found in /Users/x/cache/MMS1.json see https://errors.example/2",
+        hint="Did you mean 'mms'?",
+        source_id="MMS1",
+    )
+    payload = json.loads(raw)
+    # Additive fields present, and the sanitizer still redacts path/URL leaks.
+    assert payload["contract"] == "spedas-error-contract-v1"
+    assert payload["retryable"] is False
+    assert "/Users/" not in raw
+    assert "http" not in raw
+
+
+def _v1_fields_ok(payload):
+    assert payload["status"] == "error"
+    assert payload["contract"] == "spedas-error-contract-v1"
+    assert payload["contract_version"] == "v1"
+    assert isinstance(payload["retryable"], bool)
+
+
+def test_representative_error_paths_carry_v1_fields_without_leaks(monkeypatch):
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    # invalid_argument (unknown source_type routing)
+    invalid = json.loads(_call_tool(server, "load_data_source", {"source_type": "bogus", "source_id": "x"}))
+    _v1_fields_ok(invalid)
+    assert invalid["code"] == "invalid_argument"
+
+    # unknown_source_id (network-free catalog lookup) — no path leak
+    unknown = json.loads(_call_tool(server, "load_data_source", {"source_type": "cdaweb", "source_id": "MMS1"}))
+    _v1_fields_ok(unknown)
+    assert unknown["code"] == "unknown_source_id"
+    assert "/Users/" not in json.dumps(unknown)
+
+    # invalid_argument with a hint (fetch requires start/stop/output_dir) —
+    # carries hint, so suggested_action must be present too. The old HAPI
+    # use_dedicated_tool path was removed with the optional backends.
+    missing = json.loads(
+        _call_tool(
+            server,
+            "fetch_data_product",
+            {"source_type": "cdaweb", "dataset_id": "x", "parameters": ["Bx"]},
+        )
+    )
+    _v1_fields_ok(missing)
+    assert missing["code"] == "invalid_argument"
+    assert missing["suggested_action"] == missing["hint"]
+
+    # unsupported_spice_target (network-free geometry preflight)
+    spice = json.loads(_call_tool(server, "get_ephemeris", {"target": "NONEXISTENT_BODY", "time": "2020-01-01T00:00:00"}))
+    _v1_fields_ok(spice)
+    assert spice["code"] == "unsupported_spice_target"
+
+
+def test_size_guard_error_carries_v1_fields():
+    oversized = json.dumps({"status": "success", "payload": "X" * (_MAX_RESPONSE_BYTES + 5000)})
+    guarded = json.loads(_size_guarded(oversized, source_type="cdaweb"))
+    _v1_fields_ok(guarded)
+    assert guarded["code"] == "response_too_large"
+    assert guarded["suggested_action"] == guarded["hint"]
+
+
+def test_safe_tool_exception_classification_carries_v1_fields():
+    from spedas_agent_kit.server import _safe_tool
+
+    @_safe_tool
+    def boom():
+        raise ValueError("bad /Users/secret/path.json argument")
+
+    payload = json.loads(boom())
+    _v1_fields_ok(payload)
+    # ValueError classifies to invalid_argument (issue #27) and the path is redacted.
+    assert payload["code"] == "invalid_argument"
+    assert payload["tool"] == "boom"
+    assert "/Users/" not in json.dumps(payload)
+
+
+def test_arg_validation_guard_alias_carries_v1_fields():
+    """The FastMCP argument-validation guard emits the plural ``invalid_arguments``
+    alias and must still carry the additive v1 fields (issues #57/#209)."""
+    server = create_server()
+    raw = _call_tool(server, "transform_coordinates", {
+        "from_frame": ["bad"],
+        "to_frame": 123,
+        "time": "not-iso",
+    })
+    payload = json.loads(raw)
+    _v1_fields_ok(payload)
+    assert payload["code"] == "invalid_arguments"
+    assert "errors.pydantic.dev" not in raw
+
+
+def test_contract_scope_matches_known_tool_validation_and_unknown_tool_boundary(monkeypatch):
+    """Known-tool argument validation is covered, but unknown-tool protocol errors
+    bypass the application envelope exactly as the public scope states."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+
+    # A known tool with missing required arguments is intercepted by the server's
+    # sanitized call_tool guard and therefore carries the v1 application contract.
+    known_tool = json.loads(_call_tool(server, "load_data_source", {}))
+    _v1_fields_ok(known_tool)
+    assert known_tool["code"] == "invalid_arguments"
+
+    # An unknown name is rejected by FastMCP before any application tool/error
+    # helper runs, so it is a protocol ToolError rather than a v1 JSON envelope.
+    with pytest.raises(ToolError, match="Unknown tool"):
+        asyncio.run(server.call_tool("definitely_not_a_tool", {}))
+
+    scope = _read_error_contract(server)["scope"]["not_covered"]
+    assert "unknown tool names" in scope["mcp_protocol_errors"]["examples"]
+
+
+def test_success_responses_do_not_carry_error_contract_fields(monkeypatch):
+    """Adding the additive error fields must not touch success payloads (#209)."""
+    monkeypatch.delenv("SPEDAS_AGENT_KIT_COMPAT_TOOLS", raising=False)
+    server = create_server()
+    for tool in ("spedas_overview", "browse_data_sources"):
+        payload = json.loads(_call_tool(server, tool))
+        assert payload["status"] == "success"
+        assert "contract" not in payload
+        assert "contract_version" not in payload
+        assert "retryable" not in payload
+        assert "suggested_action" not in payload

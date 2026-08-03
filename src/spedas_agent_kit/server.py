@@ -14,22 +14,79 @@ CDAWeb, PDS, and SPICE/geometry.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import logging
 import math
 import os
 import re
+from importlib import resources
 from pathlib import Path
 from typing import Any, Literal
+
+from .resources.skill_catalog import (
+    SPEDAS_SKILL_INDEX_URI,
+    SPEDAS_SKILL_URI_PREFIX,
+    list_packaged_skills,
+    read_packaged_skill,
+    render_skill_index_markdown,
+)
+from .resources.event_presets import (
+    SPEDAS_PRESET_INDEX_URI,
+    SPEDAS_PRESET_URI_PREFIX,
+    list_event_presets,
+    render_event_preset_index_markdown,
+    render_event_preset_json,
+)
+from .resources.provenance import (
+    REQUIRED_TOP_LEVEL_KEYS as PROVENANCE_REQUIRED_KEYS,
+)
+from .installation import install_hint as _install_hint
 
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
 except ImportError as exc:  # pragma: no cover - exercised by entrypoint guard
-    raise ImportError("Install MCP support with: pip install 'spedas-agent-kit[mcp]'") from exc
+    raise ImportError(f"MCP support is required. {_install_hint('mcp')}") from exc
+
+#: MCP resource URI for the canonical paper-reproduction provenance JSON schema.
+SPEDAS_PROVENANCE_SCHEMA_URI = "spedas-preset://schemas/reproduction_provenance"
+#: MCP resource URI for analysis-bundle provenance/run.json records.
+SPEDAS_ANALYSIS_RUN_SCHEMA_URI = "spedas-preset://schemas/analysis_bundle_run"
+#: MCP resource URI for the deterministic machine-readable capability manifest.
+SPEDAS_MANIFEST_CAPABILITIES_URI = "spedas-manifest://v1/capabilities"
+#: Stable v1 schema identifier for the capability manifest payload.
+SPEDAS_MANIFEST_SCHEMA_ID = "spedas-manifest-capabilities-v1"
+#: MCP resource URI for the deterministic v1 primary/server error contract (#209).
+SPEDAS_MANIFEST_ERROR_CONTRACT_URI = "spedas-manifest://v1/error-contract"
+#: Stable identifier stamped into the error-contract resource and into every
+#: additive v1 error envelope emitted by :func:`_error_response`.
+SPEDAS_ERROR_CONTRACT_ID = "spedas-error-contract-v1"
+#: Error-contract schema version (matches the ``v1`` manifest namespace).
+SPEDAS_ERROR_CONTRACT_VERSION = "v1"
+#: Canonical distribution name used for dynamic installed-version lookup.
+_DISTRIBUTION_NAME = "spedas-agent-kit"
 
 logger = logging.getLogger(__name__)
 
+
+
+#: Canonical legacy CDAWeb/PDS compatibility tool names, in registration order.
+#: These ship with the base install (no extra) but are registered/advertised in
+#: MCP ``list_tools`` only when ``SPEDAS_AGENT_KIT_COMPAT_TOOLS=1``; see
+#: :func:`_compat_tools_enabled` and the ``_compat_tool`` decorator. Kept beside
+#: the datasource name tuples so the capability manifest anchors the installation
+#: matrix to a single source of truth instead of a second inline list.
+COMPAT_TOOL_NAMES = (
+    "browse_observatories",
+    "load_observatory",
+    "browse_parameters",
+    "fetch_data",
+    "browse_pds_missions",
+    "load_pds_mission",
+    "browse_pds_parameters",
+    "fetch_pds_data",
+)
 
 _CURATED_CDAWEB_SOURCES: tuple[dict[str, Any], ...] = (
     {
@@ -102,6 +159,7 @@ def _curated_cdaweb_lookup(source_id: str) -> dict[str, Any] | None:
         if key in {_norm_source_key(str(token)) for token in tokens}:
             return dict(record)
     return None
+
 
 
 def _compat_tools_enabled() -> bool:
@@ -331,6 +389,7 @@ def _error_response(
     message: str,
     *,
     hint: str | None = None,
+    retryable: bool = False,
     sanitize: bool = True,
     **extra: Any,
 ) -> str:
@@ -342,14 +401,38 @@ def _error_response(
     by default so backend internals never leak (issues #25/#27). Pass
     ``sanitize=False`` only for messages the server itself authored that are
     known to be path-free.
+
+    The envelope additionally carries the additive, backward-compatible v1
+    contract fields (issue #209 Workstream H), documented by the
+    ``spedas-manifest://v1/error-contract`` resource:
+
+    * ``contract``/``contract_version`` — versioned identifier so clients can
+      pin the shape they branch on.
+    * ``retryable`` — a boolean stating whether retrying the identical call may
+      succeed. It defaults to ``False`` (safe) and is only ``True`` when a caller
+      that genuinely knows the failure is transient passes ``retryable=True``.
+    * ``suggested_action`` — client-facing recovery guidance, mirroring ``hint``
+      when present. It is prose, never an executable command; ``hint`` is retained
+      unchanged for compatibility.
+
+    No pre-existing key is removed or renamed; the new keys are additive.
     """
     payload: dict[str, Any] = {
         "status": "error",
         "code": code,
         "message": _sanitize_message(message) if sanitize else message,
+        # Additive v1 contract fields (issue #209). See the error-contract
+        # resource for the canonical vocabulary and field semantics.
+        "contract": SPEDAS_ERROR_CONTRACT_ID,
+        "contract_version": SPEDAS_ERROR_CONTRACT_VERSION,
+        "retryable": bool(retryable),
     }
     if hint is not None:
         payload["hint"] = hint
+        # suggested_action is client-facing recovery guidance; it currently
+        # mirrors the human hint (server-authored and already path-free), is never
+        # an executable command, and keeps hint for backward compatibility.
+        payload["suggested_action"] = hint
     if sanitize:
         # Honor the docstring contract: redact paths/URLs from string extras too,
         # so backend internals cannot leak through context fields (issues
@@ -360,6 +443,298 @@ def _error_response(
     else:
         payload.update(extra)
     return _json(payload)
+
+
+# --- Issue #209 Workstream H: v1 primary/server error contract --------------
+#
+# Single in-code source of truth for the machine-readable error contract exposed
+# at ``spedas-manifest://v1/error-contract`` and reflected by the additive fields
+# ``_error_response`` stamps into every primary/server-generated error envelope.
+# Keeping the vocabulary next to the emitter prevents the published contract and
+# the real responses from drifting apart.
+#
+# Scope is deliberately narrow and honest: these are the codes the *server's own*
+# error paths emit — ``_error_response`` call sites, the ``_no_data_response``
+# classifier, the ``_classify_exception``/``_safe_tool`` wrapper, the response
+# size guard, and the SPICE geometry preflight. Legacy cache tools and MCP
+# protocol errors keep their own separate vocabularies and are intentionally
+# *not* normalized in this slice (disclosed under ``scope`` in the contract).
+
+#: Canonical ``code -> {retryable, summary}`` for the primary/server error
+#: surface. ``retryable`` is the conservative *default* for that code; the
+#: authoritative per-response value is the boolean ``_error_response`` stamps.
+_PRIMARY_ERROR_CODES: dict[str, dict[str, Any]] = {
+    "invalid_argument": {
+        "retryable": False,
+        "summary": (
+            "An argument was missing, malformed, out of range, or the wrong "
+            "type. Also the classification for ValueError/KeyError/TypeError "
+            "raised inside a tool body. Fix the arguments before retrying."
+        ),
+    },
+    "unknown_source_id": {
+        "retryable": False,
+        "summary": (
+            "The requested source_id was not found in the catalog for this "
+            "source_type. Discover valid IDs before retrying."
+        ),
+    },
+    "unknown_dataset": {
+        "retryable": False,
+        "summary": (
+            "The dataset could not be fetched or was not found by the backend. "
+            "Discover a valid dataset_id first."
+        ),
+    },
+    "unknown_parameter": {
+        "retryable": False,
+        "summary": (
+            "One or more requested parameters were not found for the dataset. "
+            "List parameters and retry with valid names."
+        ),
+    },
+    "no_data": {
+        "retryable": False,
+        "summary": (
+            "The fetch returned no data and the cause could not be classified "
+            "more specifically."
+        ),
+    },
+    "no_data_in_range": {
+        "retryable": False,
+        "summary": (
+            "No data were available for the dataset in the requested time range. "
+            "Choose a range inside the coverage window."
+        ),
+    },
+    "resource_not_found": {
+        "retryable": False,
+        "summary": (
+            "A requested resource (file, catalog, or cache entry) does not "
+            "exist. Discover valid IDs first."
+        ),
+    },
+    "backend_error": {
+        "retryable": False,
+        "summary": (
+            "A backend operation failed (permission, timeout, or an "
+            "unclassified error). Some causes such as timeouts are transient, "
+            "but the server does not currently distinguish them, so retryable "
+            "defaults to false."
+        ),
+    },
+    "geometry_error": {
+        "retryable": False,
+        "summary": (
+            "A SPICE/geometry lookup failed (for example an unresolvable body "
+            "or frame). Check names and whether the needed kernels are loaded."
+        ),
+    },
+    "unsupported_spice_target": {
+        "retryable": False,
+        "summary": (
+            "A name is not a resolvable SPICE target/observer/frame. Use a "
+            "supported body/frame; not every mission body has loaded kernels."
+        ),
+    },
+    "response_too_large": {
+        "retryable": False,
+        "summary": (
+            "The response exceeded the MCP stdio size guard and was withheld. "
+            "Narrow the request (filter, smaller time range, fewer parameters, "
+            "or write bulk data to a file) before retrying."
+        ),
+    },
+}
+
+#: Recognized legacy aliases the *primary/server* surface still emits, mapped to
+#: their canonical code. Only ``invalid_arguments`` qualifies: the FastMCP
+#: argument-validation guard emits the plural form (issue #57), and it is kept
+#: for backward compatibility rather than silently renamed.
+_PRIMARY_ERROR_CODE_ALIASES: dict[str, dict[str, Any]] = {
+    "invalid_arguments": {
+        "canonical": "invalid_argument",
+        "emitted_by": "_install_argument_validation_guard",
+        "note": (
+            "The FastMCP argument-validation guard (issue #57) reports pre-body "
+            "argument-validation failures with the plural code. Retained for "
+            "backward compatibility; treat it as invalid_argument."
+        ),
+    },
+}
+
+#: Server-generated ``status`` values, as ordered ``(status, description)`` pairs.
+#: Kept as pairs (not a dict literal) so the source never contains a bare
+#: quoted ``error`` dict key, which the legacy-shape static guard (issue #27)
+#: forbids; :func:`_build_error_contract` still exposes them as a
+#: ``status -> description`` map for clients.
+_PRIMARY_STATUS_VALUES: tuple[tuple[str, str], ...] = (
+    ("success", "The tool completed; the payload carries results and/or paths."),
+    ("error", "The tool failed; branch on the machine-readable code."),
+    (
+        "needs_confirmation",
+        "A guarded action is paused awaiting explicit caller opt-in; not a failure.",
+    ),
+)
+
+#: Non-error, server-generated gate responses. These carry code/hint but are
+#: emitted by a dedicated builder, not ``_error_response``, so they do not carry
+#: the additive v1 envelope fields.
+_PRIMARY_GATE_RESPONSES: dict[str, dict[str, Any]] = {
+    "kernel_download_required": {
+        "status": "needs_confirmation",
+        "summary": (
+            "A geometry call is paused because required SPICE kernels are not "
+            "cached (issue #29). Re-call with allow_kernel_download=True or load "
+            "the kernels first."
+        ),
+    },
+}
+
+#: Honest disclosure that some legacy cache tools are NOT part of the
+#: normalized v1 primary vocabulary. The listed codes are demonstrably emitted
+#: by the named helpers (verified by tests) and are none of them members of
+#: ``_PRIMARY_ERROR_CODES``.
+_PRIMARY_ERROR_CONTRACT_SCOPE: dict[str, Any] = {
+    "covered": (
+        "The primary/server-generated error surface: errors emitted by "
+        "_error_response and its server-side helpers (the no-data classifier, "
+        "the exception classifier / _safe_tool wrapper, the response size guard, "
+        "and the SPICE geometry preflight)."
+    ),
+    "not_covered": {
+        "legacy_cache_tools": {
+            "tools": [
+                "manage_cdaweb_cache",
+                "manage_pds_cache",
+                "manage_spice_kernels",
+                "manage_data_cache",
+            ],
+            "note": (
+                "Some compat/legacy cache-management actions return "
+                "{status: error, message} without a machine-readable code and "
+                "are outside the v1 contract in this slice."
+            ),
+        },
+        "mcp_protocol_errors": {
+            "examples": [
+                "unknown tool names",
+                "resource lookup failures handled by FastMCP",
+                "JSON-RPC or transport failures before an application tool runs",
+            ],
+            "note": (
+                "FastMCP/MCP protocol errors that never reach the server's "
+                "application error helpers are raised or transported by the MCP "
+                "runtime and do not carry this JSON envelope. Argument-validation "
+                "failures for known tools are covered because the server installs "
+                "a sanitized call_tool boundary guard."
+            ),
+        },
+    },
+    "disclaimer": (
+        "This contract does not claim issue #209 or Workstream H is complete, "
+        "nor that every optional helper is normalized."
+    ),
+}
+
+
+def _build_error_contract() -> dict[str, Any]:
+    """Assemble the deterministic v1 error-contract payload from the canonical
+    in-code vocabulary above.
+
+    Pure: reads only module constants, takes no environment or MCP input, carries
+    no timestamp/``generated_at``, and (serialized with ``sort_keys=True``) is
+    byte-stable across reads. It is the single machine-readable description of the
+    envelope :func:`_error_response` emits, so a client can branch on codes and
+    ``retryable`` instead of parsing prose.
+    """
+    return {
+        "schema": SPEDAS_ERROR_CONTRACT_ID,
+        "schema_version": SPEDAS_ERROR_CONTRACT_VERSION,
+        "contract": SPEDAS_ERROR_CONTRACT_ID,
+        "server": "spedas-agent-kit",
+        "envelope": {
+            "description": (
+                "Additive JSON object returned by primary/server-generated "
+                "errors. The v1 fields are additive; pre-existing fields "
+                "(status, code, message, hint, and code-specific context "
+                "extras) are unchanged and never renamed."
+            ),
+            "fields": {
+                "status": (
+                    "Always \"error\" for this envelope. \"success\" and "
+                    "\"needs_confirmation\" appear on non-error responses."
+                ),
+                "code": (
+                    "Machine-readable member of the canonical vocabulary below "
+                    "(or a documented alias). Branch on this, not on prose."
+                ),
+                "message": (
+                    "Human-readable single-line summary. Absolute paths and "
+                    "external URLs are redacted (issues #25/#27)."
+                ),
+                "contract": (
+                    "Stable contract identifier; equals "
+                    f"\"{SPEDAS_ERROR_CONTRACT_ID}\"."
+                ),
+                "contract_version": (
+                    f"Contract schema version; equals "
+                    f"\"{SPEDAS_ERROR_CONTRACT_VERSION}\"."
+                ),
+                "retryable": (
+                    "Boolean: whether retrying the identical call may succeed. "
+                    "Defaults to false; see retryability."
+                ),
+                "hint": (
+                    "Optional human recovery guidance. Retained for backward "
+                    "compatibility."
+                ),
+                "suggested_action": (
+                    "Optional client-facing recovery guidance; present only when "
+                    "a hint is available, currently mirrors it, and must never be "
+                    "executed as a command."
+                ),
+                "context_extras": (
+                    "Code-specific fields (for example source_type, source_id, "
+                    "allowed, response_bytes); string values are path/URL "
+                    "redacted."
+                ),
+            },
+        },
+        "statuses": {status: desc for status, desc in _PRIMARY_STATUS_VALUES},
+        "codes": {
+            code: dict(meta) for code, meta in _PRIMARY_ERROR_CODES.items()
+        },
+        "aliases": {
+            alias: dict(meta)
+            for alias, meta in _PRIMARY_ERROR_CODE_ALIASES.items()
+        },
+        "gate_responses": {
+            code: dict(meta) for code, meta in _PRIMARY_GATE_RESPONSES.items()
+        },
+        "retryability": {
+            "field": "retryable",
+            "default": False,
+            "semantics": (
+                "The boolean on each response is authoritative. It defaults to "
+                "false (safe) and is only true when a caller explicitly sets "
+                "retryable=True. The per-code \"retryable\" values are "
+                "conservative defaults, not a promise that a given occurrence "
+                "is transient."
+            ),
+        },
+        "suggested_action": {
+            "field": "suggested_action",
+            "semantics": (
+                "Present only when a hint is available; currently mirrors hint "
+                "as client-facing prose. It is never an executable command, and "
+                "hint is retained unchanged for backward compatibility."
+            ),
+        },
+        "scope": copy.deepcopy(_PRIMARY_ERROR_CONTRACT_SCOPE),
+    }
+
+
 
 
 def _validate_fetch_time_range(start: str, stop: str, *, source_type: str) -> str | None:
@@ -773,6 +1148,8 @@ def _suggest_spice_targets(name: str, limit: int = 5) -> list[str]:
     return [norm_to_orig[c] for c in close if c in norm_to_orig][:limit]
 
 
+
+
 def _spice_frame_catalog() -> dict[str, Any]:
     """Return the programmatic SPICE coordinate-frame catalog.
 
@@ -827,6 +1204,53 @@ def _spice_frame_catalog() -> dict[str, Any]:
             "RTN is spacecraft-dependent; pass spacecraft=<mission/target> when transforming to or from RTN.",
             "This catalog describes coordinate frames, not measurement parameters; SPICE geometry calls still require cached/allowed kernels.",
         ],
+    }
+
+
+def _spice_mission_metadata(mission_key: str, naif_id: int) -> dict[str, Any]:
+    """Build mission-specific SPICE metadata for ``load_data_source`` (issue #134).
+
+    ``mission_key`` is the canonical registry key (e.g. ``"JUNO"``) and ``naif_id``
+    its NAIF body/spacecraft id. The payload reports the mission's SPK kernel files
+    and their on-disk cache status/coverage via :func:`_spice_missing_kernels` —
+    pure registry + disk inspection, never any network I/O. Frame support for
+    mission body frames is *not* claimed here; the caveats steer callers to the
+    global frame catalog and the kernel-load gate instead of asserting false
+    support.
+    """
+    from spedas_agent_kit.backends.spice.missions import (
+        MISSION_KERNELS,
+        SEGMENTED_MISSIONS,
+    )
+
+    segmented = mission_key in SEGMENTED_MISSIONS
+    kernel_files = sorted(MISSION_KERNELS.get(mission_key, {}))
+    kernel_status = _spice_missing_kernels([mission_key])
+
+    caveats = [
+        "SPICE geometry calls require cached kernels; load with "
+        "manage_data_cache(source_type='spice', action='load', mission="
+        f"'{mission_key}') before computing geometry.",
+        "Mission body/instrument frames are not enumerated here; use "
+        "load_data_source(source_type='spice', source_id='frames') for the "
+        "supported coordinate-frame catalog.",
+    ]
+    if segmented:
+        caveats.append(
+            "This mission uses time-segmented SPK files; the required segment "
+            "depends on the query window, so kernels load through the time-aware "
+            "manage_data_cache(source_type='spice') gate."
+        )
+
+    return {
+        "catalog_type": "spice_mission",
+        "mission_key": mission_key,
+        "naif_id": naif_id,
+        "kernel_files": kernel_files,
+        "segmented": segmented,
+        "kernel_status": kernel_status,
+        "geometry_tools": ["get_ephemeris", "compute_distance", "transform_coordinates"],
+        "caveats": caveats,
     }
 
 
@@ -1041,9 +1465,208 @@ def _spice_geometry_preflight(
     return _kernel_download_required_error(mission_keys, preflight, tool=tool)
 
 
-def create_server() -> FastMCP:
-    """Create and configure the unified SPEDAS Agent Kit server."""
+def _installed_package_version() -> str:
+    """Return the installed spedas-agent-kit distribution version, or ``"unknown"``.
 
+    The version is read from installed distribution metadata rather than the
+    ``spedas_agent_kit.__version__`` source literal so the capability manifest
+    reflects the artifact actually running. If distribution metadata is genuinely
+    unavailable (e.g. an editable checkout without an installed dist-info), a
+    non-version ``"unknown"`` sentinel is reported instead of duplicating a
+    hard-coded literal.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(_DISTRIBUTION_NAME)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _build_installation_profiles(
+    *,
+    primary_tool_names: list[str],
+    compat_tools_enabled: bool,
+    resource_summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Assemble the deterministic ``installation_profiles`` matrix for the manifest.
+
+    This makes the pip-extra -> tool -> resource relationship authoritative and
+    machine-readable so a client can decide what to install *before* installing.
+    It is pure: it reads only the values passed in (the live primary tool names,
+    the already-computed ``create_server`` gate booleans, and the manifest's own
+    resource summary) and the module-level canonical name tuples, so serialized
+    with ``sort_keys=True`` it is byte-stable.
+
+    Resource facts are stated canonically once (packaged resources ship with
+    the base install) instead of repeating every URI per profile; the
+    authoritative resource catalog/count lives in the manifest's ``resources``
+    block, echoed here as ``resource_summary``.
+    """
+
+    def _gate(*, kind: str, enabled: bool, env_var: str | None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"kind": kind, "enabled": bool(enabled)}
+        if env_var is not None:
+            payload["env_var"] = env_var
+        return payload
+
+    resources_note = (
+        "Packaged MCP resources ship with the base install; optional extras and "
+        "env gates add tools only, never resources."
+    )
+    base_resources = {
+        "shipped_with": "base",
+        "catalog": "resources",
+        "adds": [],
+        "note": resources_note,
+    }
+
+    profiles: dict[str, Any] = {
+        "base": {
+            "install": {
+                "requires_extra": None,
+                "install_hint": _install_hint(),
+                "effect": "installs the base server and its primary tool surface",
+            },
+            "registration": _gate(kind="always", enabled=True, env_var=None),
+            "primary_tool_names": list(primary_tool_names),
+            "resources": base_resources,
+            "summary": (
+                "Base install. Registers the default primary tool surface and "
+                "ships all packaged MCP resources."
+            ),
+        },
+    }
+
+    profiles["compatibility"] = {
+        "install": {
+            "requires_extra": None,
+            "install_hint": _install_hint(),
+            "effect": "no extra required; part of the base install",
+        },
+        "registration": {
+            "kind": "env_gate",
+            "enabled": bool(compat_tools_enabled),
+            "env_var": "SPEDAS_AGENT_KIT_COMPAT_TOOLS",
+            "note": (
+                "The eight legacy CDAWeb/PDS tools are defined in the base "
+                "install but advertised only when SPEDAS_AGENT_KIT_COMPAT_TOOLS=1."
+            ),
+        },
+        "canonical_tool_names": list(COMPAT_TOOL_NAMES),
+        "resources": {"adds": [], "note": "adds no packaged resources"},
+        "summary": (
+            "Legacy compatibility tools. Not an extra: they ship with the base "
+            "install and add eight legacy tool names only under the compat env "
+            "gate."
+        ),
+    }
+
+    return {
+        "profiles": profiles,
+        "resource_policy": {
+            "note": resources_note,
+            "catalog": resource_summary,
+        },
+        "bundles": {
+            "declared": [],
+            "note": (
+                "No aggregate 'recommended' or 'all' extra is declared. Install "
+                "each optional extra explicitly from the source checkout."
+            ),
+        },
+    }
+
+
+def _build_capability_manifest(
+    *,
+    package_version: str,
+    tool_surface_pairs: list[tuple[str, str]],
+    compat_tools_enabled: bool,
+    packaged_skills: list,
+    event_presets: list,
+) -> dict[str, Any]:
+    """Assemble the deterministic capability-manifest payload from explicit inputs.
+
+    Pure and separately testable: every input is passed in (no environment or MCP
+    reads happen here) so the payload is a deterministic function of its arguments.
+    ``tool_surface_pairs`` is the live ``(tool_name, surface)`` inventory from
+    ``mcp.list_tools()`` and each tool's ``meta["surface"]``; the caller supplies
+    the already-computed ``create_server`` gate state rather than recomputing it
+    here.
+
+    The result carries no timestamp or ``generated_at`` and, serialized with
+    ``sort_keys=True``, is byte-stable across reads.
+    """
+    by_surface: dict[str, list[str]] = {}
+    for name, surface in tool_surface_pairs:
+        by_surface.setdefault(surface, []).append(name)
+    for names in by_surface.values():
+        names.sort()
+
+    all_names = sorted(name for name, _surface in tool_surface_pairs)
+
+    resources_block = {
+        "skills": {
+            "count": len(packaged_skills),
+            "index_uri": SPEDAS_SKILL_INDEX_URI,
+            "uri_prefix": SPEDAS_SKILL_URI_PREFIX,
+        },
+        "event_presets": {
+            "count": len(event_presets),
+            "index_uri": SPEDAS_PRESET_INDEX_URI,
+            "uri_prefix": SPEDAS_PRESET_URI_PREFIX,
+        },
+        "schemas": {
+            "reproduction_provenance_uri": SPEDAS_PROVENANCE_SCHEMA_URI,
+            "analysis_bundle_run_uri": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
+        },
+        "contracts": {
+            "error_contract_uri": SPEDAS_MANIFEST_ERROR_CONTRACT_URI,
+        },
+    }
+
+    # Canonical, machine-readable install/tool/resource matrix. It reuses the
+    # live primary surface, the already-computed gate booleans, and the resource
+    # structures rather than adding a second MCP resource or a checked-in JSON
+    # snapshot.
+    installation_profiles = _build_installation_profiles(
+        primary_tool_names=by_surface.get("primary", []),
+        compat_tools_enabled=compat_tools_enabled,
+        resource_summary=resources_block,
+    )
+
+    return {
+        "schema": SPEDAS_MANIFEST_SCHEMA_ID,
+        "schema_version": "v1",
+        "server": "spedas-agent-kit",
+        "package": {
+            "name": _DISTRIBUTION_NAME,
+            "version": package_version,
+        },
+        "tools": {
+            "total": len(all_names),
+            "names": all_names,
+            "by_surface": by_surface,
+        },
+        "gates": {
+            "compat_tools": {
+                "enabled": bool(compat_tools_enabled),
+                "env_var": "SPEDAS_AGENT_KIT_COMPAT_TOOLS",
+            },
+        },
+        "installation_profiles": installation_profiles,
+        "resources": resources_block,
+    }
+
+
+def create_server() -> FastMCP:
+    """Create and configure the unified SPEDAS Agent Kit server.
+
+    Registers the primary CDAWeb/PDS/SPICE tool surface plus the packaged
+    skill/preset/schema MCP resources. Legacy CDAWeb/PDS compatibility tools
+    are advertised only when ``SPEDAS_AGENT_KIT_COMPAT_TOOLS=1``.
+    """
     mcp = FastMCP(
         "spedas-agent-kit",
         instructions=(
@@ -1058,6 +1681,187 @@ def create_server() -> FastMCP:
     )
 
     compat_tools_enabled = _compat_tools_enabled()
+    def _register_packaged_skill_resources() -> None:
+        """Expose bundled SPEDAS skills through standard MCP resources."""
+
+        @mcp.resource(
+            SPEDAS_SKILL_INDEX_URI,
+            name="spedas-packaged-skills-index",
+            title="SPEDAS Agent Kit packaged skills index",
+            description="Index of packaged SPEDAS Agent Kit research skills and their resource URIs.",
+            mime_type="text/markdown",
+            meta={"surface": "spedas_skill", "kind": "index"},
+        )
+        def spedas_packaged_skills_index_resource() -> str:
+            return render_skill_index_markdown()
+
+        def make_skill_reader(skill_name: str):
+            def read_spedas_skill_resource() -> str:
+                return read_packaged_skill(skill_name)
+
+            safe_name = re.sub(r"[^0-9A-Za-z_]", "_", skill_name)
+            read_spedas_skill_resource.__name__ = f"read_spedas_skill_{safe_name}"
+            return read_spedas_skill_resource
+
+        for skill in list_packaged_skills():
+            mcp.resource(
+                skill.resource_uri,
+                name=skill.name,
+                title=f"SPEDAS skill: {skill.name}",
+                description=skill.description,
+                mime_type="text/markdown",
+                meta={"surface": "spedas_skill", "kind": "skill", "skill_name": skill.name},
+            )(make_skill_reader(skill.name))
+
+    _register_packaged_skill_resources()
+
+    def _register_event_preset_resources() -> None:
+        """Expose packaged solar-wind event presets through MCP resources.
+
+        Mirrors the packaged-skill resource pattern: presets are exposed as
+        read-only resources (not tools) so the default primary tool surface stays
+        compact. The canonical provenance schema is exposed the same way so an
+        agent can read the machine-readable shape it should validate against.
+        """
+
+        @mcp.resource(
+            SPEDAS_PRESET_INDEX_URI,
+            name="spedas-event-presets-index",
+            title="SPEDAS Agent Kit solar-wind event presets index",
+            description="Index of packaged solar-wind event preset seeds and their resource URIs.",
+            mime_type="text/markdown",
+            meta={"surface": "spedas_preset", "kind": "index"},
+        )
+        def spedas_event_presets_index_resource() -> str:
+            return render_event_preset_index_markdown()
+
+        def make_preset_reader(preset_id: str):
+            def read_spedas_preset_resource() -> str:
+                return render_event_preset_json(preset_id)
+
+            safe_id = re.sub(r"[^0-9A-Za-z_]", "_", preset_id)
+            read_spedas_preset_resource.__name__ = f"read_spedas_preset_{safe_id}"
+            return read_spedas_preset_resource
+
+        for preset in list_event_presets():
+            mcp.resource(
+                preset.resource_uri,
+                name=preset.id,
+                title=f"SPEDAS event preset: {preset.id}",
+                description=preset.event,
+                mime_type="application/json",
+                meta={
+                    "surface": "spedas_preset",
+                    "kind": "preset",
+                    "preset_id": preset.id,
+                },
+            )(make_preset_reader(preset.id))
+
+        @mcp.resource(
+            SPEDAS_PROVENANCE_SCHEMA_URI,
+            name="spedas-reproduction-provenance-schema",
+            title="SPEDAS Agent Kit reproduction provenance schema",
+            description=(
+                "Canonical machine-readable JSON schema for paper-reproduction "
+                "provenance records. Shape-only; does not assert reproduction quality."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_preset", "kind": "schema"},
+        )
+        def spedas_provenance_schema_resource() -> str:
+            return (
+                resources.files("spedas_agent_kit.resources.schemas")
+                .joinpath("reproduction_provenance.schema.json")
+                .read_text(encoding="utf-8")
+            )
+
+        @mcp.resource(
+            SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
+            name="spedas-analysis-bundle-run-schema",
+            title="SPEDAS Agent Kit analysis bundle run provenance schema",
+            description=(
+                "Machine-readable JSON schema for provenance/run.json records "
+                "seeded by create_spedas_analysis_bundle. Shape-only; agents "
+                "must still validate the science artifacts they record."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_preset", "kind": "schema"},
+        )
+        def spedas_analysis_run_schema_resource() -> str:
+            return (
+                resources.files("spedas_agent_kit.resources.schemas")
+                .joinpath("analysis_bundle_run.schema.json")
+                .read_text(encoding="utf-8")
+            )
+
+    _register_event_preset_resources()
+
+    def _register_capability_manifest_resource() -> None:
+        """Expose a deterministic machine-readable manifest of the live surface.
+
+        The reader awaits ``mcp.list_tools()`` so the tool inventory reflects the
+        actually-registered server (including the compat gate) instead of a second
+        hard-coded name list, groups names by each tool's existing
+        ``meta["surface"]``, and hands the already-computed ``create_server`` gate
+        state plus skill/preset structures to the pure
+        :func:`_build_capability_manifest` builder.
+        """
+
+        @mcp.resource(
+            SPEDAS_MANIFEST_CAPABILITIES_URI,
+            name="spedas-capability-manifest",
+            title="SPEDAS Agent Kit capability manifest",
+            description=(
+                "Deterministic, machine-readable manifest of the live SPEDAS Agent "
+                "Kit tool/resource surface, environment gates, and package identity."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_manifest", "kind": "capabilities"},
+        )
+        async def spedas_capability_manifest_resource() -> str:
+            live_tools = await mcp.list_tools()
+            tool_surface_pairs = [
+                (tool.name, (tool.meta or {}).get("surface", "unknown"))
+                for tool in live_tools
+            ]
+            manifest = _build_capability_manifest(
+                package_version=_installed_package_version(),
+                tool_surface_pairs=tool_surface_pairs,
+                compat_tools_enabled=compat_tools_enabled,
+                packaged_skills=list_packaged_skills(),
+                event_presets=list_event_presets(),
+            )
+            return json.dumps(manifest, indent=2, sort_keys=True)
+
+    _register_capability_manifest_resource()
+
+    def _register_error_contract_resource() -> None:
+        """Expose the deterministic v1 primary/server error contract (issue #209).
+
+        The reader serializes the pure :func:`_build_error_contract` payload, so
+        the machine-readable contract a client reads is the same in-code
+        vocabulary :func:`_error_response` stamps into real error envelopes. This
+        adds a single read-only resource and no tools, so the default 13-tool
+        surface is unchanged.
+        """
+
+        @mcp.resource(
+            SPEDAS_MANIFEST_ERROR_CONTRACT_URI,
+            name="spedas-error-contract",
+            title="SPEDAS Agent Kit primary error contract",
+            description=(
+                "Deterministic, machine-readable v1 contract for the "
+                "primary/server-generated error envelope: canonical code "
+                "vocabulary, retryability, suggested-action, recognized legacy "
+                "aliases, and explicit scope/limitations."
+            ),
+            mime_type="application/json",
+            meta={"surface": "spedas_manifest", "kind": "error_contract"},
+        )
+        def spedas_error_contract_resource() -> str:
+            return json.dumps(_build_error_contract(), indent=2, sort_keys=True)
+
+    _register_error_contract_resource()
 
     def _register_tool(
         *,
@@ -1093,6 +1897,21 @@ def create_server() -> FastMCP:
             open_world=open_world,
         )
 
+    def _advanced_tool(
+        *,
+        read_only: bool = False,
+        destructive: bool = False,
+        idempotent: bool = False,
+        open_world: bool = True,
+    ):
+        return _register_tool(
+            surface="advanced",
+            read_only=read_only,
+            destructive=destructive,
+            idempotent=idempotent,
+            open_world=open_world,
+        )
+
     def _compat_tool(
         func=None,
         *,
@@ -1122,9 +1941,45 @@ def create_server() -> FastMCP:
     @_primary_tool()
     def spedas_overview() -> str:
         """Describe available SPEDAS Agent Kit capabilities and the recommended workflow."""
+        packaged_skills = list_packaged_skills()
+        event_presets = list_event_presets()
         return _json({
             "status": "success",
             "server": "spedas-agent-kit",
+            "skill_resources": {
+                "status": "available_as_mcp_resources",
+                "count": len(packaged_skills),
+                "index_resource": SPEDAS_SKILL_INDEX_URI,
+                "uri_pattern": f"{SPEDAS_SKILL_URI_PREFIX}{{skill_name}}",
+                "recommended_start": ["spedas-workflow", "spedas-skills-index"],
+                "names": [skill.name for skill in packaged_skills],
+                "note": (
+                    "Bundled SPEDAS Agent Kit skills are exposed as MCP resources, "
+                    "not extra tools, so the default 13-tool surface stays compact. "
+                    "Use MCP list_resources/read_resource to load the index or a full SKILL.md."
+                ),
+            },
+            "preset_resources": {
+                "status": "available_as_mcp_resources",
+                "count": len(event_presets),
+                "index_resource": SPEDAS_PRESET_INDEX_URI,
+                "uri_pattern": f"{SPEDAS_PRESET_URI_PREFIX}{{preset_id}}",
+                "provenance_schema_resource": SPEDAS_PROVENANCE_SCHEMA_URI,
+                "reproduction_provenance_schema_resource": SPEDAS_PROVENANCE_SCHEMA_URI,
+                "analysis_bundle_run_schema_resource": SPEDAS_ANALYSIS_RUN_SCHEMA_URI,
+                "provenance_required_keys": list(PROVENANCE_REQUIRED_KEYS),
+                "note": (
+                    "Solar-wind event preset seeds and the canonical "
+                    "reproduction-provenance JSON schema are exposed as MCP "
+                    "resources, not tools, so the default 13-tool surface stays "
+                    "compact. Read spedas-preset://index for the preset list, "
+                    "spedas-preset://schemas/reproduction_provenance for paper "
+                    "reproduction provenance, and spedas-preset://schemas/analysis_bundle_run "
+                    "for analysis-bundle provenance/run.json records. Presets are seeds, not a "
+                    "curated catalog; honor each preset's quality_labels/notes and "
+                    "the rules in docs/examples/solar_wind_event_presets.md."
+                ),
+            },
             "capability_groups": {
                 "data": [
                     "browse_data_sources",
@@ -1188,42 +2043,91 @@ def create_server() -> FastMCP:
             },
             "workflow": [
                 "Start with search_spedas_data_sources or plan_spedas_observation for open-ended science requests.",
+                "If the MCP client supports resources, read spedas-skill://index or list_resources to discover packaged SPEDAS skills such as spedas-workflow, overview-geomagnetic-indices, and pyspedas-load-planning without adding extra tools to list_tools.",
+                "For paper-reproduction work, read spedas-preset://index for solar-wind event preset seeds and spedas-preset://schemas/reproduction_provenance for the machine-readable provenance schema; both are MCP resources, not tools. Treat preset starting intervals as seeds (not paper-quality) and record exact paper intervals plus the documented quality_labels in provenance.",
                 "Use browse_data_sources(source_type='all') to inspect SPEDAS data-source categories.",
                 "Use load_data_source, browse_data_parameters, fetch_data_product, and manage_data_cache for the unified data layer.",
                 "load_data_source(source_type='cdaweb', ...) enumerates dataset_ids so you can call browse_data_parameters without guessing; pass the science goal to search_spedas_data_sources via question= (query= is accepted as an alias).",
                 "Use unified data-layer tools for new workflows; set SPEDAS_AGENT_KIT_COMPAT_TOOLS=1 only when an existing client requires legacy CDAWeb/PDS browse/load/parameter/fetch tool names; use manage_data_cache for all cache status and maintenance actions.",
                 "Use geometry tools directly when the request is SPICE-specific ephemeris, distance, or transform work; discover SPICE missions/frames via browse_data_sources/load_data_source with source_type='spice'.",
-                "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches.",
+                "Use create_spedas_analysis_bundle to preserve request/provenance intent before bulk fetches; keep the seeded provenance/run.json aligned with spedas-preset://schemas/analysis_bundle_run as tool calls, artifacts, and caveats accumulate.",
                 "For bulk data, always provide output_dir/output_file and return paths only.",
             ],
             "guided_recipes": {
                 "overview_skill": "overview-geomagnetic-indices",
+                "overview_skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
                 "geomagnetic_indices": [
                     {
                         "intent": "Dst / ring-current context",
                         "preferred_source": "PySPEDAS Kyoto loader",
                         "dataset_or_loader": "pyspedas.projects.kyoto.dst",
                         "variables": ["kyoto_dst"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI2_H0_MRG1HR"],
+                            "parameters_to_browse": ["Dst"],
+                        },
+                        "external_runtime_route": {
+                            "loader": "pyspedas.projects.kyoto.dst",
+                            "not_an_mcp_tool": True,
+                            "available_only_if_runtime_can_import_pyspedas": True,
+                            "install_hint": "Use only in an external Python runtime with PySPEDAS import access; MCP-only clients should follow mcp_first_route.",
+                        },
                         "notes": "Kyoto WDC Dst; useful for Tsyganenko dst inputs when the runtime can call PySPEDAS directly.",
                     },
                     {
                         "intent": "AE/AL/AU electrojet context",
-                        "preferred_source": "CDAWeb HAPI OMNI or PySPEDAS Kyoto AE",
+                        "preferred_source": "CDAWeb OMNI or PySPEDAS Kyoto AE",
                         "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN or pyspedas.projects.kyoto.load_ae",
                         "variables": ["AE_INDEX", "AL_INDEX", "AU_INDEX"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI_HRO_1MIN", "OMNI_HRO2_1MIN", "OMNI2_H0_MRG1HR"],
+                            "parameters_to_browse": ["AE_INDEX", "AL_INDEX", "AU_INDEX"],
+                        },
+                        "external_runtime_route": {
+                            "loader": "pyspedas.projects.kyoto.load_ae",
+                            "not_an_mcp_tool": True,
+                            "available_only_if_runtime_can_import_pyspedas": True,
+                            "install_hint": "Use only in an external Python runtime with PySPEDAS import access; MCP-only clients should follow mcp_first_route.",
+                        },
                     },
                     {
                         "intent": "Kp activity index",
                         "preferred_source": "PySPEDAS NOAA/GFZ loader",
                         "dataset_or_loader": "pyspedas.projects.noaa.noaa_load_kp",
                         "variables": ["Kp", "ap"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI2_H0_MRG1HR"],
+                            "parameters_to_browse": ["Kp", "ap"],
+                        },
+                        "external_runtime_route": {
+                            "loader": "pyspedas.projects.noaa.noaa_load_kp",
+                            "not_an_mcp_tool": True,
+                            "available_only_if_runtime_can_import_pyspedas": True,
+                            "install_hint": "Use only in an external Python runtime with PySPEDAS import access; MCP-only clients should follow mcp_first_route.",
+                        },
                         "notes": "Use pyspedas.geopack.kp2iopt to convert Kp for T89 iopt in PySPEDAS workflows.",
                     },
                     {
                         "intent": "SYM-H / high-cadence storm context",
-                        "preferred_source": "CDAWeb HAPI OMNI",
+                        "preferred_source": "CDAWeb OMNI",
                         "dataset_or_loader": "OMNI_HRO_1MIN / OMNI_HRO2_1MIN",
                         "variables": ["SYM_H", "SYM_D", "ASY_H", "ASY_D"],
+                        "mcp_first_route": {
+                            "skill_resource": f"{SPEDAS_SKILL_URI_PREFIX}overview-geomagnetic-indices",
+                            "source_type": "cdaweb",
+                            "tools": ["browse_data_sources", "load_data_source", "browse_data_parameters", "fetch_data_product"],
+                            "candidate_dataset_ids": ["OMNI_HRO_1MIN", "OMNI_HRO2_1MIN"],
+                            "parameters_to_browse": ["SYM_H", "SYM_D", "ASY_H", "ASY_D"],
+                        },
                     },
                 ],
                 "mission_overview_starting_points": {
@@ -2015,7 +2919,13 @@ def create_server() -> FastMCP:
             return []
         if not isinstance(records, list):
             return []
-        from spedas_agent_kit.backends.cdaweb.catalog import load_observatory_json
+        try:
+            from spedas_agent_kit.backends.cdaweb.catalog import load_observatory_json
+        except Exception:  # pre-#111 backend layout / backend not installed
+            try:
+                from cdawebmcp.catalog import load_observatory_json
+            except Exception:  # pragma: no cover - backend not installed
+                return []
 
         mission_terms = [term for term in terms if term not in {alias for aliases in _CDAWEB_PRODUCT_ALIASES.values() for alias in aliases}]
         observatories: list[tuple[str, dict[str, Any]]] = []
@@ -2242,6 +3152,54 @@ def create_server() -> FastMCP:
                 return False
         return True
 
+    # Fields that identify a mission/source. A query term matching any of these
+    # is a strong signal that the source is relevant, even when the rest of a
+    # multi-word query describes an instrument or target absent from the
+    # (often sparse) catalog record. Deliberately excludes ``instruments`` so a
+    # bare product token such as ``fgm`` does not flood the result with every
+    # mission that happens to carry a magnetometer (issue #133).
+    _SOURCE_IDENTITY_FIELDS = ("id", "name", "title", "mission_key", "aliases")
+
+    def _record_matches_query(entry: Any, query: str | None) -> bool:
+        """Term-aware source-record match used for PDS/SPICE source browsing.
+
+        A naive ``query in json.dumps(record)`` substring test produces silent
+        false negatives for multi-word queries (issue #133): ``"juno
+        magnetometer"`` never appears verbatim in a record even though the
+        mission clearly matches by id/name. Instead we tokenize the query and
+        accept a record when either every token matches the full record (strict
+        AND, as CDAWeb dataset search does) or any token matches one of the
+        record's identity fields.
+        """
+        if not query:
+            return True
+        if not isinstance(entry, dict):
+            return _dataset_matches_query({"value": entry}, query)
+        if _dataset_matches_query(entry, query):
+            return True
+        identity_text = json.dumps(
+            {key: entry.get(key) for key in _SOURCE_IDENTITY_FIELDS if key in entry},
+            default=str,
+        ).casefold()
+        for term in re.findall(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*", query.casefold()):
+            variants = [term, term.replace("-", "_"), term.replace("_", "-")]
+            variants.extend(_CDAWEB_PRODUCT_ALIASES.get(term, ()))
+            if any(_text_matches(identity_text, variant) for variant in variants if variant):
+                return True
+        return False
+
+    def _filter_source_records(raw: str, query: str | None) -> str:
+        """Filter list-shaped source JSON with term-aware matching (issue #133)."""
+        if not query:
+            return raw
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return raw
+        if not isinstance(payload, list):
+            return raw
+        return _json([entry for entry in payload if _record_matches_query(entry, query)])
+
     def _dataset_matches_instrument(entry: dict[str, Any], instrument: str | None) -> bool:
         if not instrument:
             return True
@@ -2294,9 +3252,38 @@ def create_server() -> FastMCP:
 
         instrument_names = sorted(instruments.keys())
         instrument_filter = instrument.strip().casefold() if isinstance(instrument, str) and instrument.strip() else None
+
+        # Prefer an exact instrument-bucket match over substring matching so
+        # ``instrument="mag"`` selects the spacecraft "mag" bucket (which holds
+        # probe FGM) instead of being flooded by the much larger "ground_mag"
+        # bucket via substring overlap (issue #136). The explicit ``ground_mag``
+        # bucket key still resolves exactly, keeping ground magnetometers
+        # discoverable. Falls back to substring matching when the filter is not
+        # itself a bucket key/name (e.g. ``fgm`` lives inside the ``mag`` bucket).
+        exact_bucket_keys: set[str] = set()
+        if instrument_filter:
+            for inst_key, inst_data in instruments.items():
+                if not isinstance(inst_data, dict):
+                    continue
+                candidates = {
+                    inst_key.casefold(),
+                    inst_key.casefold().replace("-", "_"),
+                    inst_key.casefold().replace("_", "-"),
+                    str(inst_data.get("name") or "").casefold(),
+                }
+                normalized_filter = {
+                    instrument_filter,
+                    instrument_filter.replace("-", "_"),
+                    instrument_filter.replace("_", "-"),
+                }
+                if candidates & normalized_filter:
+                    exact_bucket_keys.add(inst_key)
+
         all_entries: list[dict[str, Any]] = []
         for inst_key, inst_data in sorted(instruments.items()):
             if not isinstance(inst_data, dict):
+                continue
+            if exact_bucket_keys and inst_key not in exact_bucket_keys:
                 continue
             inst_name = str(inst_data.get("name") or inst_key)
             for ds_id, ds_info in sorted(inst_data.get("datasets", {}).items()):
@@ -2423,12 +3410,19 @@ def create_server() -> FastMCP:
                     )
             return _wrap_data_payload(source, filtered_records, query=query)
         if source == "pds":
-            return _wrap_data_payload(source, browse_pds_missions(query=query), query=query)
+            # Filter at the facade with term-aware matching rather than the
+            # backend's whole-query substring test so multi-word queries whose
+            # mission token clearly matches still surface the mission (issue #133).
+            return _wrap_data_payload(
+                source,
+                _filter_source_records(browse_pds_missions(), query),
+                query=query,
+            )
         if source == "spice":
             frame_catalog = _spice_frame_catalog()
             return _wrap_data_payload(
                 source,
-                _filter_json_records(list_spice_missions(), query),
+                _filter_source_records(list_spice_missions(), query),
                 query=query,
                 note=(
                     "SPICE is exposed as the geometry data-source category. "
@@ -2554,6 +3548,43 @@ def create_server() -> FastMCP:
                 normalized_source_id=normalized_source_id,
             )
         if source == "spice":
+            # An empty/whitespace source_id (or the explicit "frames" keyword)
+            # keeps the legacy behavior: return the global coordinate-frame
+            # catalog. A concrete mission source_id resolves to mission-specific
+            # SPICE metadata instead of silently ignoring it (issue #134).
+            requested = (source_id or "").strip()
+            if requested and requested.lower() != "frames":
+                resolution = _spice_resolve_target(requested)
+                if not resolution["resolved"]:
+                    from spedas_agent_kit.backends.spice.missions import MISSION_NAIF_IDS
+                    invalid = _validate_source_id(
+                        "spice",
+                        source_id,
+                        [k for k, v in MISSION_NAIF_IDS.items() if v < 0],
+                        match=requested,
+                        discover_tool="browse_data_sources(source_type='spice')",
+                    )
+                    # _validate_source_id only skips on an empty catalog, which
+                    # cannot happen here, so invalid is always the error envelope.
+                    return invalid if invalid is not None else _unknown_source_type_error(
+                        source_type, ["cdaweb", "pds", "spice"]
+                    )
+                metadata = _spice_mission_metadata(resolution["key"], resolution["naif_id"])
+                return _wrap_data_payload(
+                    source,
+                    _json(metadata),
+                    source_id=source_id,
+                    mission=resolution["key"],
+                    naif_id=resolution["naif_id"],
+                    note=(
+                        "SPICE mission context for "
+                        f"{resolution['key']} (NAIF {resolution['naif_id']}). "
+                        "kernel_status reports on-disk cache state without "
+                        "downloading; use the geometry tools for ephemeris/"
+                        "distance/transform work. See caveats for kernel-load and "
+                        "frame-support notes."
+                    ),
+                )
             frame_catalog = _spice_frame_catalog()
             return _wrap_data_payload(
                 source,
@@ -2571,18 +3602,166 @@ def create_server() -> FastMCP:
             )
         return _unknown_source_type_error(source_type, ["cdaweb", "pds", "spice"])
 
+    def _param_matches_query(param: dict[str, Any], needle: str) -> bool:
+        """Case-insensitive substring match over a parameter's searchable fields."""
+        for field in ("name", "description", "units"):
+            value = param.get(field)
+            if value and needle in str(value).casefold():
+                return True
+        return False
+
+    def _filter_parameter_list(
+        params: list[Any],
+        *,
+        query: str | None,
+        limit: int | None,
+        offset: int,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """Filter/paginate a parameter list, returning the slice and a page summary.
+
+        Issue #137: wide products return ~200 parameters that can overflow the
+        response budget. ``query`` narrows by name/description/units; ``limit``
+        and ``offset`` page through the (filtered) list.
+        """
+        if query:
+            needle = query.casefold()
+            matched = [
+                p for p in params
+                if isinstance(p, dict) and _param_matches_query(p, needle)
+            ]
+        else:
+            matched = list(params)
+        total = len(matched)
+        sliced = matched[offset:]
+        if limit is not None:
+            sliced = sliced[:limit]
+        page: dict[str, Any] = {
+            "total": total,
+            "returned": len(sliced),
+            "offset": offset,
+            "has_more": offset + len(sliced) < total,
+        }
+        if query is not None:
+            page["query"] = query
+        if limit is not None:
+            page["limit"] = limit
+        return sliced, page
+
+    def _apply_parameter_filter(
+        payload: Any,
+        *,
+        query: str | None,
+        limit: int | None,
+        offset: int,
+    ) -> Any:
+        """Apply parameter_query/limit/offset to a browse-parameters payload.
+
+        Handles both the single-dataset shape (``parameters`` at top level) and
+        the batch shape (``datasets`` keyed by dataset id). Anything that does
+        not carry a parameter list is returned unchanged.
+        """
+        if query is None and limit is None and offset == 0:
+            return payload
+        if not isinstance(payload, dict):
+            return payload
+        if isinstance(payload.get("parameters"), list):
+            sliced, page = _filter_parameter_list(
+                payload["parameters"], query=query, limit=limit, offset=offset
+            )
+            payload = {**payload, "parameters": sliced, "parameter_page": page}
+            return payload
+        datasets = payload.get("datasets")
+        if isinstance(datasets, dict):
+            new_datasets: dict[str, Any] = {}
+            for ds_id, entry in datasets.items():
+                if isinstance(entry, dict) and isinstance(entry.get("parameters"), list):
+                    sliced, page = _filter_parameter_list(
+                        entry["parameters"], query=query, limit=limit, offset=offset
+                    )
+                    new_datasets[ds_id] = {**entry, "parameters": sliced, "parameter_page": page}
+                else:
+                    new_datasets[ds_id] = entry
+            return {**payload, "datasets": new_datasets}
+        return payload
+
+    def _wrap_filtered_parameters(
+        source: str,
+        raw: str,
+        *,
+        dataset_id: str,
+        query: str | None,
+        limit: int | None,
+        offset: int,
+    ) -> str:
+        """Parse a backend parameter payload, apply the filter, and re-serialize."""
+        if query is None and limit is None and offset == 0:
+            return _wrap_data_payload(source, raw, dataset_id=dataset_id)
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            # Non-JSON means an error/traceback; preserve existing handling.
+            return _wrap_data_payload(source, raw, dataset_id=dataset_id)
+        if isinstance(payload, dict) and _payload_has_error(payload):
+            return _wrap_data_payload(source, raw, dataset_id=dataset_id)
+        filtered = _apply_parameter_filter(payload, query=query, limit=limit, offset=offset)
+        return _wrap_data_payload(source, _json(filtered), dataset_id=dataset_id)
+
     @_primary_tool()
     def browse_data_parameters(
         source_type: str,
         dataset_id: str,
         dataset_ids: list[str] | None = None,
+        parameter_query: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> str:
-        """Primary data layer: browse parameters/metadata using source_type rather than source-specific tool names."""
+        """Primary data layer: browse parameters/metadata using source_type rather than source-specific tool names.
+
+        For wide products (issue #137) use parameter_query to narrow by
+        name/description/units, and/or limit/offset to page through the
+        parameter list. A ``parameter_page`` summary ({total, returned, offset,
+        limit, has_more, query}) is added to the payload when any of these are
+        supplied. Without them the response is unchanged for back-compat.
+        """
         source = _normalize_source_type(source_type)
+        if limit is not None and limit <= 0:
+            return _error_response(
+                "invalid_argument",
+                "browse_data_parameters limit must be a positive integer when provided.",
+                hint="Pass limit >= 1, or omit limit and use parameter_query/offset to narrow.",
+                sanitize=False,
+                source_type=source,
+                dataset_id=dataset_id,
+                unsupported_argument="limit",
+            )
+        if offset < 0:
+            return _error_response(
+                "invalid_argument",
+                "browse_data_parameters offset must be a non-negative integer.",
+                hint="Pass offset >= 0 (0 starts at the first parameter).",
+                sanitize=False,
+                source_type=source,
+                dataset_id=dataset_id,
+                unsupported_argument="offset",
+            )
         if source == "cdaweb":
-            return _wrap_data_payload(source, browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids), dataset_id=dataset_id)
+            return _wrap_filtered_parameters(
+                source,
+                browse_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids),
+                dataset_id=dataset_id,
+                query=parameter_query,
+                limit=limit,
+                offset=offset,
+            )
         if source == "pds":
-            return _wrap_data_payload(source, browse_pds_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids), dataset_id=dataset_id)
+            return _wrap_filtered_parameters(
+                source,
+                browse_pds_parameters(dataset_id=dataset_id, dataset_ids=dataset_ids),
+                dataset_id=dataset_id,
+                query=parameter_query,
+                limit=limit,
+                offset=offset,
+            )
         if source == "spice":
             frame_catalog = _spice_frame_catalog()
             return _wrap_data_payload(
@@ -2782,8 +3961,9 @@ def _install_argument_validation_guard(mcp: FastMCP) -> None:
                 "invalid_arguments",
                 _summarize_pydantic_validation(validation),
                 hint=(
-                    "Check the argument names/types against the documented "
-                    "parameters and provide all required arguments."
+                    "Check the argument names/types against the tool's documented "
+                    "parameters; tools that write a single artifact take "
+                    "output_file, those that emit multiple files take output_dir."
                 ),
                 sanitize=False,  # already sanitized by _summarize_pydantic_validation
                 tool=name,

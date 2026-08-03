@@ -89,6 +89,88 @@ Useful variables found:
 
 One important caveat: `browse_data_parameters` advertised `mms1_fgm_b_gse_srvy_l2_clean`, but the downloaded daily CDF did not contain that variable. Agents should be prepared to retry with the non-`_clean` variable when fetch reports a variable-not-found error.
 
+#### `*-MOMS` vs `*-DIST`: which FPI product to fetch
+
+`MMS1_FPI_FAST_L2_DIS-MOMS` (used above) is the **precomputed/published** ion-moments product — it carries `numberdensity`/`bulkv`/etc. directly, which is all you need to read density and velocity jumps across the boundary.
+
+If instead you want to **recompute** moments yourself, or produce **pitch-angle/energy spectra** or a **velocity-space slice**, you need the 3D velocity distribution product `MMS1_FPI_FAST_L2_DIS-DIST` (or `DES-DIST` for electrons). The precomputed `*-MOMS` product is *not* a valid input to the in-kit particle tools — see the next section.
+
+### 5b. Distribution → moments / pitch-angle (the `*-DIST` path)
+
+The in-kit particle tools (`compute_particle_moments`, `compute_particle_spectra`) require a **3D distribution artifact** on disk, built from a mission `*-DIST` product — never from `*-MOMS`. Build it with the `#95` bridge, then compute.
+
+The bridge already needs a **B field** to write the artifact (`mag_tplot_name=` or `magf=`), and it stores those B vectors as embedded `magf` shaped `(T, 3)` inside the artifact. **Pitch-angle (PAD) spectra reuse that embedded `magf` automatically** — you do **not** need a separate `mag_file`. Just point `compute_particle_spectra` at the same distribution artifact:
+
+```json
+{"tool":"build_particle_distribution_artifact","args":{
+  "tplot_name":"mms1_dis_dist_fast",
+  "converter":"mms_fpi",
+  "output_file":".t001_artifacts/data/dis_dist.npz",
+  "mag_tplot_name":"mms1_fgm_b_gse_srvy_l2"
+}}
+{"tool":"compute_particle_moments","args":{
+  "dist_file":".t001_artifacts/data/dis_dist.npz",
+  "output_dir":".t001_artifacts/data"
+}}
+{"tool":"compute_particle_spectra","args":{
+  "dist_file":".t001_artifacts/data/dis_dist.npz",
+  "output_dir":".t001_artifacts/data",
+  "spectrum_types":["energy","pitch_angle"]
+}}
+```
+
+The pitch-angle entry comes back with `mag_source: "distribution_artifact_magf"`, confirming it used the embedded B field.
+
+`mag_file` is now an **optional override**, not the first path. Supply it only when you want a *different* B reference than the one baked into the artifact (e.g. a higher-cadence or differently-framed magnetometer product). It is a separate small `.npz`/`.json` with key `b` shaped `(T, 3)` (or `(3,)` to broadcast):
+
+```json
+{"tool":"compute_particle_spectra","args":{
+  "dist_file":".t001_artifacts/data/dis_dist.npz",
+  "output_dir":".t001_artifacts/data",
+  "spectrum_types":["energy","pitch_angle"],
+  "mag_file":".t001_artifacts/data/b_gse.npz"
+}}
+```
+
+When `mag_file` is given the pitch-angle entry reports `mag_source: "mag_file"` (the override wins over embedded `magf`).
+
+Notes:
+
+- The bridge needs a **B-field input** (`magf` vectors or `mag_tplot_name`) to write the artifact; PAD spectra then reuse that embedded `magf`. Only if the artifact has **no** embedded `magf` **and** you pass no `mag_file` does the pitch-angle entry return `needs_input` (`mag_source: "missing"`) — other spectra still compute.
+- Supported bridge converters today are **MMS FPI/HPCA + ERG** only (THEMIS/PSP have no upstream pyspedas Python `*_get_dist` converter yet).
+- For a velocity-space cut (beams/crescents) see the `particle-velocity-slice` skill; for the full PAD pipeline see `pitch-angle-distribution`.
+
+
+### 5c. Batch 006 MMS derived-diagnostics guardrail (existing analysis tools)
+
+Batch 006 paper-reproduction probes (Graham/Khotyaintsev/Lavraud/Phan/Torbert)
+showed that an agent can fetch MMS FGM/FPI/EDP data and still miss analysis
+helpers that already ship with Agent Kit. After the data fetches above, keep the
+run artifact-first and chain into the existing analysis layer before writing new
+physics code:
+
+1. **Boundary-normal / LMN frame:** run `analyze_minvar_coordinates` on the FGM B
+   time series over the paper or candidate current-sheet interval. Record the LMN
+   matrix, eigenvalue ratios, time window, and input artifact path in provenance.
+   Use `transform_timeseries_coordinates` to put B, V_i, or V_e into that frame;
+   use `generate_fac_matrix` when a field-aligned frame is the right comparison.
+2. **Particle pitch-angle or energy spectra:** use the `*-DIST` path in §5b and
+   call `compute_particle_spectra(..., spectrum_types=["energy", "pitch_angle"])`.
+   A `*-MOMS` product can support density/velocity panels, but it is not enough
+   for distribution or PAD claims.
+3. **Proxy-vs-paper-exact labeling:** a single-spacecraft moment current such as
+   `J_moments = e * n_e * (V_i - V_e)` and any `J·E'` value computed from it are
+   transparent screening proxies only. Do **not** label them as the papers'
+   curlometer current, pressure-divergence term, or paper-quality heating rate.
+   Paper-quality current-density comparisons require a verified MMS1-4 interval,
+   LMN/FAC basis, calibrated electric field choices, and curlometer/quality
+   diagnostics; until those exist, cite the `multi-spacecraft-gradients` skill as
+   the planning route and keep the result marked `proxy`.
+4. **Interval verification:** if a DOI or supplement cannot provide the exact
+   paper interval (for example, the Phan 2018 supplement was blocked during Batch
+   006), record the run as `availability_failure` or `candidate_interval` rather
+   than widening the fetch window or claiming reproduction.
+
 ### 6. Bundle scaffold
 
 ```json
@@ -153,6 +235,7 @@ Observed result: `status: success`; 27 rows were written. Density ranged approxi
 4. `limit` is described as a CDAWeb safety control, but it should be documented/implemented as either a row cap or a prefetch cap; in this MMS FPI run it did not cap the 27 returned rows.
 5. SPICE/geometry planning is recommended for spacecraft position context, but the current geometry layer is not an MMS ephemeris solution; FGM position variables are currently the practical path.
 6. No plot/quicklook tool exists, so an agent still has to leave MCP and write plotting code to verify a magnetopause signature.
+7. Four-spacecraft curlometer current-density (`curl B -> J`) is not yet a first-class analysis helper in this workflow. Do not substitute a single-spacecraft moment-current proxy for paper-quality curlometer current; mark it as `proxy` until an MMS1-4 validation exists.
 
 ## Validation value
 

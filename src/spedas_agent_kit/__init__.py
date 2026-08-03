@@ -8,9 +8,11 @@ def main() -> None:
     try:
         from spedas_agent_kit.server import serve
     except ImportError as exc:
+        from spedas_agent_kit.installation import install_hint
+
         print(
             "Error: SPEDAS Agent Kit server requires the MCP extra.\n"
-            "Install with: pip install 'spedas-agent-kit[mcp]'"
+            f"{install_hint('mcp')}"
         )
         raise SystemExit(1) from exc
     serve()
