@@ -608,14 +608,16 @@
           "start_date": "1990-01-01",
           "stop_date": "2007-12-31",
           "slot": "/data/ULY-D-UDDS-5-DUST-V3.1",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         },
         "pds3:ULY-D-UDDS-5-DUST-V3.1:DATA": {
           "description": "ULYSSES AT JUPITER - FIELDS AND PARTICLES : DATA",
           "start_date": "1990-01-01",
           "stop_date": "2007-12-31",
           "slot": "/data/ULY-D-UDDS-5-DUST-V3.1/DATA",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         }
       }
     },

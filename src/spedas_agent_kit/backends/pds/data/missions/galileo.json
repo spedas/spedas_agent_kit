@@ -147,7 +147,8 @@
           "start_date": "1989-10-18",
           "stop_date": "2003-09-21",
           "slot": "/data/GO-D-GDDS-5-DUST-V4.1",
-          "archive_type": 3
+          "archive_type": 3,
+          "note": "Not hosted on the PDS-PPI archive at /data/ (verified 404 in fleet audit 2026-08-03); slot retained from vendored catalog, no substitute URL used."
         }
       }
     },
@@ -199,8 +200,8 @@
         },
         "pds3:GO-JG-RSS-1-TDF-V1.0": {
           "description": "GALILEO TDF DATA: SATELLITE FIELD AND MASS DETERMINATION EXPERIMENT 1996-179 to 1997-311 VOLUME_ID                = GORS_9500 VOLUME_VERSION_ID        = VERSION 1",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1996-06-25",
+          "stop_date": "1997-11-08",
           "slot": "/annex/GO-JG-RSS-1-TDF-V1.0",
           "archive_type": 3
         },
@@ -463,203 +464,203 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 00_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/00_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/00_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:00_JUPITER": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 00_JUPITER",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/00_JUPITER",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/00_JUPITER",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:01_GANYMEDE": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 01_GANYMEDE",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/01_GANYMEDE",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/01_GANYMEDE",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:03_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 03_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/03_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/03_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:04_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 04_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/04_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/04_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:06_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 06_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/06_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/06_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:07_GANYMEDE": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 07_GANYMEDE",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/07_GANYMEDE",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/07_GANYMEDE",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:08_GANYMEDE": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 08_GANYMEDE",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/08_GANYMEDE",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/08_GANYMEDE",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:09_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 09_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/09_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/09_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:10_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 10_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/10_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/10_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:13_JUPITER": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 13_JUPITER",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/13_JUPITER",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/13_JUPITER",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:14_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 14_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/14_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/14_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:15_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 15_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/15_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/15_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:16_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 16_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/16_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/16_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:17_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 17_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/17_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/17_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:18_EUROPA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 18_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/18_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/18_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:20_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 20_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/20_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/20_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:21_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 21_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/21_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/21_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:22_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 22_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/22_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/22_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:23_CALLISTO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 23_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/23_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/23_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:24_IO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 24_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/24_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/24_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:25_IO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 25_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/25_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/25_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:27_IO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 27_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/27_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/27_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:29_GANYMEDE": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 29_GANYMEDE",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/29_GANYMEDE",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/29_GANYMEDE",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:31_IO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 31_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/31_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/31_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:32_IO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 32_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/32_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/32_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:33_IO": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 33_IO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/33_IO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/33_IO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:34_AMALTHEA": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 34_AMALTHEA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/34_AMALTHEA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/34_AMALTHEA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:35_JUPITER": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 35_JUPITER",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/35_JUPITER",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/35_JUPITER",
           "archive_type": 3
         },
         "pds3:GO-A-MAG-3-RDR-GASPRA-HIGH-RES-V1.0": {
@@ -680,14 +681,14 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 30_CALLISTO",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/30_CALLISTO",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/30_CALLISTO",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:28_GANYMEDE": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 28_GANYMEDE",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/28_GANYMEDE",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/28_GANYMEDE",
           "archive_type": 3
         },
         "urn:nasa:pds:galileo-mag-prejup-calibrated:data-earth1-avg-gse-gsm-coords": {
@@ -708,14 +709,14 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 19_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/19_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/19_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-J-MAG-2-REDR-RAW-DATA-V1.0:ENG": {
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : ENG",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/ENG",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/ENG",
           "archive_type": 3
         },
         "pds3:GO-A-MAG-3-RDR-IDA-HIGH-RES-V1.0": {
@@ -736,7 +737,7 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 12_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/12_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/12_EUROPA",
           "archive_type": 3
         },
         "urn:nasa:pds:galileo-mag-jup-calibrated:data-highres-io": {
@@ -757,7 +758,7 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 11_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/11_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/11_EUROPA",
           "archive_type": 3
         },
         "pds3:GO-V-MAG-3-RDR-VENUS-HIGH-RES-V1.0": {
@@ -799,7 +800,7 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 26_EUROPA",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/26_EUROPA",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/26_EUROPA",
           "archive_type": 3
         },
         "urn:nasa:pds:galileo-mag-jup-raw:data": {
@@ -827,7 +828,7 @@
           "description": "Galileo Orbiter at Jupiter: GO-J-MAG-2-REDR-RAW-DATA-V1.0 : 02_GANYMEDE",
           "start_date": "1995-11-06",
           "stop_date": "2003-09-21",
-          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/data/02_GANYMEDE",
+          "slot": "/data/GO-J-MAG-2-REDR-RAW-DATA-V1.0/DATA/02_GANYMEDE",
           "archive_type": 3
         },
         "urn:nasa:pds:galileo-mag-prejup-calibrated:data-venus-avg": {
@@ -1170,8 +1171,8 @@
         },
         "pds3:GO-J-PWS-5-DDR-PLASMA-DENSITY-FULL-V1.0": {
           "description": "VOLUME 2001: GALILEO PWS ELECTRON PLASMA DENSITY",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1996-05-25",
+          "stop_date": "2002-11-06",
           "slot": "/data/GO-J-PWS-5-DDR-PLASMA-DENSITY-FULL-V1.0",
           "archive_type": 3
         },
@@ -1232,64 +1233,64 @@
         },
         "pds3:GO-J-RSS-1-ODR-V1.0": {
           "description": "GALILEO ODR DATA: JUPITER OCCULTATION MEASUREMENT  EXPERIMENT 1995-342 to 1997-320 VOLUME_ID                = GORS_9120 VOLUME_VERSION_ID        = VERSION 1",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1995-12-07",
+          "stop_date": "1997-11-18",
           "slot": "/annex/GO-J-RSS-1-ODR-V1.0",
           "archive_type": 3
         },
         "pds3:GO-J-RSS-1-TDF-V1.0": {
           "description": "GALILEO TDF DATA: JUPITER OCCULTATION MEASUREMENT  EXPERIMENT 1995-342 to 1997-320 VOLUME_ID                = GORS_9200 VOLUME_VERSION_ID        = VERSION 1",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1995-12-07",
+          "stop_date": "1997-11-18",
           "slot": "/annex/GO-J-RSS-1-TDF-V1.0",
           "archive_type": 3
         },
         "pds3:GO-SS-RSS-1-TDF-V1.0": {
           "description": "GALILEO TDF DATA:  EARTH1 AND EARTH2 MASS DETERMINATION 1990-333 to 1990-344, and 1992-288 to 1992-346",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1990-11-29",
+          "stop_date": "1992-12-11",
           "slot": "/annex/GO-SS-RSS-1-TDF-V1.0",
           "archive_type": 3
         },
         "pds3:GO-J-RSS-1-ODF-V1.0": {
           "description": "GALILEO TDF DATA: JOVIAN SYSTEM EPHEMERIS IMPROVEMENT  EXPERIMENT 1996-199 to 1997-344 VOLUME_ID                = GORS_9400 VOLUME_VERSION_ID        = VERSION 1",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1996-07-17",
+          "stop_date": "1997-12-10",
           "slot": "/annex/GO-J-RSS-1-ODF-V1.0",
           "archive_type": 3
         },
         "pds3:GO-JS-RSS-1-TDF-V1.0": {
           "description": "GALILEO TDF DATA: SATELLITE OCCULTATION MEASUREMENT  EXPERIMENT 1996-354 to 1997-215 VOLUME_ID                = GORS_9300 VOLUME_VERSION_ID        = VERSION 1",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1996-12-19",
+          "stop_date": "1997-08-03",
           "slot": "/annex/GO-JS-RSS-1-TDF-V1.0",
           "archive_type": 3
         },
         "pds3:GO-SUN-RSS-1-TDF-V1.0": {
           "description": "GALILEO RSS ATDF DATA: SOLAR WIND SCINTILLATION 3 - 5",
-          "start_date": "",
+          "start_date": "1991-12-20",
           "stop_date": "",
           "slot": "/annex/GO-SUN-RSS-1-TDF-V1.0",
           "archive_type": 3
         },
         "pds3:GO-SUN-RSS-1-ODR-V1.0": {
           "description": "GALILEO RSS ODR DATA: SOLAR WIND SCINTILLATION 3 - 5",
-          "start_date": "",
+          "start_date": "1991-12-20",
           "stop_date": "",
           "slot": "/annex/GO-SUN-RSS-1-ODR-V1.0",
           "archive_type": 3
         },
         "pds3:GO-X-RSS-1-ODR-V1.0": {
           "description": "ODR DATA: GRAVITATIONAL WAVE EXPERIMENT 1 AND 2",
-          "start_date": "",
+          "start_date": "1994-04-28",
           "stop_date": "",
           "slot": "/annex/GO-X-RSS-1-ODR-V1.0",
           "archive_type": 3
         },
         "pds3:GO-JS-RSS-1-ODR-V1.0": {
           "description": "GALILEO ODR DATA: SATELLITE OCC MEAS EXP 1999-032 TO 1999-259",
-          "start_date": "",
-          "stop_date": "",
+          "start_date": "1996-12-19",
+          "stop_date": "1999-09-16",
           "slot": "/annex/GO-JS-RSS-1-ODR-V1.0",
           "archive_type": 3
         }
