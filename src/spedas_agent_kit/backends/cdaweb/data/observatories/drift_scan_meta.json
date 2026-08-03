@@ -1,0 +1,12 @@
+{
+ "last_run": "2026-08-03T05:41:28Z",
+ "layer": "cdaweb",
+ "seed_checked": 866,
+ "seed_date": "2026-08-03",
+ "seed_drift": 12,
+ "seed_fail": 0,
+ "seed_ok": 854,
+ "seed_scope": "22/65 observatories (ace..genesis), first audit shard",
+ "seed_source": "audit artifacts shard1_results.json + cdaweb_shard1_report.md",
+ "seeded": true
+}

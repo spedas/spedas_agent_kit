@@ -274,3 +274,44 @@ compatibility tools when `SPEDAS_AGENT_KIT_COMPAT_TOOLS=1`.
 
 See `docs/maintainer_note.md` and `docs/examples/agent_workflow.md` for the current framing.
 - `docs/examples/juno_pds_spice_workflow.md` — Juno MAG/PDS discovery plus SPICE geometry planning, including current caveats.
+
+## Periodic catalog drift scans
+
+The vendored data catalogs (CDAWeb observatory datasets, PDS PPI archive slots,
+SPICE kernel manifests) are checked against the live upstream archives by
+`scripts/scan_drift.py` — a stdlib-only scanner (plus `requests`) that maintains
+a heuristic drift manifest **per data-folder layer**:
+
+| layer | catalog root | DRIFT.md | upstream host |
+|---|---|---|---|
+| cdaweb | `src/spedas_agent_kit/backends/cdaweb/data/observatories/` | `DRIFT.md` | `https://cdaweb.gsfc.nasa.gov/pub/software/cdawlib/0MASTERS` |
+| pds | `src/spedas_agent_kit/backends/pds/data/missions/` | `DRIFT.md` | `https://pds-ppi.igpp.ucla.edu` |
+| spice | `src/spedas_agent_kit/backends/spice/manifests/` | `DRIFT.md` | `https://naif.jpl.nasa.gov` |
+
+Each scan records every dataset's HTTP status (200/404/redirect), the actual
+upstream master filename/casing, and classifies catalog rot as
+`renamed` | `case_change` | `404` | `param_change` | `date_anomaly`.
+Results are written incrementally to `drift_scan_results.jsonl` (resumable on
+interrupted runs) and rendered to a committed `DRIFT.md` snapshot with totals,
+the drifted-dataset table, and a new/recovered/persistent scan-history note vs
+the previous manifest. Run it as a periodic (e.g. weekly) smoke scan — full
+sweeps of all 2917 CDAWeb datasets / 1646 SPICE kernels are slow:
+
+```bash
+# quick smoke runs (recommended for CI or a cron)
+python scripts/scan_drift.py --layer cdaweb --limit 50
+python scripts/scan_drift.py --layer pds --limit 50
+python scripts/scan_drift.py --layer spice --limit 20
+
+# full sweep (slow; needs network to CDAWeb / PDS PPI / NAIF)
+python scripts/scan_drift.py --layer cdaweb
+```
+
+`--seed-dir DIR` (default: `$SPEDAS_DRIFT_SEED_DIR`, else the temp dir if prior
+audit artifacts are present) lets a fresh checkout be seeded best-effort from
+previous audit results; pass `--no-seed` to skip seeding. The initial manifests
+were seeded from the 2026-08-03 backend audit artifacts.
+
+A full scheduled scan is intentionally **not** wired into CI: it needs live
+network access to the upstream archives and would be flaky/slow in CI. Only the
+documented smoke commands above (or a maintainer-run cron job) should invoke it.
