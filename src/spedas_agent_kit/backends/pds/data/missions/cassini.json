@@ -681,9 +681,9 @@
         },
         "pds3:CO-V/E/J/S/SS-RPWS-2-REFDR-ALL-V1.0:ANCILLARY": {
           "description": "CASSINI RADIO AND PLASMA WAVE RAW COMPLETE : ANCILLARY",
-          "start_date": "",
-          "stop_date": "",
-          "slot": "/data/CO-V_E_J_S_SS-RPWS-2-REFDR-ALL-V1.0/data/ANCILLARY",
+          "start_date": "1997-10-25",
+          "stop_date": "2017-09-15",
+          "slot": "/data/CO-V_E_J_S_SS-RPWS-2-REFDR-ALL-V1.0/DATA/ANCILLARY",
           "archive_type": 3
         },
         "pds3:CO-V/E/J/S/SS-RPWS-2-REFDR-WBRFULL-V1.0:DATA": {

@@ -532,7 +532,7 @@
           "description": "VG2 at Neptune: VG2-N-MAG-4-RDR-HGCOORDS-1.92SEC-V1.0 - DATA",
           "start_date": "1989-08-22",
           "stop_date": "1989-08-22",
-          "slot": "/data/VG2-N-MAG-4-RDR-HGCOORDS-1.92SEC-V1.0",
+          "slot": "/data/VG2-N-MAG-4-RDR-HGCOORDS-1.92SEC-V2.0/DATA",
           "archive_type": 3
         },
         "pds3:VG2-J-MAG-4-SUMM-HGCOORDS-48.0SEC-V1.0": {
@@ -707,7 +707,7 @@
           "description": "VG2 at Neptune: VG2-N-MAG-4-RDR-HGCOORDS-9.6SEC-V1.0",
           "start_date": "1989-08-22",
           "stop_date": "1989-08-29",
-          "slot": "/data/VG2-N-MAG-4-RDR-HGCOORDS-9.6SEC-V1.0",
+          "slot": "/data/VG2-N-MAG-4-RDR-HGCOORDS-9.6SEC-V2.0",
           "archive_type": 3
         },
         "pds3:VG2-U-MAG-4-RDR-U1COORDS-1.92SEC-V1.0": {
@@ -749,7 +749,7 @@
           "description": "VG2 at Neptune: VG2-N-MAG-4-RDR-HGCOORDS-1.92SEC-V1.0",
           "start_date": "1989-08-22",
           "stop_date": "1989-08-29",
-          "slot": "/data/VG2-N-MAG-4-RDR-HGCOORDS-1.92SEC-V1.0",
+          "slot": "/data/VG2-N-MAG-4-RDR-HGCOORDS-1.92SEC-V2.0",
           "archive_type": 3
         },
         "urn:nasa:pds:vg2-mag-jup:data-s3-9.60s": {
@@ -763,7 +763,7 @@
           "description": "VG2 Uranus Encounter: VG2-U-MAG-4-RDR-HGCOORDS-1.92SEC-V1.0",
           "start_date": "1986-01-21",
           "stop_date": "1986-01-30",
-          "slot": "/data/VG2-U-MAG-4-RDR-HGCOORDS-1.92SEC-V1.0",
+          "slot": "/data/VG2-U-MAG-4-RDR-HGCOORDS-1.92SEC-V2.0",
           "archive_type": 3
         }
       }
