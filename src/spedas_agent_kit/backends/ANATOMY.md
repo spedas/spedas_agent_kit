@@ -50,7 +50,7 @@ facade replaces them. The interface each backend must satisfy is the paired
   Anchors: `configure()` at `src/spedas_agent_kit/backends/cdaweb/config.py:32`,
   `get_cache_root()` at `src/spedas_agent_kit/backends/cdaweb/config.py:49`,
   `browse_observatories()` at `src/spedas_agent_kit/backends/cdaweb/catalog.py:45`,
-  `browse_parameters()` at `src/spedas_agent_kit/backends/cdaweb/metadata.py:35`,
+  `browse_parameters()` at `src/spedas_agent_kit/backends/cdaweb/metadata.py:36`,
   `fetch_data()` at `src/spedas_agent_kit/backends/cdaweb/fetch.py:59`,
   `cache_status()`/`cache_clean()` at
   `src/spedas_agent_kit/backends/cdaweb/cache.py:196`/
@@ -78,7 +78,7 @@ facade replaces them. The interface each backend must satisfy is the paired
   `get_trajectory()` at `src/spedas_agent_kit/backends/spice/ephemeris.py:275`,
   `FRAME_ALIASES` at `src/spedas_agent_kit/backends/spice/frames.py:25`,
   `transform_vector()` at `src/spedas_agent_kit/backends/spice/frames.py:179`,
-  `has_kernels()` at `src/spedas_agent_kit/backends/spice/missions.py:850`.
+  `has_kernels()` at `src/spedas_agent_kit/backends/spice/missions.py:852`.
   `manifests/` vendored; kernels download on-demand to `~/.xhelio_spice/kernels/`
   (none bundled). Deps: spiceypy, numpy, pandas, requests, beautifulsoup4.
 

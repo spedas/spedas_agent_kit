@@ -96,7 +96,7 @@ def browse_parameters(
                 p for p in info.get("parameters", [])
                 if p.get("name", "").lower() != "time"
             ]
-            entry: dict = {"parameters": params}
+            entry: dict = {"status": "success", "parameters": params}
             start = info.get("startDate", "")
             stop = info.get("stopDate", "")
             if start or stop:
@@ -106,15 +106,28 @@ def browse_parameters(
             entry["validation"] = get_validation_summary(ds_id)
         except Exception as e:
             logger.warning("Could not load parameters for %s: %s", ds_id, e)
-            entry = {"parameters": [], "error": str(e)}
+            entry = {
+                "status": "error",
+                "parameters": [],
+                "error": str(e),
+                "hint": (
+                    "Parameter metadata could not be resolved (no cached or "
+                    "bundled metadata and the PDS label could not be fetched or "
+                    "parsed). Check the dataset_id and network access to the PDS "
+                    "archive, then retry."
+                ),
+            }
         results[ds_id] = entry
 
     # Flatten for single-dataset calls
     if len(results) == 1:
         ds_id, entry = next(iter(results.items()))
-        return {"status": "success", "dataset_id": ds_id, **entry}
+        return {"dataset_id": ds_id, **entry}
 
-    return {"status": "success", "datasets": results}
+    failed = [ds_id for ds_id, entry in results.items()
+              if entry.get("status") != "success"]
+    status = "error" if failed and len(failed) == len(results) else "success"
+    return {"status": status, "datasets": results}
 
 
 def _get_bundled_metadata_dir() -> Path:

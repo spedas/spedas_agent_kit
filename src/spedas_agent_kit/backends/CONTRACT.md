@@ -62,7 +62,7 @@ vary per adapter; the observable behavior is normative):
 |---|---|---|---|---|
 | config | `configure()`/`get_cache_root()` (`cdaweb/config.py:32`, `cdaweb/config.py:49`) | `configure()`/`get_cache_root()` (`pds/config.py:8`, `pds/config.py:24`) | kernel dir via `KernelManager` (`kernel_manager.py:61`) | deterministic cache roots; one-time bootstrap from vendored seed |
 | catalog | `browse_observatories()` (`cdaweb/catalog.py:45`) | `browse_missions()` (`pds/catalog.py:99`) | `list_supported_missions()` / frame lists (`spice/__init__.py`) | enumerate the discoverable universe without network (seed-backed) |
-| metadata | `browse_parameters()` (`cdaweb/metadata.py:35`) | `browse_parameters()` (`pds/metadata.py:59`) | frame/body resolution (`frames.py:260`, `missions.py`) | describe parameters/bodies for a dataset or target |
+| metadata | `browse_parameters()` (`cdaweb/metadata.py:36`) | `browse_parameters()` (`pds/metadata.py:59`) | frame/body resolution (`frames.py:260`, `missions.py`) | describe parameters/bodies for a dataset or target |
 | fetch | `fetch_data()` (`cdaweb/fetch.py:59`) | `fetch_data()` (`pds/fetch.py:90`) | `get_position()`/`get_state()`/`get_trajectory()` (`ephemeris.py:152`, `ephemeris.py:209`, `ephemeris.py:275`) | fetch requested range; write artifacts; never raise raw provider errors |
 | cache | `cache_status()`/`cache_clean()`/`refresh_metadata()`/`rebuild_catalog()` (`cdaweb/cache.py:196`, `cdaweb/cache.py:230`) | same surface (`pds/cache.py:196`, `pds/cache.py:536`) | `get_kernel_manager()`/`check_remote_kernels()` (`kernel_manager.py:49`, `kernel_manager.py:570`) | status / clean / refresh / rebuild for the cache root |
 
