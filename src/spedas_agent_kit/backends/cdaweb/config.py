@@ -110,11 +110,16 @@ def _copy_bundled_dir(src: Path, dst: Path) -> None:
         if not dst_file.exists():
             shutil.copy2(src_file, dst_file)
             copied += 1
-    # Remove stale cache files not in bundled data
+    # Remove stale cache files not in bundled data.  Only prune when the
+    # bundled directory actually ships JSON seeds: a bundled dir that contains
+    # no JSON files (e.g. data/metadata/ shipping only README.md) must never be
+    # treated as "the bundle was emptied" -- that would wipe the runtime cache
+    # of every successfully resolved dataset on every fresh-process bootstrap.
     removed = 0
-    for dst_file in dst.glob("*.json"):
-        if dst_file.name not in bundled_names:
-            dst_file.unlink()
-            removed += 1
+    if bundled_names:
+        for dst_file in dst.glob("*.json"):
+            if dst_file.name not in bundled_names:
+                dst_file.unlink()
+                removed += 1
     if copied or removed:
         logger.info("Bootstrap %s: %d copied, %d stale removed", src.name, copied, removed)

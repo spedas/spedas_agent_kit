@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import numpy as np
@@ -64,7 +65,7 @@ def browse_parameters(
             info = _resolve_metadata(ds_id)
             params = [p for p in info.get("parameters", [])
                       if p.get("name", "").lower() != "time"]
-            entry: dict = {"parameters": params}
+            entry: dict = {"status": "success", "parameters": params}
             start = info.get("startDate", "")
             stop = info.get("stopDate", "")
             if start or stop:
@@ -83,15 +84,27 @@ def browse_parameters(
                 pass
         except Exception as e:
             logger.warning("Could not load parameters for %s: %s", ds_id, e)
-            entry = {"parameters": [], "error": str(e)}
+            entry = {
+                "status": "error",
+                "parameters": [],
+                "error": str(e),
+                "hint": (
+                    "Parameter metadata could not be resolved (no cached metadata "
+                    "and the Master CDF was unavailable). Check the dataset_id "
+                    "and network access to CDAWeb, then retry."
+                ),
+            }
         results[ds_id] = entry
 
     # Flatten for single-dataset calls
     if len(results) == 1:
         ds_id, entry = next(iter(results.items()))
-        return {"status": "success", "dataset_id": ds_id, **entry}
+        return {"dataset_id": ds_id, **entry}
 
-    return {"status": "success", "datasets": results}
+    failed = [ds_id for ds_id, entry in results.items()
+              if entry.get("status") != "success"]
+    status = "error" if failed and len(failed) == len(results) else "success"
+    return {"status": status, "datasets": results}
 
 
 def _resolve_metadata(dataset_id: str) -> dict:
@@ -132,13 +145,25 @@ def _fetch_from_master_cdf(dataset_id: str) -> dict | None:
 
     from spedas_agent_kit.backends.cdaweb.http import request_with_retry
 
-    url = f"{MASTER_CDF_BASE}/{dataset_id.lower()}_00000000_v01.cdf"
-    logger.info("Downloading Master CDF: %s", url)
+    # CDAWeb's 0MASTERS server is case-sensitive: 45 of 4409 master filenames
+    # contain uppercase letters (e.g. cnofs_vefi_LD_500ms_00000000_v01.cdf), so
+    # lowercasing the dataset ID unconditionally 404s those.  Try the original
+    # dataset_id casing first, then fall back to lowercase for the (majority)
+    # all-lowercase master filenames.
+    candidate_urls = [f"{MASTER_CDF_BASE}/{dataset_id}_00000000_v01.cdf"]
+    lowered = dataset_id.lower()
+    if lowered != dataset_id:
+        candidate_urls.append(f"{MASTER_CDF_BASE}/{lowered}_00000000_v01.cdf")
 
-    try:
-        resp = request_with_retry(url)
-    except Exception as e:
-        logger.warning("Master CDF download failed for %s: %s", dataset_id, e)
+    resp = None
+    for url in candidate_urls:
+        logger.info("Downloading Master CDF: %s", url)
+        try:
+            resp = request_with_retry(url)
+            break
+        except Exception as e:
+            logger.warning("Master CDF download failed for %s: %s", dataset_id, e)
+    if resp is None:
         return None
 
     # Write to temp file for cdflib
@@ -223,7 +248,87 @@ def _extract_metadata(cdf_path: Path) -> dict:
 
         parameters.append(param)
 
-    return {"parameters": parameters, "startDate": "", "stopDate": ""}
+    start_date, stop_date = _extract_master_time_range(cdf)
+    return {
+        "parameters": parameters,
+        "startDate": start_date,
+        "stopDate": stop_date,
+    }
+
+
+def _extract_master_time_range(cdf) -> tuple[str, str]:
+    """Extract dataset coverage from Master CDF global attributes.
+
+    CDAWeb Master CDFs are inconsistent: most carry no coverage attributes at
+    all (only ``Time_resolution``); some carry ``DATA_START_TIME`` /
+    ``DATA_END_TIME`` as ``YYYYMMDD HHMMSS.ffffff`` strings (e.g. ERG); others
+    carry ``START_TIME`` / ``STOP_TIME`` as CDF epoch doubles or ISO strings.
+    ``START_TI`` / ``END_TI`` use a CDAWeb-internal epoch convention that is
+    not safely convertible, so they are intentionally ignored.  Returns
+    ``("", "")`` when no usable coverage is present.
+
+    Args:
+        cdf: An open :class:`cdflib.CDF` instance.
+
+    Returns:
+        ``(start_date, stop_date)`` ISO-8601 UTC strings (possibly empty).
+    """
+    try:
+        attrs = cdf.globalattsget()
+    except Exception:
+        return "", ""
+
+    start = _coerce_master_time(attrs.get("DATA_START_TIME")) or \
+        _coerce_master_time(attrs.get("START_TIME"))
+    stop = _coerce_master_time(attrs.get("DATA_END_TIME")) or \
+        _coerce_master_time(attrs.get("STOP_TIME"))
+    return start, stop
+
+
+def _coerce_master_time(value) -> str:
+    """Convert a Master CDF time attribute value to an ISO-8601 UTC string.
+
+    Handles the two observed encodings: CDAWeb ``YYYYMMDD HHMMSS[.ffffff]``
+    strings (``DATA_START_TIME``/``DATA_END_TIME``) and CDF epoch doubles or
+    ISO strings (``START_TIME``/``STOP_TIME``).  Returns ``""`` when the value
+    is missing or cannot be interpreted.
+    """
+    if value is None:
+        return ""
+    arr = np.asarray(value)
+    if arr.size == 0:
+        return ""
+    raw = arr.flat[0]
+    if isinstance(raw, (bytes, np.bytes_)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, (str, np.str_)):
+        text = str(raw).strip()
+        if not text:
+            return ""
+        # CDAWeb DATA_START_TIME format: YYYYMMDD HHMMSS[.ffffff]
+        m = re.match(
+            r"^(\d{4})(\d{2})(\d{2})\s+(\d{2})(\d{2})(\d{2})(?:\.(\d+))?$",
+            text,
+        )
+        if m:
+            frac = m.group(7) or ""
+            return (f"{m.group(1)}-{m.group(2)}-{m.group(3)}T"
+                    f"{m.group(4)}:{m.group(5)}:{m.group(6)}"
+                    f"{('.' + frac) if frac else ''}Z")
+        # Already ISO-8601?  Pass through as-is.
+        if re.match(r"^\d{4}-\d{2}-\d{2}T", text):
+            return text
+        return ""
+    if isinstance(raw, (int, float, np.integer, np.floating)):
+        try:
+            from cdflib.epochs import CDFepoch
+            y, mo, d, h, mi, se, ms = CDFepoch.breakdown(float(raw))
+        except Exception:
+            return ""
+        if not (1900 <= y <= 2100):
+            return ""
+        return f"{y:04d}-{mo:02d}-{d:02d}T{h:02d}:{mi:02d}:{se:02d}.{ms:03d}Z"
+    return ""
 
 
 def _get_str_attr(attrs: dict, key: str) -> str:

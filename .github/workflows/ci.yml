@@ -28,5 +28,7 @@ jobs:
           pip install -e ".[dev,mcp]"
       - name: Run tests
         run: pytest -q
+      - name: Check MCP surface contract
+        run: python scripts/check_mcp_surface_contract.py --check
       - name: Run MCP list-tools smoke
         run: python scripts/smoke_mcp_list_tools.py --json

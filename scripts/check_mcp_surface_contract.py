@@ -8,19 +8,19 @@ the base + env-gated slice of that work: it speaks the real MCP stdio protocol
 ``list_prompts``), canonicalizes the stable client-facing metadata, and compares it
 against per-profile JSON snapshots checked into ``tests/contracts/mcp_surface/``.
 
-Three independent profiles are covered, each a distinct server launch so the
-environment gates are exercised end to end (issue #87 demoted the direct
-HAPI/FDSN tools and the legacy CDAWeb/PDS compat tools out of the default
-surface):
+Two independent profiles are covered, each a distinct server launch so the
+environment gate is exercised end to end (issue #87 demoted the legacy
+CDAWeb/PDS compat tools out of the default surface; the old
+``SPEDAS_AGENT_KIT_DATASOURCE_TOOLS`` HAPI/FDSN gate was removed as dead
+code -- the server no longer registers direct HAPI/FDSN tools):
 
-* ``base``       -- both gates unset (the default 13-tool surface);
-* ``compat``     -- only ``SPEDAS_AGENT_KIT_COMPAT_TOOLS=1``;
-* ``datasource`` -- only ``SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1``.
+* ``base``   -- the gate unset (the default 13-tool surface);
+* ``compat`` -- only ``SPEDAS_AGENT_KIT_COMPAT_TOOLS=1``.
 
 The optional ``[analysis]`` extra auto-registers 13 more tools when its backend is
 importable. That surface is a *separate, later* slice (issue #209 Workstream J):
-these three profiles snapshot the base install only, so the known analysis tool
-names are excluded from the captured surface. This keeps the base/compat/datasource
+these two profiles snapshot the base install only, so the known analysis tool
+names are excluded from the captured surface. This keeps the base/compat
 contracts reproducible whether or not ``[analysis]`` happens to be installed in the
 interpreter running the check -- it is not a claim that analysis schemas never
 change. See ``tests/contracts/mcp_surface/README.md``.
@@ -68,12 +68,13 @@ SNAPSHOT_DIR = REPO_ROOT / "tests" / "contracts" / "mcp_surface"
 PROFILES: dict[str, dict[str, str]] = {
     "base": {},
     "compat": {"SPEDAS_AGENT_KIT_COMPAT_TOOLS": "1"},
-    "datasource": {"SPEDAS_AGENT_KIT_DATASOURCE_TOOLS": "1"},
 }
 
-#: The two environment gates this slice toggles. Always reset before applying a
+#: The environment gates this slice toggles. Always reset before applying a
 #: profile so an ambient value in the caller's environment cannot leak in.
-_GATE_FLAGS = ("SPEDAS_AGENT_KIT_COMPAT_TOOLS", "SPEDAS_AGENT_KIT_DATASOURCE_TOOLS")
+#: ``SPEDAS_AGENT_KIT_DATASOURCE_TOOLS`` was removed together with the dead
+#: HAPI/FDSN direct-tool gate (the server no longer references it anywhere).
+_GATE_FLAGS = ("SPEDAS_AGENT_KIT_COMPAT_TOOLS",)
 
 #: Optional analysis tool names excluded from these base-install profiles. Sourced
 #: from the server's own gating constant so the exclusion never drifts from the
@@ -355,12 +356,17 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         choices=sorted(PROFILES),
         dest="profiles",
-        help="Restrict to these profiles (repeatable). Default: check all three.",
+        help="Restrict to these profiles (repeatable). Default: check all profiles.",
     )
     parser.add_argument(
         "--update",
         action="store_true",
         help="Maintainer refresh mode: rewrite the named snapshot files instead of checking. Refuses to run in CI.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Explicit check mode (the default): compare the live surface against the snapshots. Mutually exclusive with --update.",
     )
     parser.add_argument("--json", action="store_true", help="Print a machine-readable JSON report.")
     parser.add_argument(
@@ -370,6 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.update and args.check:
+        parser.error("--update and --check are mutually exclusive")
+
     if args.update and _ci_environment():
         print(
             "Refusing to --update MCP surface snapshots in CI; contract drift must be "
@@ -378,9 +387,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    # Check all three profiles in a single invocation by default (one server
+    # Check all profiles in a single invocation by default (one server
     # launch per profile, which is required to exercise each env gate), rather
-    # than shelling out three separate times.
+    # than shelling out separate times.
     profiles = sorted(set(args.profiles)) if args.profiles else sorted(PROFILES)
     ok, reports = _run(profiles, update=args.update, module=args.module)
 
