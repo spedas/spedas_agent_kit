@@ -213,6 +213,18 @@ python scripts/crawl_pds_archive.py --consolidate-only  # rebuild asset from JSO
 
 Each directory node records its relative path, URL, depth, child directory names, file count, min/max child mtime, aggregate file size (when the listing exposes it), and a `is_leaf` flag marking folders that contain data files and no subdirectories. Crawls are bounded by `--limit` (directory listings), `--max-depth`, and an optional `--max-time`; per-node HTTP errors are recorded and never abort the crawl. The committed asset is a bounded sample (2005 directory nodes, 840 leaf data folders as of the crawl); nodes whose children were not expanded are flagged with `children_explored: false`.
 
+## NAIF SPICE kernel archive tree map
+
+`data/spice_archive_map.json` is a crawled map of the NAIF SPICE kernel archive tree (`https://naif.jpl.nasa.gov/pub/naif/`, an Apache autoindex-style listing). It is produced by `scripts/crawl_spice_archive.py` (modeled on the PDS crawler, plus an `ftplib` FTP fallback for directories HTTP cannot serve) and refreshed the same way:
+
+```
+python scripts/crawl_spice_archive.py --limit 2000 --max-depth 8 --workers 6
+python scripts/crawl_spice_archive.py --resume            # continue a partial crawl
+python scripts/crawl_spice_archive.py --consolidate-only  # rebuild asset from JSONL sidecar
+```
+
+Each directory node records its relative path, URL, depth, child directory names, file count, min/max child mtime, aggregate file size (when the listing exposes it), the SPICE kernel file extensions present, and two classification flags: `is_leaf` (files, no subdirectories) and `is_kernel_leaf` (a leaf folder containing at least one kernel file such as `.bsp`/`.bpc`/`.bc`/`.tf`/`.tls`/`.tsc`/`.tpc`/`.ti`/`.tl`/`.tm`/`.mk`/`.txt`). Crawls are bounded by `--limit` (directory listings), `--max-depth`, and an optional `--max-time`; per-node HTTP errors are recorded and never abort the crawl, and `--resume` re-enqueues the children of parents whose exploration was cut short. The committed asset is a bounded sample (2005 directory nodes, 864 kernel leaf folders as of the crawl — the full NAIF tree is much larger); nodes whose children were not expanded are flagged with `children_explored: false` and the asset carries `"partial": true`.
+
 ## Recommended agent workflow
 
 1. Call `spedas_overview()`.
