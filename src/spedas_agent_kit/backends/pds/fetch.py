@@ -481,11 +481,16 @@ def _build_metadata_from_label(label: dict) -> dict | None:
     if len(parameters) <= 1:
         return None  # Only Time --- nothing useful
 
+    # Propagate label-level coverage when the label carries START_TIME /
+    # STOP_TIME (PDS3 labels do; PDS4 XML labels are not yet mapped here).
+    start = (label.get("start_time") or "").strip().strip('"')
+    stop = (label.get("stop_time") or "").strip().strip('"')
+
     return {
         "parameters": parameters,
         "description": "",
-        "startDate": "",
-        "stopDate": "",
+        "startDate": start,
+        "stopDate": stop,
         "_meta": {"source": "label"},
     }
 

@@ -56,6 +56,12 @@ def parse_pds3_label(label_text: str) -> dict:
 
     # Parse COLUMN objects
     fields = _parse_columns(table_block)
+    if not fields and _has_external_structure(label_text):
+        raise ValueError(
+            "PDS3 label defines its columns in an external ^STRUCTURE file "
+            "(e.g. .FMT), which the parser cannot read without fetching that "
+            "file; parameter metadata is unavailable for this dataset"
+        )
 
     return {
         "table_type": "fixed_width",
@@ -64,6 +70,8 @@ def parse_pds3_label(label_text: str) -> dict:
         "delimiter": None,
         "header_bytes": header_bytes,
         "row_bytes": row_bytes,
+        "start_time": _extract_quoted_or_bare(label_text, "START_TIME"),
+        "stop_time": _extract_quoted_or_bare(label_text, "STOP_TIME"),
     }
 
 
@@ -111,6 +119,29 @@ def _parse_table_pointer(label_text: str) -> int:
         return 0
 
     return 0
+
+
+def _has_external_structure(label_text: str) -> bool:
+    """Return True if the label points at an external ``^STRUCTURE`` file.
+
+    PDS3 labels may define their COLUMN layout in an external ``.FMT`` file
+    referenced as ``^STRUCTURE = "FMT"`` or ``^STRUCTURE = ("FMT", NNN)``
+    (e.g. Galileo EPD).  Following that reference requires fetching the
+    external file, which this pure-text parser cannot do; callers detect this
+    case so they can raise a clear error instead of silently returning zero
+    fields.
+    """
+    m = re.search(
+        r"^\s*\^\s*STRUCTURE\s*=\s*\(\s*\"([^\"]+)\"",
+        label_text, re.MULTILINE | re.IGNORECASE,
+    )
+    if m:
+        return True
+    m = re.search(
+        r"^\s*\^\s*STRUCTURE\s*=\s*\"([^\"]+)\"",
+        label_text, re.MULTILINE | re.IGNORECASE,
+    )
+    return m is not None
 
 
 def _parse_columns(table_block: str) -> list[dict]:
@@ -283,6 +314,16 @@ def _parse_pds3_non_table_label(label_text: str, header_bytes: int) -> dict:
             object_block = m.group(2)
 
     if object_block is None:
+        # IMAGE labels (e.g. Juno ASC) carry pixel data, not tabular columns;
+        # give them a clear, non-misleading error instead of the generic one.
+        if re.search(
+            r"^\s*OBJECT\s*=\s*IMAGE\b", label_text,
+            re.MULTILINE | re.IGNORECASE,
+        ):
+            raise ValueError(
+                "PDS3 label describes an IMAGE object with no tabular columns; "
+                "no parameter metadata can be extracted"
+            )
         raise ValueError(
             "No OBJECT = TABLE, TIME_SERIES, SERIES, SPECTRUM, "
             "or *TABLE variant found in PDS3 label"
@@ -290,6 +331,12 @@ def _parse_pds3_non_table_label(label_text: str, header_bytes: int) -> dict:
 
     # Extract COLUMN objects if any exist within the block
     fields = _parse_columns(object_block)
+    if not fields and _has_external_structure(label_text):
+        raise ValueError(
+            "PDS3 label defines its columns in an external ^STRUCTURE file "
+            "(e.g. .FMT), which the parser cannot read without fetching that "
+            "file; parameter metadata is unavailable for this dataset"
+        )
 
     rows = _extract_int(object_block, "ROWS")
     row_bytes = _extract_int(object_block, "ROW_BYTES")
@@ -302,4 +349,6 @@ def _parse_pds3_non_table_label(label_text: str, header_bytes: int) -> dict:
         "header_bytes": header_bytes,
         "row_bytes": row_bytes,
         "_object_type": object_type,
+        "start_time": _extract_quoted_or_bare(label_text, "START_TIME"),
+        "stop_time": _extract_quoted_or_bare(label_text, "STOP_TIME"),
     }

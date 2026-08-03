@@ -12,7 +12,11 @@ There is one snapshot per environment-gated profile:
 | --- | --- | --- |
 | `base.json` | *(none)* | the default 13-tool surface |
 | `compat.json` | `SPEDAS_AGENT_KIT_COMPAT_TOOLS=1` | base + 8 legacy CDAWeb/PDS compat tools |
-| `datasource.json` | `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS=1` | base + 4 direct HAPI/FDSN tools |
+
+The former `datasource.json` profile (gated by `SPEDAS_AGENT_KIT_DATASOURCE_TOOLS`)
+was removed together with the dead HAPI/FDSN direct-tool gate: the server no
+longer registers direct HAPI/FDSN tools anywhere, so there is no such surface to
+snapshot.
 
 ## How to refresh (maintainer, intentional changes only)
 

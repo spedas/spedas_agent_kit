@@ -65,12 +65,12 @@ MISSION_NAIF_IDS: dict[str, int] = {
     "EPOXI": -140,
     "HAYABUSA": -130,
     "VIKING_1": -27,
-    "VIKING_2": -30,
+    "VIKING_2": -30,  # Shares -30 with DEEP_SPACE_1 (genuine NAIF ID reuse; ambiguous, kept)
     "MER_SPIRIT": -253,
     "MER_OPPORTUNITY": -254,
     "ROSETTA": -226,
     "CLEMENTINE": -40,
-    "DEEP_SPACE_1": -30,
+    "DEEP_SPACE_1": -30,  # Shares -30 with VIKING_2 (genuine NAIF ID reuse; ambiguous, kept)
     "OSIRIS_REX": -64,
     "MAGELLAN": -18,
     "EXOMARS_TGO": -143,
@@ -84,15 +84,15 @@ MISSION_NAIF_IDS: dict[str, int] = {
     "CONTOUR": -36,
     "IUE": -43,
     "LADEE": -397,
-    "AKATSUKI": -5,
+    "AKATSUKI": -5,  # Shares -5 with LUNAR_ORBITER_5 in this table (LO5 kernels use -535)
     "GRAIL_A": -177,
-    "GRAIL_B": -178,
+    "GRAIL_B": -181,  # grail.json SPKs contain -177 (GRAIL_A) and -181 (GRAIL_B); was -178
     "CHANDRAYAAN_1": -86,
     "LUNAR_ORBITER_1": -1,
     "LUNAR_ORBITER_2": -2,
     "LUNAR_ORBITER_3": -3,
     "LUNAR_ORBITER_4": -4,
-    "LUNAR_ORBITER_5": -5,
+    "LUNAR_ORBITER_5": -535,  # LO5's own SPK uses -535 (was -5, shared with AKATSUKI)
     "HERA": -658,
     # Observatories
     "JWST": -170,
@@ -835,6 +835,8 @@ _KERNEL_BODY_IDS: dict[str, int] = {
     "IUE": -110637,       # Kernel uses -110637, not -43
     "VEGA_1": -66,        # Kernel uses -66, not -11
     # EXOMARS_TGO removed: COG kernels (-143000) are no longer shipped (unsupported, see SEGMENTED_MISSIONS)
+    "GRAIL_B": -181,      # grail.json SPKs use -181 (not -178)
+    "LUNAR_ORBITER_5": -535,  # LO5's own SPK uses -535 (not -5)
 }
 
 
