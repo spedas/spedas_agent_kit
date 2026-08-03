@@ -1,0 +1,12 @@
+{
+ "last_run": "2026-08-03T05:41:31Z",
+ "layer": "spice",
+ "seed_checked": 1646,
+ "seed_date": "2026-08-03",
+ "seed_drift": 15,
+ "seed_fail": 0,
+ "seed_ok": 1631,
+ "seed_scope": "15 catalog problems across mission manifests",
+ "seed_source": "audit artifact spice_audit_results.json",
+ "seeded": true
+}

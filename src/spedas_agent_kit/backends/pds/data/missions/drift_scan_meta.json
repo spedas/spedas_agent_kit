@@ -1,0 +1,12 @@
+{
+ "last_run": "2026-08-03T05:41:31Z",
+ "layer": "pds",
+ "seed_checked": 1171,
+ "seed_date": "2026-08-03",
+ "seed_drift": 67,
+ "seed_fail": 1,
+ "seed_ok": 1103,
+ "seed_scope": "1171 PPI archive slots across all missions",
+ "seed_source": "audit artifact pds_slot_status.json",
+ "seeded": true
+}
